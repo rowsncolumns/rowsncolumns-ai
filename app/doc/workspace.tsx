@@ -129,8 +129,7 @@ import {
 } from "@/components/workspace-assistant";
 import { MagnifyingGlassIcon } from "@rowsncolumns/icons";
 import { Citation } from "@rowsncolumns/common-types";
-import get from "lodash/get";
-import { isNil, uuid } from "@rowsncolumns/utils";
+import { uuid } from "@rowsncolumns/utils";
 import {
   ChartEditor,
   ChartEditorDialog,
@@ -571,66 +570,11 @@ function SpreadsheetPane({
     onChangeHistory(patches) {
       onBroadcastPatch(patches);
     },
-    getEffectiveStructuredValue: (structureValue, property) => {
-      if (property) {
-        const value = get(structureValue, property);
-        if (!isNil(value) && typeof value === "object") {
-          return JSON.stringify(value);
-        }
-        return typeof value === "string" ||
-          typeof value === "number" ||
-          typeof value === "boolean"
-          ? value
-          : undefined;
-      }
-      if (typeof structureValue === "string") {
-        return structureValue;
-      }
-      if (
-        typeof structureValue === "number" ||
-        typeof structureValue === "boolean"
-      ) {
-        return structureValue;
-      }
-      if (!isNil(structureValue) && typeof structureValue === "object") {
-        return JSON.stringify(structureValue);
-      }
-      return undefined;
-    },
     iterativeCalculation: {
       enabled: iterativeEnabled,
       maxChange: 0.001,
       maxIterations: 100,
     },
-    // onStreamStart(id) {
-    //   setAgents((prev) =>
-    //     prev.concat([
-    //       {
-    //         userId: id,
-    //         title: "Agent 1",
-    //         activeCell: defaultCellCoords,
-    //         sheetId: activeSheetId,
-    //       },
-    //     ]),
-    //   );
-    // },
-    // onStreamEnd(id) {
-    //   setAgents((prev) => prev.filter(({ userId }) => userId !== id));
-    // },
-    // onStreamProgress(id, sheetId, activeCell) {
-    //   setAgents((prev) => {
-    //     return prev.map((item) => {
-    //       if (item.userId === id) {
-    //         return {
-    //           ...item,
-    //           sheetId,
-    //           activeCell: { ...activeCell },
-    //         };
-    //       }
-    //       return item;
-    //     });
-    //   });
-    // },
   });
 
   const { onBroadcastPatch, users, synced } = useShareDBSpreadsheet({
