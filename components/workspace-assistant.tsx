@@ -56,6 +56,16 @@ import * as React from "react";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -1768,6 +1778,11 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
   const [updatingSkillId, setUpdatingSkillId] = React.useState<string | null>(
     null,
   );
+  const [deletingSkillId, setDeletingSkillId] = React.useState<string | null>(
+    null,
+  );
+  const [pendingDeleteSkill, setPendingDeleteSkill] =
+    React.useState<AssistantSkill | null>(null);
   const [formError, setFormError] = React.useState("");
 
   const loadSkills = React.useCallback(async () => {
@@ -1800,6 +1815,12 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
   React.useEffect(() => {
     void loadSkills();
   }, [loadSkills]);
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      setPendingDeleteSkill(null);
+    }
+  }, [isOpen]);
 
   const activeSkills = React.useMemo(
     () => skills.filter((skill) => skill.active),
@@ -1932,8 +1953,8 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
 
   const deleteSkill = React.useCallback(
     async (skillId: string) => {
-      if (!window.confirm("Delete this skill?")) return;
       setSkillsError("");
+      setDeletingSkillId(skillId);
       try {
         const response = await fetch(SKILLS_API_ENDPOINT, {
           method: "DELETE",
@@ -1958,10 +1979,17 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
         setEditorSkillId((previous) =>
           previous === skillId ? null : previous,
         );
+        setPendingDeleteSkill((current) =>
+          current?.id === skillId ? null : current,
+        );
+        return true;
       } catch (error) {
         setSkillsError(
           error instanceof Error ? error.message : "Failed to delete skill.",
         );
+        return false;
+      } finally {
+        setDeletingSkillId((current) => (current === skillId ? null : current));
       }
     },
     [workspaceId],
@@ -2102,6 +2130,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                   )}
                   {filteredSkills.map((skill) => {
                     const isUpdatingThisSkill = updatingSkillId === skill.id;
+                    const isDeletingThisSkill = deletingSkillId === skill.id;
                     return (
                       <Card
                         key={skill.id}
@@ -2155,18 +2184,23 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                                   onCheckedChange={(checked) => {
                                     void toggleSkillActive(skill.id, checked);
                                   }}
-                                  disabled={isUpdatingThisSkill}
+                                  disabled={isUpdatingThisSkill || isDeletingThisSkill}
                                   aria-label={`Toggle ${skill.name} skill`}
                                 />
                               </div>
                               <button
                                 type="button"
-                                onClick={() => deleteSkill(skill.id)}
+                                onClick={() => setPendingDeleteSkill(skill)}
+                                disabled={isDeletingThisSkill}
                                 className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-red-500 transition hover:bg-red-500/15"
                                 title="Delete skill"
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                <span>Delete</span>
+                                {isDeletingThisSkill ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                                <span>{isDeletingThisSkill ? "Deleting..." : "Delete"}</span>
                               </button>
                             </div>
                           </div>
@@ -2326,6 +2360,40 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
           </div>
         </div>
       )}
+      <AlertDialog
+        open={pendingDeleteSkill !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDeleteSkill(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this skill?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteSkill
+                ? `This will permanently remove "${pendingDeleteSkill.name}". This action cannot be undone.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!pendingDeleteSkill}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!pendingDeleteSkill) return;
+                const skillId = pendingDeleteSkill.id;
+                setPendingDeleteSkill(null);
+                void deleteSkill(skillId);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
