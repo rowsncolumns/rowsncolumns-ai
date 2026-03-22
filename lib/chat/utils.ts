@@ -193,6 +193,9 @@ export const createSpreadsheetInterface = (
     Object.entries(data.sharedStrings ?? {}) as Array<[string, string]>,
   );
 
+  // Rebuild graph
+  spreadsheet.rebuildGraph();
+
   return spreadsheet;
 };
 
