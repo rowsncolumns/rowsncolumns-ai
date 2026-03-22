@@ -8,50 +8,17 @@ import {
 } from "@rowsncolumns/sharedb/helpers";
 
 import { selectionToAddress } from "@rowsncolumns/utils";
+import { Spreadsheet } from "@rowsncolumns/spreadsheet-state/server";
 import { type CellData as SpreadsheetCellData } from "@rowsncolumns/spreadsheet";
-import type { WorkerRuntimeOptions } from "@rowsncolumns/calculation-worker";
+import { FormulaError } from "@rowsncolumns/fast-formula-parser";
+import {
+  attachCalculationWorker,
+  type WorkerRuntimeOptions,
+} from "@rowsncolumns/calculation-worker";
+import { functions } from "@rowsncolumns/functions/server";
 
 const SHAREDB_URL = process.env.SHAREDB_URL || "ws://localhost:8080";
 const SHAREDB_COLLECTION = process.env.SHAREDB_COLLECTION || "spreadsheets";
-const nodeRequire = createRequire(import.meta.url);
-
-type SpreadsheetDeps = {
-  Spreadsheet: typeof import("@rowsncolumns/spreadsheet-state/server").Spreadsheet;
-  FormulaError: typeof import("@rowsncolumns/fast-formula-parser").FormulaError;
-  attachCalculationWorker: typeof import("@rowsncolumns/calculation-worker").attachCalculationWorker;
-  functions: typeof import("@rowsncolumns/functions/server").functions;
-};
-
-let spreadsheetDepsCache: SpreadsheetDeps | null = null;
-
-const getSpreadsheetDeps = (): SpreadsheetDeps => {
-  if (spreadsheetDepsCache) {
-    return spreadsheetDepsCache;
-  }
-
-  const { Spreadsheet } =
-    nodeRequire(
-      "@rowsncolumns/spreadsheet-state/server",
-    ) as typeof import("@rowsncolumns/spreadsheet-state/server");
-  const { FormulaError } = nodeRequire(
-    "@rowsncolumns/fast-formula-parser",
-  ) as typeof import("@rowsncolumns/fast-formula-parser");
-  const { attachCalculationWorker } = nodeRequire(
-    "@rowsncolumns/calculation-worker",
-  ) as typeof import("@rowsncolumns/calculation-worker");
-  const { functions } = nodeRequire(
-    "@rowsncolumns/functions/server",
-  ) as typeof import("@rowsncolumns/functions/server");
-
-  spreadsheetDepsCache = {
-    Spreadsheet,
-    FormulaError,
-    attachCalculationWorker,
-    functions,
-  };
-
-  return spreadsheetDepsCache;
-};
 
 export type ShareDBSpreadsheetDoc<
   T extends SpreadsheetCellData = SpreadsheetCellData,
@@ -90,7 +57,6 @@ class InlineWorker extends EventTarget {
 
   constructor(options?: WorkerRuntimeOptions) {
     super();
-    const { attachCalculationWorker } = getSpreadsheetDeps();
     this.scope = new InlineWorkerScope((message) => {
       queueMicrotask(() => {
         this.dispatchEvent(new MessageEvent("message", { data: message }));
@@ -203,7 +169,6 @@ export const cellsToValues = (
 export const createSpreadsheetInterface = (
   data: ShareDBSpreadsheetDoc<SpreadsheetCellData>,
 ) => {
-  const { Spreadsheet, functions } = getSpreadsheetDeps();
   const spreadsheet = new Spreadsheet({
     createCalculationWorker: () =>
       new InlineWorker({
@@ -238,9 +203,8 @@ export const createSpreadsheetInterface = (
  */
 export const evaluateFormulas = async (
   sheetId: number,
-  spreadsheet: ReturnType<typeof createSpreadsheetInterface>,
+  spreadsheet: InstanceType<typeof Spreadsheet>,
 ) => {
-  const { FormulaError } = getSpreadsheetDeps();
   const results = await spreadsheet.calculatePending();
   const formulaResults: Record<string, any> = {};
 
@@ -288,7 +252,7 @@ export const persistPatchTuples = async (
  */
 export const persistSpreadsheetPatches = async (
   doc: ShareDBClient.Doc,
-  spreadsheet: ReturnType<typeof createSpreadsheetInterface>,
+  spreadsheet: InstanceType<typeof Spreadsheet>,
 ) => {
   const patchTuples = spreadsheet.getPatchTuples();
   await persistPatchTuples(doc, patchTuples, "agent");
