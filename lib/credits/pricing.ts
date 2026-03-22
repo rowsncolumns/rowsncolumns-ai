@@ -10,11 +10,7 @@ type CreditPricingInput = {
   toolCallCount: number;
 };
 
-const LIGHT_MODELS = [
-  "gpt-5.4-nano",
-  "gpt-5-nano",
-  "gpt-4.1-nano",
-];
+const LIGHT_MODELS = ["gpt-5.4-nano", "gpt-5-nano", "gpt-4.1-nano"];
 
 const MID_MODELS = [
   "gpt-5.4-mini",
@@ -73,7 +69,9 @@ export const calculateChatRunCredits = ({
     estimatedOutputTokens > LONG_OUTPUT_TOKEN_THRESHOLD ? 1 : 0;
   const toolCallAdder = toolCallCount > HEAVY_TOOL_CALL_THRESHOLD ? 1 : 0;
 
-  const requestedCredits = Math.ceil(1 * modelMultiplier + longOutputAdder + toolCallAdder);
+  const requestedCredits = Math.ceil(
+    1 * modelMultiplier + longOutputAdder + toolCallAdder,
+  );
   const credits = Math.max(
     MIN_CREDITS_PER_RUN,
     Math.min(MAX_CREDITS_PER_RUN, requestedCredits),

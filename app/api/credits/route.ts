@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isAdminUser } from "@/lib/auth/admin";
 import { auth } from "@/lib/auth/server";
 import { INITIAL_CREDITS } from "@/lib/credits/pricing";
 import { getUserCredits } from "@/lib/credits/repository";
@@ -16,12 +17,14 @@ const getNextResetAtUtc = (creditDay: string) => {
 export async function GET() {
   try {
     const { data: session } = await auth.getSession();
-    const userId = session?.user?.id;
+    const user = session?.user;
+    const userId = user?.id;
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
+    const isAdmin = isAdminUser({ id: user.id, email: user.email });
     const credits = await getUserCredits(userId);
 
     return NextResponse.json({
@@ -29,6 +32,7 @@ export async function GET() {
         balance: credits.balance,
         creditDay: credits.creditDay,
         dailyLimit: INITIAL_CREDITS,
+        unlimited: isAdmin,
         nextResetAt: getNextResetAtUtc(credits.creditDay),
         updatedAt: credits.updatedAt,
       },

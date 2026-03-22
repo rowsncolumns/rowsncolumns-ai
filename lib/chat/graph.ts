@@ -245,8 +245,8 @@ const getModel = (override?: {
       override?.reasoningEnabled === false
         ? ("disabled" as const)
         : override?.reasoningEnabled === true
-        ? ("enabled" as const)
-        : configuredThinkingMode;
+          ? ("enabled" as const)
+          : configuredThinkingMode;
     const configuredThinkingBudget = parsePositiveInt(
       getEnv("ANTHROPIC_THINKING_BUDGET_TOKENS"),
       DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS,
@@ -259,11 +259,11 @@ const getModel = (override?: {
       thinkingMode === "adaptive"
         ? ({ type: "adaptive" } as const)
         : thinkingMode === "enabled"
-        ? ({
-            type: "enabled",
-            budget_tokens: thinkingBudget,
-          } as const)
-        : ({ type: "disabled" } as const);
+          ? ({
+              type: "enabled",
+              budget_tokens: thinkingBudget,
+            } as const)
+          : ({ type: "disabled" } as const);
     const anthropicTemperature =
       thinking.type === "enabled" || thinking.type === "adaptive"
         ? undefined
@@ -680,7 +680,9 @@ const extractStreamedToolMessage = (
   const idParts = Array.isArray(maybeMessage.id)
     ? maybeMessage.id.map((part) => String(part))
     : [];
-  const isToolMessageType = idParts.some((part) => part.includes("ToolMessage"));
+  const isToolMessageType = idParts.some((part) =>
+    part.includes("ToolMessage"),
+  );
 
   const toolName =
     typeof kwargs?.name === "string"
@@ -795,9 +797,7 @@ const normalizeToolResult = (
     status?: unknown;
     kwargs?: { status?: unknown };
   };
-  const status =
-    maybeToolMessage.status ??
-    maybeToolMessage.kwargs?.status;
+  const status = maybeToolMessage.status ?? maybeToolMessage.kwargs?.status;
   if (status === "error") {
     return {
       result: {

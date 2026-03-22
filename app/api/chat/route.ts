@@ -7,6 +7,7 @@ import {
   calculateChatRunCredits,
   MIN_CREDITS_PER_RUN,
 } from "@/lib/credits/pricing";
+import { isAdminUser } from "@/lib/auth/admin";
 import { auth } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
@@ -24,13 +25,15 @@ type ChatRequestBody = {
 export async function POST(request: Request) {
   try {
     const { data: session } = await auth.getSession();
-    const userId = session?.user?.id;
+    const user = session?.user;
+    const userId = user?.id;
     if (!userId) {
       return NextResponse.json(
         { error: "Unauthorized. Please sign in to continue." },
         { status: 401 },
       );
     }
+    const isAdmin = isAdminUser({ id: user.id, email: user.email });
 
     const body = (await request.json()) as ChatRequestBody;
     const threadId = body.threadId?.trim();
@@ -68,17 +71,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const credits = await getUserCredits(userId);
-    if (credits.balance < MIN_CREDITS_PER_RUN) {
-      return NextResponse.json(
-        {
-          error:
-            "Insufficient credits for today. Credits reset to 30 at the next daily reset.",
-          code: "INSUFFICIENT_CREDITS",
-          remainingCredits: credits.balance,
-        },
-        { status: 402 },
-      );
+    if (!isAdmin) {
+      const credits = await getUserCredits(userId);
+      if (credits.balance < MIN_CREDITS_PER_RUN) {
+        return NextResponse.json(
+          {
+            error:
+              "Insufficient credits for today. Credits reset to 30 at the next daily reset.",
+            code: "INSUFFICIENT_CREDITS",
+            remainingCredits: credits.balance,
+          },
+          { status: 402 },
+        );
+      }
     }
 
     const runId = crypto.randomUUID();
@@ -140,7 +145,7 @@ export async function POST(request: Request) {
             ),
           );
         } finally {
-          if (isCompleted) {
+          if (isCompleted && !isAdmin) {
             const outputChars = Math.max(messageDeltaChars, messageCompleteChars);
             const pricing = calculateChatRunCredits({
               model,

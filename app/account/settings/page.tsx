@@ -83,16 +83,22 @@ export default async function AccountSettingsPage() {
                 </h3>
                 <p className="mt-2">
                   <span className="font-medium text-foreground">Remaining:</span>{" "}
-                  {credits.balance}/{INITIAL_CREDITS}
+                  {isAdmin ? "Unlimited" : `${credits.balance}/${INITIAL_CREDITS}`}
                 </p>
                 <p>
                   <span className="font-medium text-foreground">Reset:</span>{" "}
-                  {nextResetLabel} (UTC)
+                  {isAdmin ? "Not applicable (admin account)" : `${nextResetLabel} (UTC)`}
                 </p>
-                <p className="mt-1 text-xs">
-                  Credits reset to {INITIAL_CREDITS} every day and do not roll
-                  over.
-                </p>
+                {isAdmin ? (
+                  <p className="mt-1 text-xs">
+                    Admin users have unlimited assistant credits.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs">
+                    Credits reset to {INITIAL_CREDITS} every day and do not roll
+                    over.
+                  </p>
+                )}
               </div>
 
               {isAdmin ? <AdminCreditRefillCard currentUserId={user.id} /> : null}

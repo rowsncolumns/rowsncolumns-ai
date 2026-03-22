@@ -2467,6 +2467,7 @@ type CreditsApiResponse = {
   credits?: {
     balance?: number;
     dailyLimit?: number;
+    unlimited?: boolean;
     updatedAt?: string;
   };
 };
@@ -2478,6 +2479,7 @@ type QueuedComposerMessage = {
 
 type AssistantComposerProps = Omit<WorkspaceAssistantPanelProps, "prompts"> & {
   remainingCredits: number | null;
+  isUnlimitedCredits: boolean;
   isCreditsLoading: boolean;
 };
 
@@ -2491,6 +2493,7 @@ function AssistantComposer({
   setReasoningEnabled,
   reasoningEnabledRef,
   remainingCredits,
+  isUnlimitedCredits,
   isCreditsLoading,
 }: AssistantComposerProps) {
   const composerFooterRef = React.useRef<HTMLDivElement | null>(null);
@@ -2506,7 +2509,9 @@ function AssistantComposer({
   const threadRuntime = useThreadRuntime();
   const isThreadRunning = useThread((thread) => thread.isRunning);
   const hasCredits =
-    remainingCredits === null || remainingCredits >= MIN_CREDITS_PER_RUN;
+    isUnlimitedCredits ||
+    remainingCredits === null ||
+    remainingCredits >= MIN_CREDITS_PER_RUN;
   const canSendFromComposer = useComposer(
     (composer) => composer.isEditing && !composer.isEmpty,
   );
@@ -2778,7 +2783,9 @@ function AssistantComposer({
           >
             {isCreditsLoading
               ? "Credits ..."
-              : `Credits ${remainingCredits ?? 0}/${INITIAL_CREDITS}`}
+              : isUnlimitedCredits
+                ? "Credits Unlimited"
+                : `Credits ${remainingCredits ?? 0}/${INITIAL_CREDITS}`}
           </span>
           {isThreadRunning && (
             <IconButton
@@ -2834,6 +2841,7 @@ function WorkspaceAssistantPanel({
   const [remainingCredits, setRemainingCredits] = React.useState<number | null>(
     null,
   );
+  const [isUnlimitedCredits, setIsUnlimitedCredits] = React.useState(false);
   const [isCreditsLoading, setIsCreditsLoading] = React.useState(true);
 
   const loadCredits = React.useCallback(async () => {
@@ -2846,14 +2854,18 @@ function WorkspaceAssistantPanel({
 
       if (!response.ok) {
         setRemainingCredits(null);
+        setIsUnlimitedCredits(false);
         return;
       }
 
       const payload = (await response.json()) as CreditsApiResponse;
       const balance = payload.credits?.balance;
+      const isUnlimited = payload.credits?.unlimited === true;
       setRemainingCredits(typeof balance === "number" ? balance : null);
+      setIsUnlimitedCredits(isUnlimited);
     } catch {
       setRemainingCredits(null);
+      setIsUnlimitedCredits(false);
     } finally {
       setIsCreditsLoading(false);
     }
@@ -2959,11 +2971,12 @@ function WorkspaceAssistantPanel({
               setIsModelPickerOpen={setIsModelPickerOpen}
               setSelectedModel={setSelectedModel}
               reasoningEnabled={reasoningEnabled}
-              setReasoningEnabled={setReasoningEnabled}
-              reasoningEnabledRef={reasoningEnabledRef}
-              remainingCredits={remainingCredits}
-              isCreditsLoading={isCreditsLoading}
-            />
+            setReasoningEnabled={setReasoningEnabled}
+            reasoningEnabledRef={reasoningEnabledRef}
+            remainingCredits={remainingCredits}
+            isUnlimitedCredits={isUnlimitedCredits}
+            isCreditsLoading={isCreditsLoading}
+          />
             <ThreadPrimitive.If empty>
               <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
                 <TooltipProvider delayDuration={200}>
