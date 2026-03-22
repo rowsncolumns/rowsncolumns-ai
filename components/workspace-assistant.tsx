@@ -1982,12 +1982,10 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
         setPendingDeleteSkill((current) =>
           current?.id === skillId ? null : current,
         );
-        return true;
       } catch (error) {
         setSkillsError(
           error instanceof Error ? error.message : "Failed to delete skill.",
         );
-        return false;
       } finally {
         setDeletingSkillId((current) => (current === skillId ? null : current));
       }
@@ -2380,13 +2378,9 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={!pendingDeleteSkill}
-              onClick={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 if (!pendingDeleteSkill) return;
-                const skillId = pendingDeleteSkill.id;
-                setPendingDeleteSkill(null);
-                void deleteSkill(skillId);
+                void deleteSkill(pendingDeleteSkill.id);
               }}
             >
               Delete
