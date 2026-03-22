@@ -30,7 +30,10 @@ if (!shareDbDatabaseUrl) {
 const SHAREDB_DATABASE_URL: string = shareDbDatabaseUrl;
 
 const SHAREDB_REQUIRE_SSL = process.env.SHAREDB_REQUIRE_SSL !== "false";
-const PORT = parseInt(process.env.PORT || process.env.SHAREDB_PORT || "8080", 10);
+const PORT = parseInt(
+  process.env.PORT || process.env.SHAREDB_PORT || "8080",
+  10,
+);
 const HOST = process.env.HOST || "0.0.0.0";
 
 const redactDatabaseUrl = (value: string) => {
