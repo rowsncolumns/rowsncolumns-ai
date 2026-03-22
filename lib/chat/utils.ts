@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import ShareDBClient from "sharedb/lib/client";
-import { WebSocket } from "ws";
 import {
   applyPatchesToShareDBDoc,
   convertV3ToSheetData,
@@ -19,6 +18,28 @@ import { functions } from "@rowsncolumns/functions/server";
 
 const SHAREDB_URL = process.env.SHAREDB_URL || "ws://localhost:8080";
 const SHAREDB_COLLECTION = process.env.SHAREDB_COLLECTION || "spreadsheets";
+const nodeRequire = createRequire(import.meta.url);
+
+// Ensure ws skips optional native addons in bundled server runtime.
+if (!process.env.WS_NO_BUFFER_UTIL) {
+  process.env.WS_NO_BUFFER_UTIL = "1";
+}
+if (!process.env.WS_NO_UTF_8_VALIDATE) {
+  process.env.WS_NO_UTF_8_VALIDATE = "1";
+}
+
+let WebSocketCtor: typeof import("ws").WebSocket | null = null;
+
+const getWebSocketCtor = () => {
+  if (WebSocketCtor) {
+    return WebSocketCtor;
+  }
+
+  const wsModule = nodeRequire("ws") as typeof import("ws");
+  WebSocketCtor = wsModule.WebSocket;
+
+  return WebSocketCtor;
+};
 
 export type ShareDBSpreadsheetDoc<
   T extends SpreadsheetCellData = SpreadsheetCellData,
@@ -89,7 +110,7 @@ export const getShareDBDocument = (
   close: () => void;
 }> => {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(SHAREDB_URL);
+    const ws = new (getWebSocketCtor())(SHAREDB_URL);
     let resolved = false;
 
     const cleanup = () => {

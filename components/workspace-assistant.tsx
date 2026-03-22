@@ -674,10 +674,7 @@ const getAssistantRequestErrorMessage = (
   status: number,
   payload: AssistantChatErrorPayload | null,
 ) => {
-  if (
-    status === 402 ||
-    payload?.code === INSUFFICIENT_CREDITS_ERROR_CODE
-  ) {
+  if (status === 402 || payload?.code === INSUFFICIENT_CREDITS_ERROR_CODE) {
     return OUT_OF_CREDITS_MESSAGE;
   }
 
@@ -821,9 +818,9 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           });
 
           if (!response.ok) {
-            const payload = (await response.json().catch(
-              () => null,
-            )) as AssistantChatErrorPayload | null;
+            const payload = (await response
+              .json()
+              .catch(() => null)) as AssistantChatErrorPayload | null;
             throw new Error(
               getAssistantRequestErrorMessage(response.status, payload),
             );
@@ -2060,7 +2057,7 @@ function SkillsManagerButton({
         onClick={() => setIsOpen(true)}
         className={cn(
           "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
-          iconOnly ? "w-8 px-0" : "gap-1.5 px-2.5",
+          iconOnly ? "" : "gap-1.5 px-2.5 whitespace-nowrap",
         )}
         aria-label="Manage skills"
         title="Manage skills"
@@ -2195,7 +2192,9 @@ function SkillsManagerButton({
                                   onCheckedChange={(checked) => {
                                     void toggleSkillActive(skill.id, checked);
                                   }}
-                                  disabled={isUpdatingThisSkill || isDeletingThisSkill}
+                                  disabled={
+                                    isUpdatingThisSkill || isDeletingThisSkill
+                                  }
                                   aria-label={`Toggle ${skill.name} skill`}
                                 />
                               </div>
@@ -2211,7 +2210,11 @@ function SkillsManagerButton({
                                 ) : (
                                   <Trash2 className="h-3.5 w-3.5" />
                                 )}
-                                <span>{isDeletingThisSkill ? "Deleting..." : "Delete"}</span>
+                                <span>
+                                  {isDeletingThisSkill
+                                    ? "Deleting..."
+                                    : "Delete"}
+                                </span>
                               </button>
                             </div>
                           </div>
@@ -2431,7 +2434,7 @@ function NewSessionButton({ iconOnly = false }: { iconOnly?: boolean }) {
       onClick={handleNewSession}
       className={cn(
         "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
-        iconOnly ? "w-8 px-0" : "gap-1.5 px-2.5 whitespace-nowrap",
+        iconOnly ? "" : "gap-1.5 px-2.5 whitespace-nowrap",
       )}
       aria-label="New session"
       title="Start new session"
@@ -2771,7 +2774,9 @@ function AssistantComposer({
             <Sparkles
               className={cn(
                 "h-3.5 w-3.5 transition-colors",
-                reasoningEnabled ? "text-(--accent)" : "text-(--muted-foreground)",
+                reasoningEnabled
+                  ? "text-(--accent)"
+                  : "text-(--muted-foreground)",
               )}
             />
           </IconButton>
@@ -2971,12 +2976,12 @@ function WorkspaceAssistantPanel({
               setIsModelPickerOpen={setIsModelPickerOpen}
               setSelectedModel={setSelectedModel}
               reasoningEnabled={reasoningEnabled}
-            setReasoningEnabled={setReasoningEnabled}
-            reasoningEnabledRef={reasoningEnabledRef}
-            remainingCredits={remainingCredits}
-            isUnlimitedCredits={isUnlimitedCredits}
-            isCreditsLoading={isCreditsLoading}
-          />
+              setReasoningEnabled={setReasoningEnabled}
+              reasoningEnabledRef={reasoningEnabledRef}
+              remainingCredits={remainingCredits}
+              isUnlimitedCredits={isUnlimitedCredits}
+              isCreditsLoading={isCreditsLoading}
+            />
             <ThreadPrimitive.If empty>
               <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
                 <TooltipProvider delayDuration={200}>
@@ -3182,9 +3187,9 @@ function WorkspaceAssistantInner({
             });
 
             if (!response.ok) {
-              const payload = (await response.json().catch(
-                () => null,
-              )) as AssistantChatErrorPayload | null;
+              const payload = (await response
+                .json()
+                .catch(() => null)) as AssistantChatErrorPayload | null;
 
               throw new Error(
                 getAssistantRequestErrorMessage(response.status, payload),
