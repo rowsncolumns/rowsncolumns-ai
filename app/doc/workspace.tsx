@@ -128,7 +128,6 @@ import {
   WorkspaceAssistantUI,
 } from "@/components/workspace-assistant";
 import { MagnifyingGlassIcon } from "@rowsncolumns/icons";
-import { selectionFromActiveCell } from "../../../../libs/grid/dist/esm/helpers";
 import { Citation } from "@rowsncolumns/common-types";
 import get from "lodash/get";
 import { isNil, uuid } from "@rowsncolumns/utils";
@@ -148,6 +147,7 @@ import {
 import { useShareDBSpreadsheet } from "@rowsncolumns/sharedb";
 import ShareDBClient from "sharedb/lib/client";
 import ReconnectingWebSocket from "reconnecting-websocket";
+import { selectionFromActiveCell } from "@rowsncolumns/grid";
 
 const getShareDbUrl = () => {
   const configured = process.env.NEXT_PUBLIC_SHAREDB_URL?.trim();
@@ -218,7 +218,11 @@ const createSeededRandom = (seed: number) => {
   };
 };
 
-const pickSeededPrompts = (prompts: string[], count: number, seedKey: string) => {
+const pickSeededPrompts = (
+  prompts: string[],
+  count: number,
+  seedKey: string,
+) => {
   if (prompts.length <= count) {
     return [...prompts];
   }
