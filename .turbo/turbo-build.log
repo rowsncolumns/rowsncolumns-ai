@@ -1,0 +1,51 @@
+
+[2K[1G[1myarn run v1.22.22[22m
+[2K[1G[2m$ next build[22m
+[1m[38;2;173;127;168m▲ Next.js 16.2.0[39m[22m (Turbopack)
+- Environments: .env.local
+
+[37m[1m [22m[39m Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 1 errors:
+./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/AttachmentRuntimeClient.js:2:1
+[1m[31mModule not found[39m[22m: Can't resolve [32m'../../../../tap/dist/core/resource.js'[39m
+  [90m1 |[0m [90m// src/legacy-runtime/client/AttachmentRuntimeClient.ts[0m
+[31m[1m>[0m [90m2 |[0m [36mimport[0m { resource } [36mfrom[0m [32m"../../../../tap/dist/core/resource.js"[0m;
+  [90m  |[0m [31m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m3 |[0m [36mimport[0m { tapApi } [36mfrom[0m [32m"../../utils/tap-store/index.js"[0m;
+  [90m4 |[0m [36mimport[0m { tapSubscribable } [36mfrom[0m [32m"../util-hooks/tapSubscribable.js"[0m;
+  [90m5 |[0m [36mvar[0m [33mAttachmentRuntimeClient[0m = resource(
+
+
+
+Import traces:
+  Client Component Browser:
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/AttachmentRuntimeClient.js [Client Component Browser]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/MessageRuntimeClient.js [Client Component Browser]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/ThreadRuntimeClient.js [Client Component Browser]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/ThreadListRuntimeClient.js [Client Component Browser]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/AssistantRuntimeProvider.js [Client Component Browser]
+    ./external/rnc.ai/components/workspace-assistant.tsx [Client Component Browser]
+    ./external/rnc.ai/app/new/workspace.tsx [Client Component Browser]
+    ./external/rnc.ai/app/new/workspace.tsx [Server Component]
+    ./external/rnc.ai/app/new/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/AttachmentRuntimeClient.js [Client Component SSR]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/MessageRuntimeClient.js [Client Component SSR]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/ThreadRuntimeClient.js [Client Component SSR]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/client/ThreadListRuntimeClient.js [Client Component SSR]
+    ./external/rnc.ai/node_modules/@assistant-ui/react/dist/legacy-runtime/AssistantRuntimeProvider.js [Client Component SSR]
+    ./external/rnc.ai/components/workspace-assistant.tsx [Client Component SSR]
+    ./external/rnc.ai/app/new/workspace.tsx [Client Component SSR]
+    ./external/rnc.ai/app/new/workspace.tsx [Server Component]
+    ./external/rnc.ai/app/new/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+    at ./external/rnc.ai/node_modules/[4m (assistant-ui[24m/react/dist/legacy-runtime/client/AttachmentRuntimeClient.js:2:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)
+[2K[1G[31merror[39m Command failed with exit code 1.
+[2K[1G[34minfo[39m Visit [1mhttps://yarnpkg.com/en/docs/cli/run[22m for documentation about this command.
