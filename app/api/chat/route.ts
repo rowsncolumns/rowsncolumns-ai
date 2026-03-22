@@ -72,7 +72,8 @@ export async function POST(request: Request) {
     if (credits.balance < MIN_CREDITS_PER_RUN) {
       return NextResponse.json(
         {
-          error: "Insufficient credits. Please top up to continue.",
+          error:
+            "Insufficient credits for today. Credits reset to 30 at the next daily reset.",
           code: "INSUFFICIENT_CREDITS",
           remainingCredits: credits.balance,
         },

@@ -123,6 +123,11 @@ type ModelOptionGroup = {
   options: ModelOption[];
 };
 
+type AssistantChatErrorPayload = {
+  error?: string;
+  code?: string;
+};
+
 const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
   {
     label: "OpenAI",
@@ -216,6 +221,9 @@ const MODEL_OPTION_VALUES = new Set<string>(
 const MODEL_STORAGE_KEY = "rnc.ai.workspace-assistant.model";
 const REASONING_STORAGE_KEY = "rnc.ai.workspace-assistant.reasoning-enabled";
 const SKILLS_API_ENDPOINT = "/api/skills";
+const INSUFFICIENT_CREDITS_ERROR_CODE = "INSUFFICIENT_CREDITS";
+const OUT_OF_CREDITS_MESSAGE =
+  "You've run out of credits for today. Credits reset to 30 at the next daily reset.";
 
 type AssistantSkill = {
   id: string;
@@ -652,6 +660,24 @@ const normalizeAssistantClientError = (error: unknown) => {
   return "Unable to reach the assistant service. Please retry.";
 };
 
+const getAssistantRequestErrorMessage = (
+  status: number,
+  payload: AssistantChatErrorPayload | null,
+) => {
+  if (
+    status === 402 ||
+    payload?.code === INSUFFICIENT_CREDITS_ERROR_CODE
+  ) {
+    return OUT_OF_CREDITS_MESSAGE;
+  }
+
+  if (typeof payload?.error === "string" && payload.error.trim().length > 0) {
+    return payload.error;
+  }
+
+  return "Assistant request failed.";
+};
+
 const buildTerminalAssistantMessage = (text: string) => ({
   content: [{ type: "text" as const, text }],
   status: { type: "complete" as const, reason: "stop" as const },
@@ -785,10 +811,12 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           });
 
           if (!response.ok) {
-            const payload = (await response.json().catch(() => null)) as {
-              error?: string;
-            } | null;
-            throw new Error(payload?.error || "Assistant request failed.");
+            const payload = (await response.json().catch(
+              () => null,
+            )) as AssistantChatErrorPayload | null;
+            throw new Error(
+              getAssistantRequestErrorMessage(response.status, payload),
+            );
           }
 
           if (!response.body) {
@@ -2011,8 +2039,8 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
             }
           }}
         >
-          <div className="mx-auto flex h-full max-h-[900px] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-black/10 bg-white shadow-xl">
-            <div className="flex items-start justify-between border-b border-black/10 px-5 py-4">
+          <div className="mx-auto flex h-full max-h-[900px] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-(--card-border) bg-(--card-bg-solid) shadow-xl">
+            <div className="flex items-start justify-between border-b border-(--card-border) px-5 py-4">
               <div>
                 <h3 className="text-xl font-semibold">Skills</h3>
                 <p className="mt-1 text-sm text-(--muted-foreground)">
@@ -2022,7 +2050,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
               </div>
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-black/5 hover:text-foreground"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
                 onClick={() => setIsOpen(false)}
                 aria-label="Close skills manager"
                 title="Close"
@@ -2033,13 +2061,13 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
 
             {!isEditingView ? (
               <>
-                <div className="flex items-center gap-2 border-b border-black/8 px-5 py-3">
+                <div className="flex items-center gap-2 border-b border-(--card-border) px-5 py-3">
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
                     onClick={beginCreateSkill}
-                    className="h-8 gap-1.5 rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
+                    className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>New Skill</span>
@@ -2061,12 +2089,12 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                     </div>
                   )}
                   {isLoadingSkills && (
-                    <div className="rounded-xl border border-dashed border-black/10 bg-[#fff9f4] p-4 text-sm text-(--muted-foreground)">
+                    <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-subtle) p-4 text-sm text-(--muted-foreground)">
                       Loading skills...
                     </div>
                   )}
                   {!isLoadingSkills && filteredSkills.length === 0 && (
-                    <div className="rounded-xl border border-dashed border-black/10 bg-[#fff9f4] p-4 text-sm text-(--muted-foreground)">
+                    <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-subtle) p-4 text-sm text-(--muted-foreground)">
                       {skills.length === 0
                         ? "No skills yet. Create one to guide the assistant."
                         : "No matching skills found."}
@@ -2098,7 +2126,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                               <button
                                 type="button"
                                 onClick={() => beginEditSkill(skill)}
-                                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition hover:bg-black/5 hover:text-foreground"
+                                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
                                 title="Edit skill"
                               >
                                 <Pencil className="h-3.5 w-3.5" />
@@ -2134,7 +2162,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                               <button
                                 type="button"
                                 onClick={() => deleteSkill(skill.id)}
-                                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-red-600 transition hover:bg-red-50"
+                                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-red-500 transition hover:bg-red-500/15"
                                 title="Delete skill"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -2153,13 +2181,13 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
               </>
             ) : (
               <>
-                <div className="flex items-center justify-between border-b border-black/8 px-5 py-3">
+                <div className="flex items-center justify-between border-b border-(--card-border) px-5 py-3">
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
                     onClick={resetEditor}
-                    className="h-8 gap-1.5 rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
+                    className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
                     <span>Back to Skills</span>
@@ -2195,7 +2223,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                               setDraftName(event.target.value)
                             }
                             placeholder="my-skill"
-                            className="h-9 w-full rounded-lg border border-black/10 bg-white px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
+                            className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
                           />
                         </div>
                         <div className="space-y-1">
@@ -2224,7 +2252,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                             className="min-h-64"
                           />
                         </div>
-                        <div className="flex items-center justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-3 py-2">
+                        <div className="flex items-center justify-between rounded-lg border border-(--card-border) bg-(--card-bg-subtle) px-3 py-2">
                           <label
                             htmlFor="skill-enabled-switch"
                             className="text-xs text-(--muted-foreground)"
@@ -2263,7 +2291,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                         )}
                       </div>
 
-                      <div className="shrink-0 border-t border-black/8 px-4 py-3">
+                      <div className="shrink-0 border-t border-(--card-border) px-4 py-3">
                         <div className="flex justify-end gap-2">
                           <Button
                             type="button"
@@ -2271,7 +2299,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
                             size="sm"
                             onClick={resetEditor}
                             disabled={isSavingSkill}
-                            className="h-8 rounded-lg border border-black/10 bg-[#faf6f0] px-3 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
+                            className="rnc-assistant-chip h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
                           >
                             Cancel
                           </Button>
@@ -2594,6 +2622,7 @@ function AssistantComposer({
           </label>
           <IconButton
             tooltip={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
+            variant="unstyled"
             type="button"
             onClick={() =>
               setReasoningEnabled((previous) => {
@@ -2605,13 +2634,18 @@ function AssistantComposer({
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-none transition",
               reasoningEnabled
-                ? "border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100"
-                : "rnc-assistant-chip border-black/10 bg-[#faf6f0] text-(--muted-foreground) hover:bg-[#f6ede2]",
+                ? "border-(--panel-border-strong) bg-(--assistant-chip-hover) text-foreground hover:bg-(--assistant-suggestion-hover) hover:text-foreground"
+                : "rnc-assistant-chip border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground) hover:bg-(--assistant-chip-hover) hover:text-foreground",
             )}
             aria-label={`Reasoning ${reasoningEnabled ? "on" : "off"}`}
             title={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            <Sparkles
+              className={cn(
+                "h-3.5 w-3.5 transition-colors",
+                reasoningEnabled ? "text-(--accent)" : "text-(--muted-foreground)",
+              )}
+            />
           </IconButton>
         </div>
         <div className="flex items-center gap-2">
@@ -2973,11 +3007,13 @@ function WorkspaceAssistantInner({
             });
 
             if (!response.ok) {
-              const payload = (await response.json().catch(() => null)) as {
-                error?: string;
-              } | null;
+              const payload = (await response.json().catch(
+                () => null,
+              )) as AssistantChatErrorPayload | null;
 
-              throw new Error(payload?.error || "Assistant request failed.");
+              throw new Error(
+                getAssistantRequestErrorMessage(response.status, payload),
+              );
             }
 
             if (!response.body) {
