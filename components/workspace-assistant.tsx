@@ -1767,7 +1767,13 @@ export function SheetsInstructions({
 
 const NEW_SKILL_EDITOR_ID = "__new__";
 
-function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
+function SkillsManagerButton({
+  workspaceId,
+  iconOnly = false,
+}: {
+  workspaceId?: string;
+  iconOnly?: boolean;
+}) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [skills, setSkills] = React.useState<AssistantSkill[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = React.useState(false);
@@ -2052,12 +2058,15 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
         variant="secondary"
         size="sm"
         onClick={() => setIsOpen(true)}
-        className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
+        className={cn(
+          "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
+          iconOnly ? "w-8 px-0" : "gap-1.5 px-2.5",
+        )}
         aria-label="Manage skills"
         title="Manage skills"
       >
         <Sparkles className="h-3.5 w-3.5" />
-        <span>Skills</span>
+        {!iconOnly && <span>Skills</span>}
       </Button>
 
       {isOpen && (
@@ -2400,7 +2409,7 @@ function SkillsManagerButton({ workspaceId }: { workspaceId?: string }) {
  * Button to start a new chat session by switching to a new thread.
  * Must be used inside an AssistantRuntimeProvider.
  */
-function NewSessionButton() {
+function NewSessionButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const runtime = useAssistantRuntime();
 
   const handleNewSession = React.useCallback(() => {
@@ -2420,12 +2429,15 @@ function NewSessionButton() {
       variant="secondary"
       size="sm"
       onClick={handleNewSession}
-      className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2] whitespace-nowrap"
+      className={cn(
+        "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
+        iconOnly ? "w-8 px-0" : "gap-1.5 px-2.5 whitespace-nowrap",
+      )}
       aria-label="New session"
       title="Start new session"
     >
       <RotateCcw className="h-3.5 w-3.5" />
-      <span>New session</span>
+      {!iconOnly && <span>New session</span>}
     </Button>
   );
 }
@@ -2448,6 +2460,8 @@ type WorkspaceAssistantPanelProps = {
 
 const ASSISTANT_TAGLINE =
   "Plan edits, formulas, and workbook changes without leaving your sheet.";
+const ASSISTANT_HEADER_COMPACT_WIDTH = 560;
+const MODEL_PICKER_HIDE_WIDTH = 460;
 
 type CreditsApiResponse = {
   credits?: {
@@ -2479,6 +2493,8 @@ function AssistantComposer({
   remainingCredits,
   isCreditsLoading,
 }: AssistantComposerProps) {
+  const composerFooterRef = React.useRef<HTMLDivElement | null>(null);
+  const [isComposerCompact, setIsComposerCompact] = React.useState(false);
   const handleSelectModel = React.useCallback(
     (model: string) => {
       setSelectedModel(model);
@@ -2503,6 +2519,42 @@ function AssistantComposer({
   React.useEffect(() => {
     queuedMessagesRef.current = queuedMessages;
   }, [queuedMessages]);
+
+  React.useEffect(() => {
+    const footer = composerFooterRef.current;
+    if (!footer) {
+      return;
+    }
+
+    const updateComposerWidthState = () => {
+      const { width } = footer.getBoundingClientRect();
+      setIsComposerCompact(width < MODEL_PICKER_HIDE_WIDTH);
+    };
+
+    updateComposerWidthState();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateComposerWidthState);
+      return () => {
+        window.removeEventListener("resize", updateComposerWidthState);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateComposerWidthState();
+    });
+    resizeObserver.observe(footer);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (isComposerCompact && isModelPickerOpen) {
+      setIsModelPickerOpen(false);
+    }
+  }, [isComposerCompact, isModelPickerOpen, setIsModelPickerOpen]);
 
   const enqueueCurrentComposerMessage = React.useCallback(() => {
     const message = composerRuntime.getState().text.trim();
@@ -2633,59 +2685,64 @@ function AssistantComposer({
           className="min-h-14 w-full resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
         />
       </div>
-      <div className="flex items-center justify-between border-t border-black/8 px-3 py-2">
+      <div
+        ref={composerFooterRef}
+        className="flex items-center justify-between border-t border-black/8 px-3 py-2"
+      >
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-(--muted-foreground)">
-            <span className="uppercase tracking-[0.16em]">Model</span>
-            <Popover
-              open={isModelPickerOpen}
-              onOpenChange={setIsModelPickerOpen}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  role="combobox"
-                  aria-expanded={isModelPickerOpen}
-                  aria-label="Select model"
-                  className="rnc-assistant-chip h-8 min-w-42 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
-                >
-                  <span className="truncate">{selectedModelLabel}</span>
-                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-72 p-0">
-                <Command>
-                  <CommandInput placeholder="Search model..." />
-                  <CommandList>
-                    <CommandEmpty>No model found.</CommandEmpty>
-                    {MODEL_OPTION_GROUPS.map((group) => (
-                      <CommandGroup key={group.label} heading={group.label}>
-                        {group.options.map((option) => (
-                          <CommandItem
-                            key={option.value}
-                            value={`${option.label} ${option.value} ${group.label}`}
-                            onSelect={() => handleSelectModel(option.value)}
-                            className="text-xs"
-                          >
-                            <Check
-                              className={cn(
-                                "h-3.5 w-3.5 shrink-0",
-                                selectedModel === option.value
-                                  ? "opacity-100"
-                                  : "opacity-0",
-                              )}
-                            />
-                            <span className="truncate">{option.label}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    ))}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </label>
+          {!isComposerCompact && (
+            <label className="flex items-center gap-2 text-xs text-(--muted-foreground)">
+              <span className="uppercase tracking-[0.16em]">Model</span>
+              <Popover
+                open={isModelPickerOpen}
+                onOpenChange={setIsModelPickerOpen}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    role="combobox"
+                    aria-expanded={isModelPickerOpen}
+                    aria-label="Select model"
+                    className="rnc-assistant-chip h-8 min-w-42 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
+                  >
+                    <span className="truncate">{selectedModelLabel}</span>
+                    <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-0">
+                  <Command>
+                    <CommandInput placeholder="Search model..." />
+                    <CommandList>
+                      <CommandEmpty>No model found.</CommandEmpty>
+                      {MODEL_OPTION_GROUPS.map((group) => (
+                        <CommandGroup key={group.label} heading={group.label}>
+                          {group.options.map((option) => (
+                            <CommandItem
+                              key={option.value}
+                              value={`${option.label} ${option.value} ${group.label}`}
+                              onSelect={() => handleSelectModel(option.value)}
+                              className="text-xs"
+                            >
+                              <Check
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0",
+                                  selectedModel === option.value
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                              <span className="truncate">{option.label}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </label>
+          )}
           <IconButton
             tooltip={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
             variant="unstyled"
@@ -2769,6 +2826,9 @@ function WorkspaceAssistantPanel({
   setReasoningEnabled,
   reasoningEnabledRef,
 }: WorkspaceAssistantPanelProps) {
+  const assistantHeaderRef = React.useRef<HTMLDivElement | null>(null);
+  const [isAssistantHeaderCompact, setIsAssistantHeaderCompact] =
+    React.useState(false);
   const isThreadEmpty = useThread((thread) => thread.messages.length === 0);
   const isThreadRunning = useThread((thread) => thread.isRunning);
   const [remainingCredits, setRemainingCredits] = React.useState<number | null>(
@@ -2812,9 +2872,42 @@ function WorkspaceAssistantPanel({
     void loadCredits();
   }, [isThreadRunning, loadCredits]);
 
+  React.useEffect(() => {
+    const header = assistantHeaderRef.current;
+    if (!header) {
+      return;
+    }
+
+    const updateHeaderWidthState = () => {
+      const { width } = header.getBoundingClientRect();
+      setIsAssistantHeaderCompact(width < ASSISTANT_HEADER_COMPACT_WIDTH);
+    };
+
+    updateHeaderWidthState();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateHeaderWidthState);
+      return () => {
+        window.removeEventListener("resize", updateHeaderWidthState);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateHeaderWidthState();
+    });
+    resizeObserver.observe(header);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   return (
     <Card className="rnc-assistant-panel flex h-full min-h-128 flex-col overflow-hidden border-(--card-border) bg-(--assistant-panel-bg) rounded-none">
-      <div className="rnc-assistant-divider border-b border-black/8 px-5 py-4">
+      <div
+        ref={assistantHeaderRef}
+        className="rnc-assistant-divider border-b border-black/8 px-5 py-4"
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="display-font mt-1 text-2xl font-semibold tracking-[-0.03em]">
@@ -2822,8 +2915,11 @@ function WorkspaceAssistantPanel({
             </h2>
           </div>
           <div className="flex items-center gap-2">
-            <NewSessionButton />
-            <SkillsManagerButton workspaceId={docId} />
+            <NewSessionButton iconOnly={isAssistantHeaderCompact} />
+            <SkillsManagerButton
+              workspaceId={docId}
+              iconOnly={isAssistantHeaderCompact}
+            />
           </div>
         </div>
         <p className="mt-1 text-sm leading-6 text-(--muted-foreground)">

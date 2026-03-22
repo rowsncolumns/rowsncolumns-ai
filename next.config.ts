@@ -1,10 +1,5 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  experimental: {
-    // @ts-ignore
-    outputFileTracingIgnores: ["**canvas**"],
-  },
-};
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
