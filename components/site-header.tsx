@@ -85,7 +85,7 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
               alt="RowsnColumns AI logo"
               width={50}
               height={39}
-              className="rounded-sm max-w-[50px]"
+              className="rounded-sm max-w-12.5"
             />
             <div>
               <p className="display-font whitespace-nowrap text-sm font-semibold sm:text-lg">
