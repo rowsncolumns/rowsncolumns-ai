@@ -161,8 +161,45 @@ const getShareDbUrl = () => {
   return `${protocol}://${window.location.hostname}:${port}`;
 };
 
+type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
+
+const createShareDbSocket = (): ShareDBSocket => {
+  const reconnectingSocket = new ReconnectingWebSocket(getShareDbUrl());
+
+  const socket: ShareDBSocket = {
+    get readyState() {
+      return reconnectingSocket.readyState;
+    },
+    close(reason?: number) {
+      reconnectingSocket.close(reason);
+    },
+    send(data: any) {
+      reconnectingSocket.send(data);
+    },
+    onmessage: () => {},
+    onclose: () => {},
+    onerror: () => {},
+    onopen: () => {},
+  };
+
+  reconnectingSocket.onmessage = (event) => {
+    socket.onmessage(event);
+  };
+  reconnectingSocket.onclose = (event) => {
+    socket.onclose(event);
+  };
+  reconnectingSocket.onerror = (event) => {
+    socket.onerror(event);
+  };
+  reconnectingSocket.onopen = (event) => {
+    socket.onopen(event);
+  };
+
+  return socket;
+};
+
 // Create ShareDB connection
-const socket = new ReconnectingWebSocket(getShareDbUrl());
+const socket = createShareDbSocket();
 const connection = new ShareDBClient.Connection(socket);
 
 const initialSheets: Sheet[] = [
