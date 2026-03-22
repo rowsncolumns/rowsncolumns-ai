@@ -2034,10 +2034,10 @@
   dependencies:
     "@radix-ui/react-icons" "^1.3.2"
 
-"@rowsncolumns/sharedb@^1.0.13":
-  version "1.0.13"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.13/d754f3bfcb2aa23400acfee881107103c4fd51f2#d754f3bfcb2aa23400acfee881107103c4fd51f2"
-  integrity sha512-Qby61BBueFqNZi1NthPnX8xZbCU0zohTd/6c+w295dTwL06yJ03xEgRAdgS2PVy62Skjo1Q1Z1nKbV9RJWNm/Q==
+"@rowsncolumns/sharedb@^1.0.14":
+  version "1.0.14"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.14/a94873abaa12e0bfe6c60cfd24b5edb69a21ad84#a94873abaa12e0bfe6c60cfd24b5edb69a21ad84"
+  integrity sha512-Y90gjsmiwn6ltEvR+FdB29MENpSDcUMYGFZok5qPgESCkmqKPDnfJJZtqorWLknhY6MDkirMVhHNGtZLNfWK2g==
 
 "@rowsncolumns/spreadsheet-state@^21.0.32":
   version "21.0.32"
@@ -2055,10 +2055,10 @@
     xlsx "^0.18.5"
     yup "^1.6.1"
 
-"@rowsncolumns/spreadsheet@^8.0.17":
-  version "8.0.17"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet/8.0.17/1a2f492d19555e5b232abe28ad8e6b9bc176e087#1a2f492d19555e5b232abe28ad8e6b9bc176e087"
-  integrity sha512-jYF2v5MOsTnbstnKKS2Lobnc3ShUPFTtuAAMJp4iwSPxiWBR0QYcT5bZJXl2jRvX9Pdkz2HNlfahlWZrxnGrDw==
+"@rowsncolumns/spreadsheet@^8.0.18":
+  version "8.0.18"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet/8.0.18/76a1cabc17c8e463bfa781289af157c3e1f8c884#76a1cabc17c8e463bfa781289af157c3e1f8c884"
+  integrity sha512-52ztSYlcWa82vLfFqP53oa9VrQAjIQXTt68IoHgYx5J/tou8ee+38yVEbaY2lG0KStCzLS1PNItetZx4xSZ99g==
   dependencies:
     "@dnd-kit/core" "^6.3.1"
     "@dnd-kit/modifiers" "^9.0.0"

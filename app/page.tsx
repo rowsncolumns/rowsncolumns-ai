@@ -213,7 +213,7 @@ export default async function Home() {
                   <Badge className="mb-4 sm:mb-5">
                     AI operators for spreadsheet-heavy teams
                   </Badge>
-                  <h1 className="display-font mx-auto text-2xl font-semibold text-balance text-[var(--foreground)] sm:text-4xl md:text-5xl">
+                  <h1 className="display-font mx-auto text-2xl leading-tight font-semibold text-balance text-[var(--foreground)] sm:text-4xl md:text-5xl">
                     The fastest way to turn spreadsheet chaos into finished
                     work.
                   </h1>
