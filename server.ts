@@ -20,18 +20,18 @@ const createShareDBPostgres = require("sharedb-postgres") as (
 ) => unknown;
 
 const shareDbDatabaseUrl =
-  process.env.SHAREDB_DATABASE_URL ||
-  process.env.DATABASE_URL;
+  process.env.SHAREDB_DATABASE_URL || process.env.DATABASE_URL;
 
 if (!shareDbDatabaseUrl) {
   throw new Error(
-    "Missing SHAREDB_DATABASE_URL/DATABASE_URL for ShareDB server. Set it in external/rnc.ai/.env.local.",
+    "Missing SHAREDB_DATABASE_URL/DATABASE_URL for ShareDB server.",
   );
 }
 const SHAREDB_DATABASE_URL: string = shareDbDatabaseUrl;
 
 const SHAREDB_REQUIRE_SSL = process.env.SHAREDB_REQUIRE_SSL !== "false";
-const PORT = parseInt(process.env.SHAREDB_PORT || "8080", 10);
+const PORT = parseInt(process.env.PORT || process.env.SHAREDB_PORT || "8080", 10);
+const HOST = process.env.HOST || "0.0.0.0";
 
 const redactDatabaseUrl = (value: string) => {
   try {
@@ -45,16 +45,17 @@ const redactDatabaseUrl = (value: string) => {
 };
 
 async function startServer() {
-  console.log("Connecting ShareDB to PostgreSQL:", redactDatabaseUrl(SHAREDB_DATABASE_URL));
+  console.log(
+    "Connecting ShareDB to PostgreSQL:",
+    redactDatabaseUrl(SHAREDB_DATABASE_URL),
+  );
 
   const shouldForceSsl =
     SHAREDB_REQUIRE_SSL && !/sslmode=/i.test(SHAREDB_DATABASE_URL);
 
   const db = createShareDBPostgres({
     connectionString: SHAREDB_DATABASE_URL,
-    ...(shouldForceSsl
-      ? { ssl: { rejectUnauthorized: false } }
-      : {}),
+    ...(shouldForceSsl ? { ssl: { rejectUnauthorized: false } } : {}),
   }) as never;
 
   const backend = new ShareDB({
@@ -66,7 +67,9 @@ async function startServer() {
   const server = http.createServer((req, res) => {
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }));
+      res.end(
+        JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }),
+      );
       return;
     }
 
@@ -79,7 +82,7 @@ async function startServer() {
   wss.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
       console.error(
-        `Port ${PORT} is already in use. Stop the existing ShareDB server or set SHAREDB_PORT to a different port.`,
+        `Port ${PORT} is already in use. Stop the existing ShareDB server or set PORT/SHAREDB_PORT to a different port.`,
       );
       process.exit(1);
     }
@@ -100,7 +103,7 @@ async function startServer() {
   server.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
       console.error(
-        `Port ${PORT} is already in use. Stop the existing ShareDB server or set SHAREDB_PORT to a different port.`,
+        `Port ${PORT} is already in use. Stop the existing ShareDB server or set PORT/SHAREDB_PORT to a different port.`,
       );
       process.exit(1);
     }
@@ -108,9 +111,9 @@ async function startServer() {
     process.exit(1);
   });
 
-  server.listen(PORT, () => {
-    console.log(`ShareDB server running on ws://localhost:${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/health`);
+  server.listen(PORT, HOST, () => {
+    console.log(`ShareDB server running on ${HOST}:${PORT}`);
+    console.log(`Health check: http://${HOST}:${PORT}/health`);
   });
 
   process.on("SIGTERM", () => {
