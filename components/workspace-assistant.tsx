@@ -1601,7 +1601,11 @@ function AssistantMessage() {
     isThreadRunning &&
     !showTypingIndicatorBeforeText &&
     (hasAnyVisibleReasoning || hasAnyToolCall || hasAnyVisibleText);
-  const showDebugIcon = role === "assistant" && debugUrl && !isMessageRunning;
+  const showDebugIcon =
+    process.env.NODE_ENV !== "production" &&
+    role === "assistant" &&
+    debugUrl &&
+    !isMessageRunning;
   const [isUserCopySuccess, setIsUserCopySuccess] = React.useState(false);
   const handleCopyUserMessage = React.useCallback(async () => {
     if (!userMessageText) return;

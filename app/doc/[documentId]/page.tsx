@@ -1,9 +1,9 @@
 import { cookies } from "next/headers";
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth/server";
-import { ensureDocumentOwnership } from "@/lib/documents/repository";
+import { ensureDocumentAccess } from "@/lib/documents/repository";
 import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme-preference";
 
 import {
@@ -15,6 +15,7 @@ import { NewWorkspace } from "../workspace";
 
 type PageProps = {
   params: Promise<{ documentId: string }>;
+  searchParams: Promise<{ share?: string | string[] }>;
 };
 
 const toShortDocumentId = (documentId: string): string =>
@@ -32,17 +33,32 @@ export async function generateMetadata({
   };
 }
 
-export default async function DocumentPage({ params }: PageProps) {
+export default async function DocumentPage({ params, searchParams }: PageProps) {
   const { documentId } = await params;
+  const resolvedSearchParams = await searchParams;
+  const shareTokenValue = resolvedSearchParams.share;
+  const shareToken = Array.isArray(shareTokenValue)
+    ? shareTokenValue[0]
+    : shareTokenValue;
+
+  const callbackPath = shareToken
+    ? `/doc/${documentId}?share=${encodeURIComponent(shareToken)}`
+    : `/doc/${documentId}`;
+
   const { data: session } = await auth.getSession();
   if (!session?.user) {
-    redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(`/doc/${documentId}`)}`);
+    redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
   }
 
-  await ensureDocumentOwnership({
+  const access = await ensureDocumentAccess({
     docId: documentId,
     userId: session.user.id,
+    shareToken,
   });
+
+  if (!access.canAccess) {
+    notFound();
+  }
 
   const cookieStore = await cookies();
   const defaultLayout =
@@ -56,6 +72,7 @@ export default async function DocumentPage({ params }: PageProps) {
     <NewWorkspace
       defaultLayout={defaultLayout}
       documentId={documentId}
+      canManageShare={access.isOwner}
       initialThemeMode={initialThemeMode}
       currentUser={{
         id: session.user.id,

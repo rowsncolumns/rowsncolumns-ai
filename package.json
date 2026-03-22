@@ -14,7 +14,8 @@
     "db:migrate:skills": "tsx scripts/create-skills-table.ts",
     "db:migrate:credits": "tsx scripts/create-credit-tables.ts",
     "db:migrate:sharedb": "tsx scripts/create-sharedb-postgres-tables.ts",
-    "db:migrate:documents": "tsx scripts/create-document-ownership-table.ts"
+    "db:migrate:documents": "tsx scripts/create-document-ownership-table.ts",
+    "db:migrate:document-shares": "tsx scripts/create-document-share-links-table.ts"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.12.10",

@@ -113,6 +113,7 @@ import {
 } from "react-resizable-panels";
 
 import { FileMenu } from "@/components/file-menu";
+import { ShareDocumentButton } from "@/components/share-document-button";
 import { SiteHeader } from "@/components/site-header";
 import { authClient } from "@/lib/auth/client";
 import {
@@ -289,10 +290,12 @@ function SpreadsheetPane({
   documentId,
   currentUser,
   initialThemeMode,
+  canManageShare,
 }: {
   documentId: string;
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
+  canManageShare: boolean;
 }) {
   const { data: sessionData } = authClient.useSession();
   const user = sessionData?.user ?? currentUser;
@@ -756,6 +759,10 @@ function SpreadsheetPane({
           onExportExcel={handleExportExcel}
         />
         <ToolbarSeparator />
+        <ShareDocumentButton
+          documentId={documentId}
+          canManageShare={canManageShare}
+        />
         <ButtonUndo onClick={onUndo} disabled={!canUndo} />
         <ButtonRedo onClick={onRedo} disabled={!canRedo} />
         <ButtonPrint onClick={() => window.print()} />
@@ -1456,6 +1463,7 @@ type NewWorkspaceProps = {
   documentId: string;
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
+  canManageShare: boolean;
 };
 
 export function NewWorkspace({
@@ -1463,6 +1471,7 @@ export function NewWorkspace({
   documentId,
   currentUser,
   initialThemeMode,
+  canManageShare,
 }: NewWorkspaceProps) {
   // Create the assistant runtime at this level so both panes can use it
   const assistantRuntime = useSpreadsheetAssistantRuntime({
@@ -1531,6 +1540,7 @@ export function NewWorkspace({
                   documentId={documentId}
                   currentUser={currentUser}
                   initialThemeMode={initialThemeMode}
+                  canManageShare={canManageShare}
                 />
               </Panel>
               <PanelSeparator className="group flex w-4 cursor-col-resize touch-none select-none items-center justify-center bg-transparent outline-none transition-colors hover:bg-black/5 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0">
