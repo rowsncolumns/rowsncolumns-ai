@@ -1,7 +1,7 @@
 "use client";
 
 import { functionDescriptions, functions } from "@rowsncolumns/functions";
-import { exportToExcel } from "@rowsncolumns/toolkit";
+import { exportToCSV, exportToExcel } from "@rowsncolumns/toolkit";
 import type {
   CellData,
   Collaborator,
@@ -734,6 +734,14 @@ function SpreadsheetPane({
     sharedStrings,
   ]);
 
+  const handleExportCSV = useCallback(async () => {
+    await exportToCSV({
+      filename: `spreadsheet-${documentId}-${activeSheetId}`,
+      rowData: sheetData[activeSheetId] ?? [],
+      sharedStrings,
+    });
+  }, [documentId, activeSheetId, sheetData, sharedStrings]);
+
   const handleImportExcel = useCallback(
     async (file: File) => {
       await importExcelFile(file, {
@@ -743,6 +751,16 @@ function SpreadsheetPane({
       });
     },
     [importExcelFile],
+  );
+
+  const handleImportCSV = useCallback(
+    async (file: File) => {
+      await importCSVFile(file, activeSheetId, activeCell, {
+        enableCellXfsRegistry: true,
+        enabledSharedStrings: true,
+      });
+    },
+    [importCSVFile, activeSheetId, activeCell],
   );
 
   return (
@@ -756,7 +774,9 @@ function SpreadsheetPane({
       <Toolbar enableFloating>
         <FileMenu
           onImportExcel={handleImportExcel}
+          onImportCSV={handleImportCSV}
           onExportExcel={handleExportExcel}
+          onExportCSV={handleExportCSV}
         />
         <ToolbarSeparator />
         <ShareDocumentButton

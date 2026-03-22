@@ -2,10 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useRef } from "react";
-import { ChevronDown, Download, FilePlus, Upload } from "lucide-react";
-import { uuid, uuidString } from "@rowsncolumns/utils";
+import {
+  ChevronDown,
+  FilePlus,
+  FileSpreadsheet,
+  FileText,
+} from "lucide-react";
+import { uuidString } from "@rowsncolumns/utils";
 
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,23 +21,35 @@ import { ToolbarIconButton } from "@rowsncolumns/spreadsheet";
 
 type FileMenuProps = {
   onImportExcel: (file: File) => Promise<void>;
+  onImportCSV: (file: File) => Promise<void>;
   onExportExcel: () => Promise<void>;
+  onExportCSV: () => Promise<void>;
 };
 
-export function FileMenu({ onImportExcel, onExportExcel }: FileMenuProps) {
+export function FileMenu({
+  onImportExcel,
+  onImportCSV,
+  onExportExcel,
+  onExportCSV,
+}: FileMenuProps) {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelFileInputRef = useRef<HTMLInputElement>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleNewFile = useCallback(() => {
     const newDocId = uuidString();
     router.push(`/doc/${newDocId}`);
   }, [router]);
 
-  const handleImportClick = useCallback(() => {
-    fileInputRef.current?.click();
+  const handleImportExcelClick = useCallback(() => {
+    excelFileInputRef.current?.click();
   }, []);
 
-  const handleFileChange = useCallback(
+  const handleImportCSVClick = useCallback(() => {
+    csvFileInputRef.current?.click();
+  }, []);
+
+  const handleExcelFileChange = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -50,7 +66,24 @@ export function FileMenu({ onImportExcel, onExportExcel }: FileMenuProps) {
     [onImportExcel],
   );
 
-  const handleExport = useCallback(async () => {
+  const handleCSVFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      try {
+        await onImportCSV(file);
+      } catch (error) {
+        console.error("Failed to import CSV file:", error);
+      }
+
+      // Reset the input so the same file can be selected again
+      event.target.value = "";
+    },
+    [onImportCSV],
+  );
+
+  const handleExportExcel = useCallback(async () => {
     try {
       await onExportExcel();
     } catch (error) {
@@ -58,13 +91,29 @@ export function FileMenu({ onImportExcel, onExportExcel }: FileMenuProps) {
     }
   }, [onExportExcel]);
 
+  const handleExportCSV = useCallback(async () => {
+    try {
+      await onExportCSV();
+    } catch (error) {
+      console.error("Failed to export CSV file:", error);
+    }
+  }, [onExportCSV]);
+
   return (
     <div>
       <input
-        ref={fileInputRef}
+        ref={excelFileInputRef}
         type="file"
         accept=".xlsx,.xls"
-        onChange={handleFileChange}
+        onChange={handleExcelFileChange}
+        className="hidden"
+        aria-hidden="true"
+      />
+      <input
+        ref={csvFileInputRef}
+        type="file"
+        accept=".csv,text/csv,text/tab-separated-values"
+        onChange={handleCSVFileChange}
         className="hidden"
         aria-hidden="true"
       />
@@ -85,13 +134,21 @@ export function FileMenu({ onImportExcel, onExportExcel }: FileMenuProps) {
             New Spreadsheet
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleImportClick}>
-            <Upload className="h-4 w-4" />
+          <DropdownMenuItem onClick={handleImportExcelClick}>
+            <FileSpreadsheet className="h-4 w-4" />
             Import Excel
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleExport}>
-            <Download className="h-4 w-4" />
+          <DropdownMenuItem onClick={handleImportCSVClick}>
+            <FileText className="h-4 w-4" />
+            Import CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleExportExcel}>
+            <FileSpreadsheet className="h-4 w-4" />
             Export as Excel
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleExportCSV}>
+            <FileText className="h-4 w-4" />
+            Export as CSV
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
