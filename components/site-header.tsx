@@ -1,6 +1,7 @@
 "use client";
 
 import { Menu, Moon, Sun, X } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { AccountDropdown } from "@/components/account-dropdown";
@@ -79,9 +80,13 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
       <header className="rnc-site-header relative rounded-xl border p-3 backdrop-blur sm:rounded-[18px] sm:p-4 md:p-5">
         <div className="flex items-center justify-between gap-2 sm:gap-4">
           <a href={homeHref} className="flex items-center gap-2 sm:gap-3">
-            <div className="rnc-site-header-logo flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold tracking-[0.28em] text-white sm:h-11 sm:w-11 sm:rounded-xl sm:text-sm">
-              RC
-            </div>
+            <Image
+              src="/logo-square.png"
+              alt="RowsnColumns AI logo"
+              width={50}
+              height={39}
+              className="rounded-sm max-w-[50px]"
+            />
             <div>
               <p className="display-font whitespace-nowrap text-sm font-semibold sm:text-lg">
                 RowsnColumns AI

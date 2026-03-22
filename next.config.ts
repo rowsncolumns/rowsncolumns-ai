@@ -1,16 +1,5 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  serverExternalPackages: [
-    "@rowsncolumns/spreadsheet-state",
-    "@rowsncolumns/grid",
-    "@rowsncolumns/ui",
-    "@rowsncolumns/spreadsheet",
-    "@rowsncolumns/functions",
-    "@rowsncolumns/calculation-worker",
-    "@rowsncolumns/toolkit",
-    "@rowsncolumns/charts",
-  ],
-};
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
