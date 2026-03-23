@@ -2866,7 +2866,7 @@ function AssistantComposer({
             disabled={!canSendFromComposer || !hasCredits}
             className={cn(
               "h-9 w-9 rounded-xl bg-(--accent) p-0 text-(--accent-foreground) shadow-[0_8px_20px_rgba(255,109,52,0.22)] hover:bg-(--accent-strong) focus-visible:ring-(--ring)",
-              "disabled:bg-[#e8edf5] disabled:text-[#94a0b3] disabled:shadow-none disabled:opacity-100",
+              "disabled:bg-(--assistant-chip-bg) disabled:text-(--muted-foreground) disabled:shadow-none disabled:opacity-100",
             )}
           >
             <SendHorizontal
