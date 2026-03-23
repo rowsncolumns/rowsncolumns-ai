@@ -4,6 +4,39 @@ import fs from "fs";
 let fontsRegistered = false;
 
 /**
+ * Find the fonts directory - handles local dev and Vercel deployment paths
+ */
+function findFontsDir(): string | null {
+  const candidates = [
+    path.join(process.cwd(), "fonts"),
+    path.join(process.cwd(), ".next", "server", "fonts"),
+    path.join(__dirname, "fonts"),
+    path.join(__dirname, "..", "fonts"),
+    path.join(__dirname, "..", "..", "fonts"),
+    "/var/task/fonts",
+    "/var/task/.next/server/fonts",
+    "/vercel/path0/fonts",
+  ];
+
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(dir) && fs.existsSync(path.join(dir, "LiberationSans-Regular.ttf"))) {
+        console.log("[fonts] Found fonts at:", dir);
+        return dir;
+      }
+    } catch {
+      // Skip invalid paths
+    }
+  }
+
+  // Debug: log what we tried
+  console.warn("[fonts] Checked paths:", candidates.slice(0, 3).join(", "), "...");
+  console.warn("[fonts] cwd:", process.cwd(), "__dirname:", __dirname);
+
+  return null;
+}
+
+/**
  * Register Liberation fonts with node-canvas.
  * Liberation Sans is metrically compatible with Arial.
  * Call this once before using canvas for text rendering.
@@ -15,11 +48,10 @@ export function registerFonts() {
   // Only register in Node.js environment
   if (typeof window !== "undefined") return;
 
-  const fontsDir = path.join(process.cwd(), "fonts");
+  const fontsDir = findFontsDir();
 
-  // Check if fonts directory exists
-  if (!fs.existsSync(fontsDir)) {
-    console.warn("[fonts] Fonts directory not found:", fontsDir);
+  if (!fontsDir) {
+    console.warn("[fonts] Fonts directory not found");
     return;
   }
 

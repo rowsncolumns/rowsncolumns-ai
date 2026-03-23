@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --experimental-https",
     "dev:http": "next dev",
-    "build": "next build --webpack",
+    "build": "next build --webpack && npm run postbuild",
+    "postbuild": "cp -r fonts .next/server/fonts || true",
     "start": "next start",
     "lint": "eslint",
     "server": "tsx server.ts",
