@@ -81,6 +81,48 @@ yarn db:migrate:documents
 yarn db:migrate:document-shares
 ```
 
+## Auth Cookie Compatibility (Safari)
+
+Safari can fail OAuth completion when auth cookies are set with `SameSite=None; Partitioned`, which can cause a sign-in loop (`/auth/callback` -> `/doc` -> `/auth/sign-in`).
+
+To keep behavior stable across Safari/Chrome/Edge, this app normalizes Neon auth cookies at app boundaries (not in `node_modules`):
+
+- Utility: `lib/auth/cookie-compat.ts`
+- API boundary: `app/api/auth/[...path]/route.ts`
+- Middleware boundary: `proxy.ts`
+
+Normalization rules (only for `__Secure-neon-auth.*` cookies):
+
+- Remove `Partitioned`
+- Rewrite `SameSite=None` to `SameSite=Lax`
+- Preserve other attributes (`Secure`, `HttpOnly`, `Path`, `Domain`, `Max-Age`, etc.)
+
+Notes:
+
+- `/auth/callback` remains simple (handles explicit OAuth error params; otherwise redirects to `redirectTo`)
+- OAuth verifier exchange remains middleware-driven
+- No polling/retry logic and no SDK monkey patching
+
+Quick validation:
+
+```bash
+# local
+curl -i -X POST 'http://localhost:3000/api/auth/sign-in/social' \
+  -H 'content-type: application/json' \
+  --data '{"provider":"google","callbackURL":"/auth/callback?redirectTo=%2Fdoc","disableRedirect":true}'
+
+# production
+curl -i -X POST 'https://rowsncolumns.ai/api/auth/sign-in/social' \
+  -H 'content-type: application/json' \
+  -H 'origin: https://rowsncolumns.ai' \
+  --data '{"provider":"google","callbackURL":"/auth/callback?redirectTo=%2Fdoc","disableRedirect":true}'
+```
+
+Expected `Set-Cookie` for Neon auth cookies:
+
+- Contains `SameSite=Lax`
+- Does not contain `Partitioned`
+
 ## Getting Started
 
 First, run the development server:

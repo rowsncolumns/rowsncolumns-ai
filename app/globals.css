@@ -23,6 +23,7 @@
   --assistant-item-bg: rgba(255, 255, 255, 0.96);
   --assistant-chip-bg: #faf6f0;
   --assistant-chip-hover: #f6ede2;
+  --assistant-tabs-active-bg: var(--header-bg-top);
   --assistant-suggestion-bg: #fff9f2;
   --assistant-suggestion-hover: #fff2e3;
   --assistant-bubble-ai-bg: #fff7f1;
@@ -73,6 +74,7 @@ body.rnc-dark {
   --assistant-item-bg: rgba(22, 32, 47, 0.96);
   --assistant-chip-bg: rgba(33, 45, 63, 0.9);
   --assistant-chip-hover: rgba(46, 61, 84, 0.95);
+  --assistant-tabs-active-bg: var(--card-bg-solid);
   --assistant-suggestion-bg: rgba(33, 45, 63, 0.85);
   --assistant-suggestion-hover: rgba(46, 61, 84, 0.95);
   --assistant-bubble-ai-bg: rgba(33, 45, 63, 0.9);
