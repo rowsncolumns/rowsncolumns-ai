@@ -39,6 +39,45 @@ type Provider = "openai" | "anthropic";
 type OpenAIReasoningSummary = "auto" | "concise" | "detailed" | null;
 type OpenAIReasoningEffort = "low" | "medium" | "high";
 type AnthropicThinkingMode = "enabled" | "adaptive" | "disabled";
+type ChatAbortReason = {
+  code?: unknown;
+  message?: unknown;
+  timeoutMs?: unknown;
+};
+
+const isAbortError = (error: unknown) => {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+};
+
+const getAbortReasonCode = (reason: unknown) => {
+  if (!reason || typeof reason !== "object") {
+    return null;
+  }
+
+  const { code } = reason as ChatAbortReason;
+  return typeof code === "string" ? code : null;
+};
+
+const getAbortReasonTimeoutMs = (reason: unknown) => {
+  if (!reason || typeof reason !== "object") {
+    return null;
+  }
+
+  const { timeoutMs } = reason as ChatAbortReason;
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return null;
+  }
+
+  return timeoutMs;
+};
+
+const getServerTimeoutMessage = (timeoutMs: number | null) => {
+  const seconds = timeoutMs ? Math.ceil(timeoutMs / 1000) : 300;
+  return `I hit the ${seconds}s server time limit before finishing this response. Ask me to continue and I will resume from where I stopped.`;
+};
 
 const parseOpenAIReasoningSummary = (
   value: string | undefined,
@@ -1909,6 +1948,41 @@ export async function* streamSpreadsheetAssistant(input: {
       }
     }
   } catch (error) {
+    const abortReason = input.abortSignal?.aborted
+      ? input.abortSignal.reason
+      : undefined;
+    const abortReasonCode = getAbortReasonCode(abortReason);
+    if (isAbortError(error) || input.abortSignal?.aborted) {
+      if (abortReasonCode === "SERVER_TIMEOUT") {
+        const partialMessage = assistantMessage.trim();
+        const timeoutMessage = getServerTimeoutMessage(
+          getAbortReasonTimeoutMs(abortReason),
+        );
+        const finalMessage = partialMessage
+          ? `${partialMessage}\n\n${timeoutMessage}`
+          : timeoutMessage;
+
+        console.warn("[graph] Streaming aborted by server timeout");
+        await persistAssistantMessageToCheckpoint({
+          threadId: input.threadId,
+          userId: input.userId,
+          message: finalMessage,
+        });
+
+        yield {
+          type: "message.complete",
+          threadId: input.threadId,
+          message: finalMessage,
+        };
+        return;
+      }
+
+      if (abortReasonCode === "CLIENT_ABORT") {
+        console.warn("[graph] Streaming aborted by client");
+        return;
+      }
+    }
+
     if (!isGraphRecursionLimitError(error)) {
       const rawErrorMessage =
         error && typeof error === "object" && "message" in error
