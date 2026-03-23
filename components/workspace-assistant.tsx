@@ -64,7 +64,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import remarkGfm from "remark-gfm";
 
@@ -109,15 +109,10 @@ import { cn } from "@/lib/utils";
 import { IconButton } from "@rowsncolumns/ui";
 import { useSpreadsheetState } from "@rowsncolumns/spreadsheet-state";
 
-type SheetInfo = {
-  sheetId: number;
-  title: string;
-};
-
 type WorkspaceAssistantProps = {
   prompts: string[];
   docId?: string;
-  sheets?: SheetInfo[];
+  sheets?: Sheet[];
   activeSheetId?: number;
   isAdmin?: boolean;
 };
@@ -130,6 +125,7 @@ export type WorkspaceAssistantUIProps = {
   prompts: string[];
   docId?: string;
   isAdmin?: boolean;
+  onNewSession?: () => void;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -266,16 +262,73 @@ const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
 const getProviderForModel = (model: string) =>
   model.trim().toLowerCase().startsWith("claude") ? "anthropic" : "openai";
 
-const useStableThreadId = () => {
+const useThreadIdFromUrl = () => {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const threadIdRef = React.useRef<string | null>(null);
+  const initialSessionId = searchParams.get("session_id")?.trim() || null;
+  const [threadId, setThreadId] = React.useState(
+    () => initialSessionId ?? uuidString(),
+  );
+  const [persistInUrl, setPersistInUrl] = React.useState(
+    () => initialSessionId !== null,
+  );
 
-  if (!threadIdRef.current) {
-    const sessionId = searchParams.get("session_id");
-    threadIdRef.current = sessionId || uuidString();
-  }
+  React.useEffect(() => {
+    const currentSessionId = searchParams.get("session_id")?.trim() || null;
+    setPersistInUrl(currentSessionId !== null);
+    if (!currentSessionId) {
+      return;
+    }
 
-  return threadIdRef.current;
+    setThreadId((previousThreadId) =>
+      previousThreadId === currentSessionId
+        ? previousThreadId
+        : currentSessionId,
+    );
+  }, [searchParams]);
+
+  const pushSessionIdToHistory = React.useCallback(
+    (nextSessionId: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      const currentSessionId = searchParams.get("session_id")?.trim() || null;
+
+      if (nextSessionId === null) {
+        if (!currentSessionId) {
+          return;
+        }
+        params.delete("session_id");
+      } else {
+        if (currentSessionId === nextSessionId) {
+          return;
+        }
+        params.set("session_id", nextSessionId);
+      }
+
+      const nextQuery = params.toString();
+      const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+      router.push(nextUrl, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const markThreadStarted = React.useCallback(() => {
+    pushSessionIdToHistory(threadId);
+    setPersistInUrl(true);
+  }, [pushSessionIdToHistory, threadId]);
+
+  const startNewThread = React.useCallback(() => {
+    const nextThreadId = uuidString();
+    pushSessionIdToHistory(null);
+    setThreadId(nextThreadId);
+    setPersistInUrl(false);
+  }, [pushSessionIdToHistory]);
+
+  return {
+    threadId,
+    markThreadStarted,
+    startNewThread,
+  };
 };
 
 const parseSkillFromUnknown = (value: unknown): AssistantSkill | null => {
@@ -732,7 +785,7 @@ const buildTerminalAssistantMessage = (text: string) => ({
  * This can be used at a higher level to wrap multiple components with AssistantRuntimeProvider.
  */
 export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
-  const threadId = useStableThreadId();
+  const { threadId, markThreadStarted, startNewThread } = useThreadIdFromUrl();
 
   const [selectedModel, setSelectedModel] =
     React.useState<string>(DEFAULT_MODEL);
@@ -839,6 +892,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
 
         try {
+          markThreadStarted();
           const response = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -879,7 +933,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
       },
     }),
-    [threadId],
+    [markThreadStarted, threadId],
   );
 
   const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
@@ -887,6 +941,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   return {
     runtime,
     threadId,
+    startNewThread,
     selectedModel,
     setSelectedModel: handleSelectModel,
     isModelPickerOpen,
@@ -1858,6 +1913,24 @@ export function SheetsInstructions({
       })) ?? [],
     [sheets],
   );
+  const activeCellA1Address = React.useMemo(
+    () =>
+      selectionToAddress({
+        range: {
+          startRowIndex: activeCell.rowIndex,
+          endRowIndex: activeCell.rowIndex,
+          startColumnIndex: activeCell.columnIndex,
+          endColumnIndex: activeCell.columnIndex,
+        },
+      }),
+    [activeCell],
+  );
+
+  useFrontendReadable({
+    description: `You are helping the user edit a spreadsheet. \nDocument ID
+`,
+    value: documentId,
+  });
 
   useFrontendReadable({
     description: `Available sheets in the current workbook
@@ -1871,8 +1944,16 @@ export function SheetsInstructions({
   });
 
   useFrontendReadable({
-    description: `The user's currently focussed / active cell in the spreadsheet`,
-    value: activeCell,
+    description: `The user's currently focussed / active cell in the spreadsheet.
+IMPORTANT INDEXING RULE:
+- rowIndex and columnIndex are 1-based (NOT zero-based)
+- A1 is rowIndex=1, columnIndex=1
+- Never interpret rowIndex=1,columnIndex=1 as B2
+`,
+    value: {
+      ...activeCell,
+      a1Address: activeCellA1Address,
+    },
   });
 
   useFrontendReadable({
@@ -2587,10 +2668,17 @@ function SkillsManagerButton({
  * Button to start a new chat session by switching to a new thread.
  * Must be used inside an AssistantRuntimeProvider.
  */
-function NewSessionButton({ iconOnly = false }: { iconOnly?: boolean }) {
+function NewSessionButton({
+  iconOnly = false,
+  onNewSession,
+}: {
+  iconOnly?: boolean;
+  onNewSession?: () => void;
+}) {
   const runtime = useAssistantRuntime();
 
   const handleNewSession = React.useCallback(() => {
+    onNewSession?.();
     runtime.switchToNewThread();
     // Focus the composer input after a brief delay to ensure the thread has switched
     setTimeout(() => {
@@ -2599,7 +2687,7 @@ function NewSessionButton({ iconOnly = false }: { iconOnly?: boolean }) {
       );
       composerInput?.focus();
     }, 50);
-  }, [runtime]);
+  }, [onNewSession, runtime]);
 
   return (
     <Button
@@ -2627,6 +2715,7 @@ type WorkspaceAssistantPanelProps = {
   prompts: string[];
   docId?: string;
   isAdmin?: boolean;
+  onNewSession?: () => void;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -3062,6 +3151,7 @@ function WorkspaceAssistantPanel({
   prompts,
   docId,
   isAdmin = false,
+  onNewSession,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -3171,7 +3261,10 @@ function WorkspaceAssistantPanel({
             </h2>
           </div>
           <div className="flex items-center gap-2">
-            <NewSessionButton iconOnly={isAssistantHeaderCompact} />
+            <NewSessionButton
+              iconOnly={isAssistantHeaderCompact}
+              onNewSession={onNewSession}
+            />
             <SkillsManagerButton
               workspaceId={docId}
               iconOnly={isAssistantHeaderCompact}
@@ -3272,6 +3365,7 @@ export function WorkspaceAssistantUI({
   prompts,
   docId,
   isAdmin,
+  onNewSession,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -3287,6 +3381,7 @@ export function WorkspaceAssistantUI({
       prompts={prompts}
       docId={docId}
       isAdmin={isAdmin}
+      onNewSession={onNewSession}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
       isModelPickerOpen={isModelPickerOpen}
@@ -3307,7 +3402,7 @@ export function WorkspaceAssistant({
   activeSheetId,
   isAdmin,
 }: WorkspaceAssistantProps) {
-  const threadId = useStableThreadId();
+  const { threadId, markThreadStarted, startNewThread } = useThreadIdFromUrl();
   const [selectedModel, setSelectedModel] =
     React.useState<string>(DEFAULT_MODEL);
   const [isModelPickerOpen, setIsModelPickerOpen] = React.useState(false);
@@ -3416,6 +3511,7 @@ export function WorkspaceAssistant({
           }
 
           try {
+            markThreadStarted();
             const response = await fetch("/api/chat", {
               method: "POST",
               headers: {
@@ -3459,7 +3555,7 @@ export function WorkspaceAssistant({
           }
         },
       }),
-      [threadId],
+      [markThreadStarted, threadId],
     ),
     {
       maxSteps: 1,
@@ -3468,11 +3564,11 @@ export function WorkspaceAssistant({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <SheetsInstructions sheets={sheets} activeSheetId={activeSheetId} />
       <WorkspaceAssistantPanel
         prompts={prompts}
         docId={docId}
         isAdmin={isAdmin}
+        onNewSession={startNewThread}
         selectedModel={selectedModel}
         selectedModelLabel={selectedModelLabel}
         isModelPickerOpen={isModelPickerOpen}

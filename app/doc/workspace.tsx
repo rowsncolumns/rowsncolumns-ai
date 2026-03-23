@@ -1722,6 +1722,7 @@ export function NewWorkspace({
       prompts={starterPrompts}
       docId={documentId}
       isAdmin={isAdmin}
+      onNewSession={assistantRuntime.startNewThread}
       selectedModel={assistantRuntime.selectedModel}
       selectedModelLabel={assistantRuntime.selectedModelLabel}
       isModelPickerOpen={assistantRuntime.isModelPickerOpen}

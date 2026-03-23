@@ -162,6 +162,11 @@ const buildSystemPrompt = (options?: {
 - If information is missing but common defaults are possible, proceed with those defaults and state assumptions briefly.
 - Never stop at a question when a safe, non-destructive next step is available.
 
+## Coordinate System (Critical)
+- Treat spreadsheet row/column indexes as 1-based unless a tool explicitly states otherwise.
+- A1 corresponds to rowIndex=1 and columnIndex=1.
+- When uncertain, prefer explicit A1 notation to avoid off-by-one mistakes.
+
 ## Spreadsheet design principles
 - Create clear headers and labels.
 - Group related content logically.
