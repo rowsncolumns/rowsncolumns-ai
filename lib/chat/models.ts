@@ -39,7 +39,7 @@ export type CellData = z.infer<typeof CellDataSchema>;
 // Spreadsheet ChangeBatch
 export const SpreadsheetChangeBatchSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID"),
   range: z.string().describe("The A1 notation range (e.g., 'A1:C3')"),
   cells: z
     .union([
@@ -344,7 +344,7 @@ const CellStyleDataSchema = z
 // Spreadsheet FormatRange
 export const SpreadsheetFormatRangeSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID"),
   range: z.string().describe("The A1 notation range (e.g., 'A1:C3')"),
   cells: z
     .union([
@@ -364,7 +364,7 @@ export type SpreadsheetFormatRangeInput = z.infer<
 // Spreadsheet InsertRows
 export const SpreadsheetInsertRowsSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID"),
   referenceRowIndex: z
     .number()
     .int()
@@ -385,7 +385,7 @@ export type SpreadsheetInsertRowsInput = z.infer<
 // Spreadsheet InsertColumns
 export const SpreadsheetInsertColumnsSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID"),
   referenceColumnIndex: z
     .number()
     .int()
@@ -435,18 +435,12 @@ export type SpreadsheetSetIterativeModeInput = z.infer<
 // Spreadsheet ReadDocument
 export const SpreadsheetReadDocumentSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .optional()
-    .describe(
-      "Optional sheet ID to read from (1-based). If provided, takes priority over sheetName.",
-    ),
+  sheetId: z.number().int().describe("The sheet ID to read from (1-based)."),
   range: z
     .string()
     .optional()
     .describe(
-      "Optional A1 notation range (e.g., 'A1:B10'). Only applies when sheetId or sheetName is provided.",
+      "Optional A1 notation range (e.g., 'A1:B10') within the selected sheet.",
     ),
   ...ToolExplanationSchemaShape,
 });
@@ -471,7 +465,7 @@ const DimensionSpecSchema = z.object({
 // Spreadsheet SetRowColDimensions
 const SpreadsheetSetRowColDimensionsBaseSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID"),
   range: z
     .string()
     .describe(
@@ -499,9 +493,7 @@ export const SpreadsheetDuplicateSheetSchema = z.object({
   sheetId: z
     .number()
     .int()
-    .optional()
-    .default(1)
-    .describe("The sheet ID (1-based) of the sheet to duplicate (default: 1)"),
+    .describe("The sheet ID (1-based) of the sheet to duplicate"),
   newSheetId: z
     .number()
     .int()
@@ -519,12 +511,7 @@ export type SpreadsheetDuplicateSheetInput = z.infer<
 // Spreadsheet DeleteCells
 export const SpreadsheetDeleteCellsSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .optional()
-    .default(1)
-    .describe("The sheet ID (1-based, default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID (1-based)"),
   ranges: z
     .array(z.string())
     .describe(
@@ -540,12 +527,7 @@ export type SpreadsheetDeleteCellsInput = z.infer<
 // Spreadsheet ClearFormatting
 export const SpreadsheetClearFormattingSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .optional()
-    .default(1)
-    .describe("The sheet ID (1-based, default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID (1-based)"),
   ranges: z
     .array(z.string())
     .describe(
@@ -561,12 +543,7 @@ export type SpreadsheetClearFormattingInput = z.infer<
 // Spreadsheet ApplyFill
 export const SpreadsheetApplyFillSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .optional()
-    .default(1)
-    .describe("The sheet ID (1-based, default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID (1-based)"),
   activeCell: z
     .string()
     .describe(
@@ -592,12 +569,7 @@ export type SpreadsheetApplyFillInput = z.infer<
 // Spreadsheet InsertNote
 export const SpreadsheetInsertNoteSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .optional()
-    .default(1)
-    .describe("The sheet ID (1-based, default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID (1-based)"),
   cell: z
     .string()
     .describe(
@@ -619,12 +591,7 @@ export type SpreadsheetInsertNoteInput = z.infer<
 // Spreadsheet DeleteRows
 export const SpreadsheetDeleteRowsSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .optional()
-    .default(1)
-    .describe("The sheet ID (1-based, default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID (1-based)"),
   rowIndexes: z
     .array(z.number().int())
     .describe(
@@ -640,12 +607,7 @@ export type SpreadsheetDeleteRowsInput = z.infer<
 // Spreadsheet DeleteColumns
 export const SpreadsheetDeleteColumnsSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .optional()
-    .default(1)
-    .describe("The sheet ID (1-based, default: 1)"),
+  sheetId: z.number().int().describe("The sheet ID (1-based)"),
   columnIndexes: z
     .array(z.number().int())
     .describe(
