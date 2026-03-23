@@ -1617,16 +1617,16 @@ export function NewWorkspace({
                 }
                 className="flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <TabsList className="grid w-full grid-cols-2 border border-black/10 bg-[#f4efe8] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] h-auto rounded-xl">
+                <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-(--panel-border) bg-(--assistant-chip-bg) p-1">
                   <TabsTrigger
                     value="chat"
-                    className="h-9 rounded-xl text-[15px] font-semibold tracking-[-0.01em] text-[#5b5f66] data-[state=active]:bg-white data-[state=active]:text-[#1e2430] data-[state=active]:shadow-[0_1px_2px_rgba(0,0,0,0.09)] data-[state=inactive]:hover:text-[#2b3340]"
+                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--card-bg-solid) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)] data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground"
                   >
                     Chat
                   </TabsTrigger>
                   <TabsTrigger
                     value="sheet"
-                    className="h-9 rounded-xl text-[15px] font-semibold tracking-[-0.01em] text-[#5b5f66] data-[state=active]:bg-white data-[state=active]:text-[#1e2430] data-[state=active]:shadow-[0_1px_2px_rgba(0,0,0,0.09)] data-[state=inactive]:hover:text-[#2b3340]"
+                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--card-bg-solid) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)] data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground"
                   >
                     Sheet
                   </TabsTrigger>
