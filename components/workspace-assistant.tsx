@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
@@ -2322,9 +2323,15 @@ function SkillsManagerButton({
         {!iconOnly && <span>Skills</span>}
       </Button>
 
-      {isOpen && (
+      {typeof document !== "undefined"
+        ? createPortal(
+            isOpen ? (
         <div
-          className="fixed inset-0 z-[110] bg-black/35 px-4 py-6 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[110] overflow-y-auto bg-black/35 px-4 backdrop-blur-[1px]"
+          style={{
+            paddingTop: "max(1.5rem, env(safe-area-inset-top))",
+            paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+          }}
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               setIsOpen(false);
@@ -2629,7 +2636,10 @@ function SkillsManagerButton({
             )}
           </div>
         </div>
-      )}
+            ) : null,
+            document.body,
+          )
+        : null}
       <AlertDialog
         open={pendingDeleteSkill !== null}
         onOpenChange={(open) => {
