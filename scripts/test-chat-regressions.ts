@@ -11,6 +11,16 @@ type TestCase = {
   run: () => void | Promise<void>;
 };
 
+const createBigIntValue = (value: number): unknown => {
+  const maybeBigInt = (
+    globalThis as { BigInt?: (input: number | string) => unknown }
+  ).BigInt;
+  if (typeof maybeBigInt !== "function") {
+    throw new Error("BigInt is not available in this runtime");
+  }
+  return maybeBigInt(value);
+};
+
 const tests: TestCase[] = [
   {
     name: "spreadsheet_setRowColDimensions schema is top-level object",
@@ -56,8 +66,8 @@ const tests: TestCase[] = [
         type: "tool.call",
         toolName: "test_tool",
         args: {
-          row: 1n,
-          nested: { col: 2n },
+          row: createBigIntValue(1),
+          nested: { col: createBigIntValue(2) },
         },
       });
 
