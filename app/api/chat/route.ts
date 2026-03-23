@@ -14,6 +14,43 @@ import { isAdminUser } from "@/lib/auth/admin";
 import { auth } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+const DEFAULT_CHAT_SERVER_TIMEOUT_MS = 280_000;
+const MAX_CHAT_SERVER_TIMEOUT_MS = 295_000;
+
+type ChatAbortReason = {
+  code: "SERVER_TIMEOUT" | "CLIENT_ABORT";
+  message: string;
+  timeoutMs?: number;
+};
+
+const parseChatServerTimeoutMs = () => {
+  const rawValue = process.env.CHAT_SERVER_TIMEOUT_MS?.trim();
+  if (!rawValue) {
+    return DEFAULT_CHAT_SERVER_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_CHAT_SERVER_TIMEOUT_MS;
+  }
+
+  return Math.min(parsed, MAX_CHAT_SERVER_TIMEOUT_MS);
+};
+
+const isChatAbortReason = (value: unknown): value is ChatAbortReason => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const maybe = value as Partial<ChatAbortReason>;
+  return (
+    (maybe.code === "SERVER_TIMEOUT" || maybe.code === "CLIENT_ABORT") &&
+    typeof maybe.message === "string"
+  );
+};
 
 type ChatRequestBody = {
   threadId?: string;
@@ -98,6 +135,40 @@ export async function POST(request: Request) {
     }
 
     const runId = crypto.randomUUID();
+    const chatServerTimeoutMs = parseChatServerTimeoutMs();
+    const runAbortController = new AbortController();
+
+    const abortFromClientSignal = () => {
+      if (runAbortController.signal.aborted) {
+        return;
+      }
+
+      runAbortController.abort({
+        code: "CLIENT_ABORT",
+        message: "Client aborted chat request.",
+      } satisfies ChatAbortReason);
+    };
+
+    if (request.signal.aborted) {
+      abortFromClientSignal();
+    } else {
+      request.signal.addEventListener("abort", abortFromClientSignal, {
+        once: true,
+      });
+    }
+
+    const timeoutHandle = setTimeout(() => {
+      if (runAbortController.signal.aborted) {
+        return;
+      }
+
+      runAbortController.abort({
+        code: "SERVER_TIMEOUT",
+        timeoutMs: chatServerTimeoutMs,
+        message: `Chat run exceeded server timeout (${Math.ceil(chatServerTimeoutMs / 1000)}s).`,
+      } satisfies ChatAbortReason);
+    }, chatServerTimeoutMs);
+    timeoutHandle.unref?.();
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -117,7 +188,7 @@ export async function POST(request: Request) {
             provider: provider as "openai" | "anthropic" | undefined,
             reasoningEnabled,
             systemInstructions,
-            abortSignal: request.signal,
+            abortSignal: runAbortController.signal,
           })) {
             if (event.type === "tool.call") {
               toolCallCount += 1;
@@ -143,10 +214,17 @@ export async function POST(request: Request) {
             );
           }
         } catch (error) {
+          const abortReason = runAbortController.signal.reason;
+          const timeoutMessage =
+            isChatAbortReason(abortReason) &&
+            abortReason.code === "SERVER_TIMEOUT"
+              ? "This request took too long and hit the server timeout. Ask me to continue, and I will pick up from where I stopped."
+              : null;
           const errorMessage =
-            error instanceof Error
+            timeoutMessage ||
+            (error instanceof Error
               ? error.message
-              : "Failed to process chat request.";
+              : "Failed to process chat request.");
 
           controller.enqueue(
             encoder.encode(
@@ -157,6 +235,9 @@ export async function POST(request: Request) {
             ),
           );
         } finally {
+          clearTimeout(timeoutHandle);
+          request.signal.removeEventListener("abort", abortFromClientSignal);
+
           if (isCompleted && !isAdmin) {
             const outputChars = Math.max(messageDeltaChars, messageCompleteChars);
             const pricing = calculateChatRunCredits({

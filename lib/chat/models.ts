@@ -435,7 +435,11 @@ export type SpreadsheetSetIterativeModeInput = z.infer<
 // Spreadsheet ReadDocument
 export const SpreadsheetReadDocumentSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().describe("The sheet ID to read from (1-based)."),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("Optional sheet ID to read from."),
   range: z
     .string()
     .optional()
