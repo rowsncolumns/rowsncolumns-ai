@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+const SESSION_RETRY_DELAYS_MS = [120, 240, 360];
 
 function readSingleParam(value: string | string[] | undefined): string | null {
   if (typeof value === "string") return value;
@@ -13,6 +14,36 @@ function readSingleParam(value: string | string[] | undefined): string | null {
 function normalizeRedirectPath(value: string | null): string {
   if (value && value.startsWith("/")) return value;
   return "/doc";
+}
+
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+function buildSignInErrorRedirect({
+  callbackPath,
+  error,
+}: {
+  callbackPath: string;
+  error: string;
+}) {
+  return `/auth/sign-in?callbackURL=${encodeURIComponent(
+    callbackPath,
+  )}&error=${encodeURIComponent(error)}`;
+}
+
+function normalizeOAuthErrorMessage(rawError: string, description?: string) {
+  const lowered = rawError.trim().toLowerCase();
+  if (lowered === "access_denied") {
+    return "Sign-in was canceled.";
+  }
+
+  if (description?.trim()) {
+    return description.trim();
+  }
+
+  return "Unable to complete sign-in. Please try again.";
 }
 
 export const dynamic = "force-dynamic";
@@ -30,15 +61,39 @@ export default async function AuthCallbackPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const [{ data: session }, params] = await Promise.all([
-    auth.getSession(),
-    searchParams,
-  ]);
+  const params = await searchParams;
+  const redirectTo = normalizeRedirectPath(readSingleParam(params.redirectTo));
+  const oauthError = readSingleParam(params.error);
+  const oauthErrorDescription =
+    readSingleParam(params.error_description) ??
+    readSingleParam(params.message) ??
+    undefined;
 
-  if (!session?.user) {
-    redirect("/auth/sign-in?error=Unable%20to%20complete%20sign-in");
+  if (oauthError) {
+    redirect(
+      buildSignInErrorRedirect({
+        callbackPath: redirectTo,
+        error: normalizeOAuthErrorMessage(oauthError, oauthErrorDescription),
+      }),
+    );
   }
 
-  const redirectTo = normalizeRedirectPath(readSingleParam(params.redirectTo));
-  redirect(redirectTo);
+  for (let attempt = 0; attempt <= SESSION_RETRY_DELAYS_MS.length; attempt += 1) {
+    const { data: session } = await auth.getSession();
+    if (session?.user) {
+      redirect(redirectTo);
+    }
+
+    if (attempt < SESSION_RETRY_DELAYS_MS.length) {
+      await wait(SESSION_RETRY_DELAYS_MS[attempt]!);
+    }
+  }
+
+  redirect(
+    buildSignInErrorRedirect({
+      callbackPath: redirectTo,
+      error:
+        "Unable to complete sign-in. Please try again. If this keeps happening in Safari, allow cookies for localhost.",
+    }),
+  );
 }

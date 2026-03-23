@@ -188,7 +188,6 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const { data: session } = await auth.getSession();
-  const isLoggedIn = Boolean(session?.user);
   const initialUser = session?.user
     ? {
         id: session.user.id,
@@ -225,9 +224,8 @@ export default async function Home() {
 
                   <div className="mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row sm:justify-center lg:justify-start">
                     <AuthModalTrigger
-                      triggerText={
-                        isLoggedIn ? "New spreadsheet" : "Try for free"
-                      }
+                      triggerText="Try for free"
+                      authenticatedTriggerText="New spreadsheet"
                       triggerVariant="hero"
                       redirectTo="/doc"
                     />

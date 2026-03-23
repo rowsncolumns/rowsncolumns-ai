@@ -9,6 +9,7 @@ import { authClient } from "@/lib/auth/client";
 
 type AuthModalTriggerProps = {
   triggerText: string;
+  authenticatedTriggerText?: string;
   triggerVariant?: "ghost" | "hero";
   redirectTo?: string;
   className?: string;
@@ -41,12 +42,17 @@ function GoogleBadge() {
 
 export function AuthModalTrigger({
   triggerText,
+  authenticatedTriggerText,
   triggerVariant = "ghost",
   redirectTo = "/doc",
   className = "",
   showIconOnMobile = false,
 }: AuthModalTriggerProps) {
   const { data: sessionData } = authClient.useSession();
+  const resolvedTriggerText =
+    sessionData?.user && authenticatedTriggerText
+      ? authenticatedTriggerText
+      : triggerText;
   const [open, setOpen] = useState(false);
   const [loadingProvider, setLoadingProvider] = useState<SocialProvider | null>(
     null,
@@ -184,10 +190,10 @@ export function AuthModalTrigger({
           {showIconOnMobile ? (
             <>
               <User className="h-4 w-4 sm:hidden" />
-              <span className="hidden sm:inline">{triggerText}</span>
+              <span className="hidden sm:inline">{resolvedTriggerText}</span>
             </>
           ) : (
-            triggerText
+            resolvedTriggerText
           )}
         </Button>
       ) : (
@@ -196,7 +202,7 @@ export function AuthModalTrigger({
           onClick={handleTriggerClick}
           className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-(--accent) px-6 text-base font-semibold text-(--accent-foreground) shadow-[0_18px_40px_rgba(255,109,52,0.22)] transition-all duration-200 hover:bg-(--accent-strong) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-background ${className}`}
         >
-          {triggerText}
+          {resolvedTriggerText}
         </button>
       )}
 
