@@ -207,7 +207,7 @@ export default async function Home() {
     <main className="relative overflow-hidden">
       <div className="absolute inset-x-0 top-0 -z-10 h-[38rem] bg-[radial-gradient(circle_at_top,rgba(255,109,52,0.22),transparent_42%)]" />
 
-      <section className="px-5 pb-24 pt-5 sm:px-8 lg:px-12">
+      <section className="px-5 pb-12 pt-5 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <Card className="hero-grid overflow-hidden bg-[var(--card-bg)]">
             <div className="p-4 sm:p-6">

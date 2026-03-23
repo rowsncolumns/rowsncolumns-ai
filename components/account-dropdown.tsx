@@ -35,7 +35,7 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="h-9  rounded-lg px-1.5 sm:h-11 sm:px-2"
+          className="h-9  rounded-lg px-0 sm:h-11 sm:px-2"
         >
           <span className="flex items-center gap-1.5 sm:gap-2">
             {image ? (
