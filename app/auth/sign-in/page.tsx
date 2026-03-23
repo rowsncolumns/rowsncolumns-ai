@@ -36,13 +36,20 @@ export default async function SignInPage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
-  const session = await getServerSessionSafe();
-
   const callbackURL = normalizeCallbackPath(
     readSingleParam(params.callbackURL),
   );
-  if (session?.user) {
-    redirect(callbackURL);
+
+  // Check if user is already logged in and redirect them
+  // Wrapped in try-catch to handle cookie mutation errors that can occur
+  // when the auth library tries to refresh session tokens in Server Components
+  try {
+    const session = await getServerSessionSafe();
+    if (session?.user) {
+      redirect(callbackURL);
+    }
+  } catch {
+    // If session check fails, show sign-in form (safe fallback)
   }
 
   const error = readSingleParam(params.error);
