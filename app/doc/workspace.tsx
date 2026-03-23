@@ -115,6 +115,7 @@ import {
 import { FileMenu } from "@/components/file-menu";
 import { ShareDocumentButton } from "@/components/share-document-button";
 import { SiteHeader } from "@/components/site-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { authClient } from "@/lib/auth/client";
 import {
   getThemeModeFromBodyClass,
@@ -279,6 +280,40 @@ const pickSeededPrompts = (
 
 const ASSISTANT_PANEL_MIN_WIDTH = 350;
 const ASSISTANT_PANEL_DEFAULT_WIDTH = 840;
+const MOBILE_LAYOUT_MEDIA_QUERY = "(max-width: 767px)";
+
+const useMediaQueryMatch = (query: string) => {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQueryList = window.matchMedia(query);
+    const updateMatches = () => {
+      setMatches(mediaQueryList.matches);
+    };
+
+    updateMatches();
+
+    if (typeof mediaQueryList.addEventListener === "function") {
+      mediaQueryList.addEventListener("change", updateMatches);
+      return () => {
+        mediaQueryList.removeEventListener("change", updateMatches);
+      };
+    }
+
+    mediaQueryList.addListener(updateMatches);
+    return () => {
+      mediaQueryList.removeListener(updateMatches);
+    };
+  }, [query]);
+
+  return matches;
+};
 
 type WorkspaceUser = {
   id: string;
@@ -1493,6 +1528,8 @@ export function NewWorkspace({
   initialThemeMode,
   canManageShare,
 }: NewWorkspaceProps) {
+  const isMobileLayout = useMediaQueryMatch(MOBILE_LAYOUT_MEDIA_QUERY);
+  const [mobileTab, setMobileTab] = useState<"chat" | "sheet">("chat");
   // Create the assistant runtime at this level so both panes can use it
   const assistantRuntime = useSpreadsheetAssistantRuntime({
     docId: documentId,
@@ -1526,6 +1563,30 @@ export function NewWorkspace({
     ].join("; ");
   };
 
+  const spreadsheetPane = (
+    <SpreadsheetPane
+      documentId={documentId}
+      currentUser={currentUser}
+      initialThemeMode={initialThemeMode}
+      canManageShare={canManageShare}
+    />
+  );
+
+  const assistantPane = (
+    <WorkspaceAssistantUI
+      prompts={starterPrompts}
+      docId={documentId}
+      selectedModel={assistantRuntime.selectedModel}
+      selectedModelLabel={assistantRuntime.selectedModelLabel}
+      isModelPickerOpen={assistantRuntime.isModelPickerOpen}
+      setIsModelPickerOpen={assistantRuntime.setIsModelPickerOpen}
+      setSelectedModel={assistantRuntime.setSelectedModel}
+      reasoningEnabled={assistantRuntime.reasoningEnabled}
+      setReasoningEnabled={assistantRuntime.setReasoningEnabled}
+      reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
+    />
+  );
+
   return (
     <AssistantRuntimeProvider runtime={assistantRuntime.runtime}>
       <main className="flex min-h-dvh w-full flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5 max-h-full">
@@ -1544,49 +1605,78 @@ export function NewWorkspace({
 
         <SpreadsheetProvider>
           <div className="flex min-h-0 flex-1 flex-col">
-            <Group
-              id={PANEL_GROUP_ID}
-              orientation="horizontal"
-              defaultLayout={defaultLayout}
-              onLayoutChanged={handleLayoutChanged}
-              className="min-h-0 flex-1 flex"
-              resizeTargetMinimumSize={{ coarse: 32, fine: 16 }}
-            >
-              <Panel
-                id={SPREADSHEET_PANEL_ID}
-                className="min-w-0 flex flex-col relative"
+            {isMobileLayout ? (
+              <Tabs
+                value={mobileTab}
+                onValueChange={(value) =>
+                  setMobileTab(value === "sheet" ? "sheet" : "chat")
+                }
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <SpreadsheetPane
-                  documentId={documentId}
-                  currentUser={currentUser}
-                  initialThemeMode={initialThemeMode}
-                  canManageShare={canManageShare}
-                />
-              </Panel>
-              <PanelSeparator className="group flex w-4 cursor-col-resize touch-none select-none items-center justify-center bg-transparent outline-none transition-colors hover:bg-black/5 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0">
-                <div className="pointer-events-none flex h-12 w-1 items-center justify-center rounded-full bg-black/15 transition-colors duration-150 group-hover:bg-black/30" />
-              </PanelSeparator>
-              <Panel
-                id={ASSISTANT_PANEL_ID}
-                minSize={`${ASSISTANT_PANEL_MIN_WIDTH}px`}
-                maxSize={`${ASSISTANT_PANEL_DEFAULT_WIDTH}px`}
-                groupResizeBehavior="preserve-pixel-size"
-                className="min-w-0"
+                <TabsList className="grid h-11 w-full grid-cols-2 rounded-2xl border border-black/10 bg-[#f4efe8] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] h-auto rounded-xl">
+                  <TabsTrigger
+                    value="chat"
+                    className="h-9 rounded-xl text-[15px] font-semibold tracking-[-0.01em] text-[#5b5f66] data-[state=active]:bg-white data-[state=active]:text-[#1e2430] data-[state=active]:shadow-[0_1px_2px_rgba(0,0,0,0.09)] data-[state=inactive]:hover:text-[#2b3340]"
+                  >
+                    Chat
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="sheet"
+                    className="h-9 rounded-xl text-[15px] font-semibold tracking-[-0.01em] text-[#5b5f66] data-[state=active]:bg-white data-[state=active]:text-[#1e2430] data-[state=active]:shadow-[0_1px_2px_rgba(0,0,0,0.09)] data-[state=inactive]:hover:text-[#2b3340]"
+                  >
+                    Sheet
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent
+                  value="chat"
+                  forceMount
+                  className="mt-2 min-h-0 flex-1"
+                  style={{ display: mobileTab === "chat" ? "flex" : "none" }}
+                >
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    {assistantPane}
+                  </div>
+                </TabsContent>
+                <TabsContent
+                  value="sheet"
+                  forceMount
+                  className="mt-2 min-h-0 flex-1"
+                  style={{ display: mobileTab === "sheet" ? "flex" : "none" }}
+                >
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    {spreadsheetPane}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <Group
+                id={PANEL_GROUP_ID}
+                orientation="horizontal"
+                defaultLayout={defaultLayout}
+                onLayoutChanged={handleLayoutChanged}
+                className="min-h-0 flex-1 flex"
+                resizeTargetMinimumSize={{ coarse: 32, fine: 16 }}
               >
-                <WorkspaceAssistantUI
-                  prompts={starterPrompts}
-                  docId={documentId}
-                  selectedModel={assistantRuntime.selectedModel}
-                  selectedModelLabel={assistantRuntime.selectedModelLabel}
-                  isModelPickerOpen={assistantRuntime.isModelPickerOpen}
-                  setIsModelPickerOpen={assistantRuntime.setIsModelPickerOpen}
-                  setSelectedModel={assistantRuntime.setSelectedModel}
-                  reasoningEnabled={assistantRuntime.reasoningEnabled}
-                  setReasoningEnabled={assistantRuntime.setReasoningEnabled}
-                  reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
-                />
-              </Panel>
-            </Group>
+                <Panel
+                  id={SPREADSHEET_PANEL_ID}
+                  className="min-w-0 flex flex-col relative"
+                >
+                  {spreadsheetPane}
+                </Panel>
+                <PanelSeparator className="group flex w-4 cursor-col-resize touch-none select-none items-center justify-center bg-transparent outline-none transition-colors hover:bg-black/5 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0">
+                  <div className="pointer-events-none flex h-12 w-1 items-center justify-center rounded-full bg-black/15 transition-colors duration-150 group-hover:bg-black/30" />
+                </PanelSeparator>
+                <Panel
+                  id={ASSISTANT_PANEL_ID}
+                  minSize={`${ASSISTANT_PANEL_MIN_WIDTH}px`}
+                  maxSize={`${ASSISTANT_PANEL_DEFAULT_WIDTH}px`}
+                  groupResizeBehavior="preserve-pixel-size"
+                  className="min-w-0"
+                >
+                  {assistantPane}
+                </Panel>
+              </Group>
+            )}
           </div>
         </SpreadsheetProvider>
       </main>
