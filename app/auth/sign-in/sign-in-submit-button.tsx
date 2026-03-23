@@ -30,9 +30,7 @@ function GoogleBadge() {
 }
 
 function callbackURLFromPath(path: string): string {
-  return `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(
-    path,
-  )}`;
+  return `/auth/callback?redirectTo=${encodeURIComponent(path)}`;
 }
 
 export function SignInSubmitButton({
@@ -50,10 +48,9 @@ export function SignInSubmitButton({
     try {
       setPending(true);
       const callbackURL = callbackURLFromPath(callbackPath);
-      const { data, error } = await authClient.signIn.social({
+      const { error } = await authClient.signIn.social({
         provider,
         callbackURL,
-        disableRedirect: true,
       });
 
       if (error) {
@@ -61,14 +58,6 @@ export function SignInSubmitButton({
           error.message ?? `Failed to start ${providerLabel} sign-in`,
         );
       }
-
-      if (!data?.url) {
-        throw new Error(`Unable to start ${providerLabel} sign-in`);
-      }
-
-      requestAnimationFrame(() => {
-        window.location.assign(data.url);
-      });
     } catch (err) {
       setPending(false);
       const message =

@@ -1,4 +1,3 @@
-import { auth } from "@/lib/auth/server";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
@@ -72,16 +71,5 @@ export default async function AuthCallbackPage({
     );
   }
 
-  const { data: session } = await auth.getSession();
-  if (session?.user) {
-    redirect(redirectTo);
-  }
-
-  redirect(
-    buildSignInErrorRedirect({
-      callbackPath: redirectTo,
-      error:
-        "Unable to complete sign-in. Please try again. If this keeps happening in Safari, allow cookies for localhost.",
-    }),
-  );
+  redirect(redirectTo);
 }

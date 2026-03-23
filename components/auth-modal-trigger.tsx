@@ -58,11 +58,6 @@ export function AuthModalTrigger({
     null,
   );
   const [error, setError] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -74,10 +69,7 @@ export function AuthModalTrigger({
   }, [open]);
 
   const callbackURL = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(
-      redirectTo,
-    )}`;
+    return `/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`;
   }, [redirectTo]);
 
   const handleSocialSignIn = useCallback(
@@ -206,7 +198,7 @@ export function AuthModalTrigger({
         </button>
       )}
 
-      {mounted ? createPortal(modal, document.body) : null}
+      {typeof document !== "undefined" ? createPortal(modal, document.body) : null}
     </>
   );
 }

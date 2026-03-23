@@ -95,7 +95,14 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [https://localhost:3000](https://localhost:3000) with your browser to see the result.
+OAuth sign-in (especially Safari) requires secure cookies, so dev now starts with HTTPS by default. Use [https://localhost:3000](https://localhost:3000).
+
+If you need plain HTTP for debugging, run:
+
+```bash
+yarn dev:http
+```
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
