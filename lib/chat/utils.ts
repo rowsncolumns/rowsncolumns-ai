@@ -18,6 +18,18 @@ import { functions } from "@rowsncolumns/functions/server";
 
 const SHAREDB_URL = process.env.SHAREDB_URL || "ws://localhost:8080";
 const SHAREDB_COLLECTION = process.env.SHAREDB_COLLECTION || "spreadsheets";
+const SHAREDB_FETCH_TIMEOUT_MS = Number.parseInt(
+  process.env.SHAREDB_FETCH_TIMEOUT_MS ?? "25000",
+  10,
+);
+const SHAREDB_FETCH_MAX_RETRIES = Number.parseInt(
+  process.env.SHAREDB_FETCH_MAX_RETRIES ?? "2",
+  10,
+);
+const SHAREDB_FETCH_RETRY_BASE_DELAY_MS = Number.parseInt(
+  process.env.SHAREDB_FETCH_RETRY_BASE_DELAY_MS ?? "250",
+  10,
+);
 const nodeRequire = createRequire(import.meta.url);
 
 // Ensure ws skips optional native addons in bundled server runtime.
@@ -99,6 +111,155 @@ class InlineWorker extends EventTarget {
 
 type SpreadsheetPatchTuples = Parameters<typeof applyPatchesToShareDBDoc>[1];
 
+const getNormalizedPositiveInt = (value: number, fallback: number) =>
+  Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
+
+const FETCH_TIMEOUT_MS = getNormalizedPositiveInt(
+  SHAREDB_FETCH_TIMEOUT_MS,
+  25000,
+);
+const FETCH_MAX_RETRIES = Math.max(
+  0,
+  getNormalizedPositiveInt(SHAREDB_FETCH_MAX_RETRIES, 2),
+);
+const FETCH_RETRY_BASE_DELAY_MS = getNormalizedPositiveInt(
+  SHAREDB_FETCH_RETRY_BASE_DELAY_MS,
+  250,
+);
+
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const computeBackoffDelayMs = (attemptIndex: number) => {
+  const exponential = FETCH_RETRY_BASE_DELAY_MS * 2 ** attemptIndex;
+  const capped = Math.min(exponential, 3000);
+  const jitter = Math.floor(Math.random() * 200);
+  return capped + jitter;
+};
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+const isRetryableShareDbError = (error: unknown) => {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("timeout") ||
+    message.includes("connection terminated unexpectedly") ||
+    message.includes("socket hang up") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("network") ||
+    message.includes("websocket") ||
+    message.includes("closed")
+  );
+};
+
+const safeCloseWebSocket = (ws: import("ws").WebSocket) => {
+  try {
+    ws.close();
+  } catch {
+    // Ignore close errors.
+  }
+};
+
+const getShareDBDocumentOnce = (
+  docId: string,
+): Promise<{
+  doc: ShareDBClient.Doc;
+  connection: ShareDBClient.Connection;
+  close: () => void;
+}> => {
+  return new Promise((resolve, reject) => {
+    const ws = new (getWebSocketCtor())(SHAREDB_URL);
+    let settled = false;
+    let doc: ShareDBClient.Doc | null = null;
+
+    const finalizeReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (doc) {
+        try {
+          doc.destroy();
+        } catch {
+          // Ignore destroy errors.
+        }
+      }
+      safeCloseWebSocket(ws);
+      reject(error);
+    };
+
+    const finalizeResolve = (payload: {
+      doc: ShareDBClient.Doc;
+      connection: ShareDBClient.Connection;
+      close: () => void;
+    }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(payload);
+    };
+
+    const timeoutId = setTimeout(() => {
+      finalizeReject(
+        new Error(`ShareDB connection/fetch timeout for doc: ${docId}`),
+      );
+    }, FETCH_TIMEOUT_MS);
+
+    ws.once("open", () => {
+      console.log(`[ShareDB] WebSocket open, fetching doc: ${docId}`);
+      const connection = new ShareDBClient.Connection(ws as never);
+      const fetchedDoc = connection.get(SHAREDB_COLLECTION, docId);
+      doc = fetchedDoc;
+
+      fetchedDoc.fetch((err) => {
+        if (err) {
+          console.error(`[ShareDB] Fetch error for doc ${docId}:`, err);
+          finalizeReject(err instanceof Error ? err : new Error(String(err)));
+          return;
+        }
+
+        console.log(
+          `[ShareDB] Fetched doc: ${docId}, exists: ${fetchedDoc.type !== null}`,
+        );
+        finalizeResolve({
+          doc: fetchedDoc,
+          connection,
+          close: () => {
+            try {
+              fetchedDoc.destroy();
+            } catch {
+              // Ignore destroy errors.
+            }
+            safeCloseWebSocket(ws);
+          },
+        });
+      });
+    });
+
+    ws.once("error", (err) => {
+      finalizeReject(err instanceof Error ? err : new Error(String(err)));
+    });
+
+    ws.once("close", (code, reason) => {
+      if (settled) {
+        return;
+      }
+      const reasonText =
+        typeof reason === "string"
+          ? reason
+          : reason?.toString("utf8") || "unknown";
+      finalizeReject(
+        new Error(
+          `ShareDB websocket closed before fetch completed (code=${code}, reason=${reasonText})`,
+        ),
+      );
+    });
+  });
+};
+
 /**
  * Connect to ShareDB and fetch a document once.
  */
@@ -109,63 +270,36 @@ export const getShareDBDocument = (
   connection: ShareDBClient.Connection;
   close: () => void;
 }> => {
-  return new Promise((resolve, reject) => {
-    const ws = new (getWebSocketCtor())(SHAREDB_URL);
-    let resolved = false;
+  const totalAttempts = FETCH_MAX_RETRIES + 1;
 
-    const cleanup = () => {
-      if (!resolved) {
-        resolved = true;
-        ws.close();
-      }
-    };
+  const run = async () => {
+    let lastError: unknown = null;
 
-    const timeoutId = setTimeout(() => {
-      if (!resolved) {
-        cleanup();
-        reject(new Error(`ShareDB connection/fetch timeout for doc: ${docId}`));
-      }
-    }, 10000);
-
-    ws.on("open", () => {
-      console.log(`[ShareDB] WebSocket open, fetching doc: ${docId}`);
-      const connection = new ShareDBClient.Connection(ws as never);
-      const doc = connection.get(SHAREDB_COLLECTION, docId);
-
-      doc.fetch((err) => {
-        clearTimeout(timeoutId);
-        if (resolved) return;
-
-        if (err) {
-          console.error(`[ShareDB] Fetch error for doc ${docId}:`, err);
-          cleanup();
-          reject(err);
-          return;
+    for (let attempt = 0; attempt < totalAttempts; attempt++) {
+      try {
+        return await getShareDBDocumentOnce(docId);
+      } catch (error) {
+        lastError = error;
+        const shouldRetry =
+          attempt < totalAttempts - 1 && isRetryableShareDbError(error);
+        if (!shouldRetry) {
+          throw error;
         }
 
-        console.log(
-          `[ShareDB] Fetched doc: ${docId}, exists: ${doc.type !== null}`,
+        const delayMs = computeBackoffDelayMs(attempt);
+        console.warn(
+          `[ShareDB] getShareDBDocument retry ${attempt + 1}/${FETCH_MAX_RETRIES} for doc ${docId} after error: ${getErrorMessage(error)}. Retrying in ${delayMs}ms.`,
         );
-        resolved = true;
-        resolve({
-          doc,
-          connection,
-          close: () => {
-            doc.destroy();
-            ws.close();
-          },
-        });
-      });
-    });
-
-    ws.on("error", (err) => {
-      clearTimeout(timeoutId);
-      if (!resolved) {
-        resolved = true;
-        reject(err);
+        await wait(delayMs);
       }
-    });
-  });
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`Failed to fetch ShareDB document: ${docId}`);
+  };
+
+  return run();
 };
 
 /**

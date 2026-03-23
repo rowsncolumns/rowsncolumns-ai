@@ -9,12 +9,6 @@ loadEnv({
   override: false,
   quiet: true,
 });
-loadEnv({
-  path: path.resolve(process.cwd(), "external/rnc.ai/.env.local"),
-  override: false,
-  quiet: true,
-});
-
 const createShareDBPostgres = require("sharedb-postgres") as (
   options?: Record<string, unknown>,
 ) => unknown;
@@ -30,6 +24,47 @@ if (!shareDbDatabaseUrl) {
 const SHAREDB_DATABASE_URL: string = shareDbDatabaseUrl;
 
 const SHAREDB_REQUIRE_SSL = process.env.SHAREDB_REQUIRE_SSL !== "false";
+const parsePositiveInt = (value: string | undefined, fallback: number) => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+const parseNonNegativeInt = (value: string | undefined, fallback: number) => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") return true;
+  if (normalized === "0" || normalized === "false") return false;
+  return fallback;
+};
+const SHAREDB_PG_MAX_POOL_SIZE = parsePositiveInt(
+  process.env.SHAREDB_PG_MAX_POOL_SIZE,
+  10,
+);
+const SHAREDB_PG_CONNECTION_TIMEOUT_MS = parsePositiveInt(
+  process.env.SHAREDB_PG_CONNECTION_TIMEOUT_MS,
+  10000,
+);
+const SHAREDB_PG_IDLE_TIMEOUT_MS = parseNonNegativeInt(
+  process.env.SHAREDB_PG_IDLE_TIMEOUT_MS,
+  30000,
+);
+const SHAREDB_PG_MAX_LIFETIME_SECONDS = parseNonNegativeInt(
+  process.env.SHAREDB_PG_MAX_LIFETIME_SECONDS,
+  0,
+);
+const SHAREDB_PG_KEEP_ALIVE = parseBoolean(
+  process.env.SHAREDB_PG_KEEP_ALIVE,
+  true,
+);
+const SHAREDB_PG_KEEP_ALIVE_INITIAL_DELAY_MS = parseNonNegativeInt(
+  process.env.SHAREDB_PG_KEEP_ALIVE_INITIAL_DELAY_MS,
+  0,
+);
 const PORT = parseInt(
   process.env.PORT || process.env.SHAREDB_PORT || "8080",
   10,
@@ -52,12 +87,28 @@ async function startServer() {
     "Connecting ShareDB to PostgreSQL:",
     redactDatabaseUrl(SHAREDB_DATABASE_URL),
   );
+  console.log("ShareDB pg pool config:", {
+    max: SHAREDB_PG_MAX_POOL_SIZE,
+    connectionTimeoutMillis: SHAREDB_PG_CONNECTION_TIMEOUT_MS,
+    idleTimeoutMillis: SHAREDB_PG_IDLE_TIMEOUT_MS,
+    maxLifetimeSeconds: SHAREDB_PG_MAX_LIFETIME_SECONDS || undefined,
+    keepAlive: SHAREDB_PG_KEEP_ALIVE,
+    keepAliveInitialDelayMillis: SHAREDB_PG_KEEP_ALIVE_INITIAL_DELAY_MS,
+  });
 
   const shouldForceSsl =
     SHAREDB_REQUIRE_SSL && !/sslmode=/i.test(SHAREDB_DATABASE_URL);
 
   const db = createShareDBPostgres({
     connectionString: SHAREDB_DATABASE_URL,
+    max: SHAREDB_PG_MAX_POOL_SIZE,
+    connectionTimeoutMillis: SHAREDB_PG_CONNECTION_TIMEOUT_MS,
+    idleTimeoutMillis: SHAREDB_PG_IDLE_TIMEOUT_MS,
+    ...(SHAREDB_PG_MAX_LIFETIME_SECONDS > 0
+      ? { maxLifetimeSeconds: SHAREDB_PG_MAX_LIFETIME_SECONDS }
+      : {}),
+    keepAlive: SHAREDB_PG_KEEP_ALIVE,
+    keepAliveInitialDelayMillis: SHAREDB_PG_KEEP_ALIVE_INITIAL_DELAY_MS,
     ...(shouldForceSsl ? { ssl: { rejectUnauthorized: false } } : {}),
   }) as never;
 

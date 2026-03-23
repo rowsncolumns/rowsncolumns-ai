@@ -29,6 +29,62 @@ Routing behavior:
 - `AI_PROVIDER=openai` uses OpenAI.
 - Without `AI_PROVIDER`, `claude-*` models route to Anthropic; everything else routes to OpenAI.
 
+## Split Deployment: Vercel Frontend + Render Chat
+
+You can run chat execution on Render while keeping the Next.js frontend on Vercel.
+
+### Frontend (Vercel) env
+
+Set these on Vercel:
+
+```bash
+NEXT_PUBLIC_CHAT_API_BASE_URL=https://chat.rowsncolumns.ai
+NEXT_PUBLIC_CHAT_API_PATH=/chat
+```
+
+When `NEXT_PUBLIC_CHAT_API_BASE_URL` is set, the browser calls Render chat directly with a bearer token from Neon auth.
+The token used is the Neon session token (`getSession().session.token`), and Render validates it via Neon `/get-session`.
+Client payload includes only `threadId`, `docId`, and `message`.
+
+### Chat service (Render)
+
+Start command:
+
+```bash
+yarn chat:render
+```
+
+Render env vars:
+
+```bash
+PORT=10000
+CHAT_RENDER_PATH=/chat
+CHAT_SERVER_TIMEOUT_MS=1800000
+CHAT_ALLOWED_ORIGINS=https://rowsncolumns.ai,https://www.rowsncolumns.ai,https://<your-vercel-domain>
+CHAT_MODEL=gpt-5.4
+CHAT_PROVIDER=openai
+CHAT_REASONING_ENABLED=false
+# Optional fixed server-side instructions (never sent by browser)
+CHAT_SYSTEM_INSTRUCTIONS=
+
+# Required auth backend URL (same value used by Next.js auth server)
+NEON_AUTH_BASE_URL=
+
+# Reuse existing app runtime envs:
+DATABASE_URL=
+SHAREDB_URL=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+LANGCHAIN_API_KEY=
+LANGCHAIN_TRACING_V2=
+LANGCHAIN_PROJECT=
+```
+
+Notes:
+- `CHAT_ALLOWED_ORIGINS` is enforced via CORS.
+- Keep `DATABASE_URL` and `SHAREDB_URL` pointing to the same production backends used by the frontend app.
+- The legacy `/api/chat` route on Vercel can remain as fallback.
+
 ## Credits + Admin Refill
 
 Users receive daily credits with a non-accumulating reset to `30`.

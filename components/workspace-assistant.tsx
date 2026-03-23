@@ -112,6 +112,7 @@ import { Switch } from "@/components/ui/switch";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { parseChatStream } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
+import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@rowsncolumns/ui";
 import { useSpreadsheetState } from "@rowsncolumns/spreadsheet-state";
@@ -252,10 +253,18 @@ const MODEL_OPTION_VALUES = new Set<string>(
 const MODEL_STORAGE_KEY = "rnc.ai.workspace-assistant.model";
 const REASONING_STORAGE_KEY = "rnc.ai.workspace-assistant.reasoning-enabled";
 const SKILLS_API_ENDPOINT = "/api/skills";
+const CHAT_API_ENDPOINT = "/api/chat";
 const CHAT_HISTORY_API_ENDPOINT = "/api/chat/history";
 const INSUFFICIENT_CREDITS_ERROR_CODE = "INSUFFICIENT_CREDITS";
 const OUT_OF_CREDITS_MESSAGE =
   "You've run out of credits for today. Credits reset to 30 at the next daily reset.";
+const CHAT_EXTERNAL_API_BASE_URL = (
+  process.env.NEXT_PUBLIC_CHAT_API_BASE_URL ?? ""
+).trim();
+const CHAT_EXTERNAL_API_PATH = (
+  process.env.NEXT_PUBLIC_CHAT_API_PATH ?? "/chat"
+).trim();
+const CHAT_EXTERNAL_API_ENABLED = CHAT_EXTERNAL_API_BASE_URL.length > 0;
 
 type PersistedThreadHistoryMessage = {
   role: "user" | "assistant" | "system";
@@ -292,8 +301,67 @@ type AssistantSkill = {
 };
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
-const getProviderForModel = (model: string) =>
-  model.trim().toLowerCase().startsWith("claude") ? "anthropic" : "openai";
+
+const buildExternalChatApiUrl = () => {
+  const base = CHAT_EXTERNAL_API_BASE_URL.replace(/\/+$/, "");
+  const path = CHAT_EXTERNAL_API_PATH.startsWith("/")
+    ? CHAT_EXTERNAL_API_PATH
+    : `/${CHAT_EXTERNAL_API_PATH}`;
+  return `${base}${path}`;
+};
+
+const getChatRequestUrl = () => {
+  if (CHAT_EXTERNAL_API_ENABLED) {
+    return buildExternalChatApiUrl();
+  }
+
+  return CHAT_API_ENDPOINT;
+};
+
+const getAuthBearerToken = async () => {
+  const sessionResult = await authClient.getSession();
+  const sessionToken = sessionResult.data?.session?.token?.trim();
+  if (sessionToken) {
+    return sessionToken;
+  }
+
+  return null;
+};
+
+const requestAssistantChat = async (input: {
+  threadId: string;
+  docId?: string;
+  message: string;
+  reasoningEnabled?: boolean;
+  signal: AbortSignal;
+}) => {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (CHAT_EXTERNAL_API_ENABLED) {
+    const bearerToken = await getAuthBearerToken();
+    if (!bearerToken) {
+      throw new Error("Your session expired. Please sign in again.");
+    }
+    headers.Authorization = `Bearer ${bearerToken}`;
+  }
+
+  return fetch(getChatRequestUrl(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      threadId: input.threadId,
+      docId: input.docId,
+      message: input.message,
+      ...(typeof input.reasoningEnabled === "boolean"
+        ? { reasoningEnabled: input.reasoningEnabled }
+        : {}),
+    }),
+    signal: input.signal,
+    cache: "no-store",
+  });
+};
 
 const useThreadIdFromUrl = () => {
   const router = useRouter();
@@ -1177,12 +1245,11 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   const chatAdapter = React.useMemo<ChatModelAdapter>(
     () => ({
-      async *run({ messages, abortSignal, context }) {
+      async *run({ messages, abortSignal }) {
         const latestUserMessage = [...messages]
           .reverse()
           .find((message) => message.role === "user");
         const message = getMessageText(latestUserMessage);
-        const systemInstructions = context?.system;
 
         if (!message) {
           yield {
@@ -1196,18 +1263,11 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
         try {
           markThreadStarted();
-          const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              threadId,
-              docId: docIdRef.current,
-              message,
-              model: selectedModelRef.current,
-              provider: getProviderForModel(selectedModelRef.current),
-              reasoningEnabled: reasoningEnabledRef.current,
-              systemInstructions,
-            }),
+          const response = await requestAssistantChat({
+            threadId,
+            docId: docIdRef.current,
+            message,
+            reasoningEnabled: reasoningEnabledRef.current,
             signal: abortSignal,
           });
 
@@ -3817,13 +3877,11 @@ export function WorkspaceAssistant({
   const runtime = useLocalRuntime(
     React.useMemo<ChatModelAdapter>(
       () => ({
-        async *run({ messages, abortSignal, context }) {
+        async *run({ messages, abortSignal }) {
           const latestUserMessage = [...messages]
             .reverse()
             .find((message) => message.role === "user");
           const message = getMessageText(latestUserMessage);
-          // Get system instructions from useAssistantInstructions
-          const systemInstructions = context?.system;
 
           if (!message) {
             yield {
@@ -3843,20 +3901,11 @@ export function WorkspaceAssistant({
 
           try {
             markThreadStarted();
-            const response = await fetch("/api/chat", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                threadId,
-                docId: docIdRef.current,
-                message,
-                model: selectedModelRef.current,
-                provider: getProviderForModel(selectedModelRef.current),
-                reasoningEnabled: reasoningEnabledRef.current,
-                systemInstructions,
-              }),
+            const response = await requestAssistantChat({
+              threadId,
+              docId: docIdRef.current,
+              message,
+              reasoningEnabled: reasoningEnabledRef.current,
               signal: abortSignal,
             });
 

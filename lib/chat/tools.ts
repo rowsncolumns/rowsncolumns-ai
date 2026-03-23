@@ -2509,6 +2509,9 @@ const handleSpreadsheetDeleteCells = async (
           }
         }
 
+        // Evaluate formulas
+        const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
+
         // Persist changes
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
@@ -2524,6 +2527,7 @@ const handleSpreadsheetDeleteCells = async (
           success: true,
           message: `Successfully deleted ${deletedRanges.length} range(s)`,
           deletedRanges,
+          formulaResults,
           ...(errors.length > 0 ? { errors } : {}),
         });
       } finally {
@@ -2850,6 +2854,9 @@ const handleSpreadsheetApplyFill = async (
           selections,
         );
 
+        // Evaluate formulas
+        const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
+
         // Persist changes
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
@@ -2866,6 +2873,7 @@ const handleSpreadsheetApplyFill = async (
           message: `Successfully applied fill from ${sourceRange} to ${fillRange}`,
           sourceRange,
           fillRange,
+          formulaResults,
         });
       } finally {
         close();
@@ -3122,6 +3130,9 @@ const handleSpreadsheetDeleteRows = async (
         // Delete rows
         spreadsheet.deleteRow(sheetId, rowIndexes);
 
+        // Evaluate formulas
+        const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
+
         // Persist changes
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
@@ -3136,6 +3147,7 @@ const handleSpreadsheetDeleteRows = async (
           success: true,
           message: `Successfully deleted ${rowIndexes.length} row(s)`,
           deletedRows: rowIndexes,
+          formulaResults,
         });
       } finally {
         close();
@@ -3242,6 +3254,9 @@ const handleSpreadsheetDeleteColumns = async (
         // Delete columns
         spreadsheet.deleteColumn(sheetId, columnIndexes);
 
+        // Evaluate formulas
+        const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
+
         // Persist changes
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
@@ -3256,6 +3271,7 @@ const handleSpreadsheetDeleteColumns = async (
           success: true,
           message: `Successfully deleted ${columnIndexes.length} column(s)`,
           deletedColumns: columnIndexes,
+          formulaResults,
         });
       } finally {
         close();
