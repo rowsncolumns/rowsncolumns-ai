@@ -1587,6 +1587,7 @@ export function NewWorkspace({
       reasoningEnabled={assistantRuntime.reasoningEnabled}
       setReasoningEnabled={assistantRuntime.setReasoningEnabled}
       reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
+      forceCompactHeader={isMobileLayout}
     />
   );
 

@@ -38,6 +38,7 @@ import {
   ChevronLeft,
   ChevronsUpDown,
   Copy,
+  Cpu,
   Loader2,
   Navigation,
   Pencil,
@@ -122,6 +123,7 @@ export type WorkspaceAssistantUIProps = {
   reasoningEnabled: boolean;
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
+  forceCompactHeader?: boolean;
 };
 type ModelOption = {
   value: string;
@@ -2459,6 +2461,7 @@ type WorkspaceAssistantPanelProps = {
   reasoningEnabled: boolean;
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
+  forceCompactHeader?: boolean;
 };
 
 const ASSISTANT_TAGLINE =
@@ -2495,12 +2498,14 @@ function AssistantComposer({
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
+  forceCompactHeader = false,
   remainingCredits,
   isUnlimitedCredits,
   isCreditsLoading,
 }: AssistantComposerProps) {
   const composerFooterRef = React.useRef<HTMLDivElement | null>(null);
-  const [isComposerCompact, setIsComposerCompact] = React.useState(false);
+  const [isComposerCompact, setIsComposerCompact] =
+    React.useState(forceCompactHeader);
   const handleSelectModel = React.useCallback(
     (model: string) => {
       setSelectedModel(model);
@@ -2529,6 +2534,11 @@ function AssistantComposer({
   }, [queuedMessages]);
 
   React.useEffect(() => {
+    if (forceCompactHeader) {
+      setIsComposerCompact(true);
+      return;
+    }
+
     const footer = composerFooterRef.current;
     if (!footer) {
       return;
@@ -2556,13 +2566,7 @@ function AssistantComposer({
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
-
-  React.useEffect(() => {
-    if (isComposerCompact && isModelPickerOpen) {
-      setIsModelPickerOpen(false);
-    }
-  }, [isComposerCompact, isModelPickerOpen, setIsModelPickerOpen]);
+  }, [forceCompactHeader]);
 
   const enqueueCurrentComposerMessage = React.useCallback(() => {
     const message = composerRuntime.getState().text.trim();
@@ -2698,7 +2702,57 @@ function AssistantComposer({
         className="flex items-center justify-between border-t border-black/8 px-3 py-2"
       >
         <div className="flex items-center gap-2">
-          {!isComposerCompact && (
+          {isComposerCompact ? (
+            <Popover
+              open={isModelPickerOpen}
+              onOpenChange={setIsModelPickerOpen}
+            >
+              <PopoverTrigger asChild>
+                <IconButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  role="combobox"
+                  aria-expanded={isModelPickerOpen}
+                  aria-label={`Select model. Current model: ${selectedModelLabel}`}
+                  title={`Model: ${selectedModelLabel}`}
+                  className="rnc-assistant-chip h-8 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2] "
+                >
+                  <Cpu className="h-3.5 w-3.5" />
+                </IconButton>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 p-0">
+                <Command>
+                  <CommandInput placeholder="Search model..." />
+                  <CommandList>
+                    <CommandEmpty>No model found.</CommandEmpty>
+                    {MODEL_OPTION_GROUPS.map((group) => (
+                      <CommandGroup key={group.label} heading={group.label}>
+                        {group.options.map((option) => (
+                          <CommandItem
+                            key={option.value}
+                            value={`${option.label} ${option.value} ${group.label}`}
+                            onSelect={() => handleSelectModel(option.value)}
+                            className="text-xs"
+                          >
+                            <Check
+                              className={cn(
+                                "h-3.5 w-3.5 shrink-0",
+                                selectedModel === option.value
+                                  ? "opacity-100"
+                                  : "opacity-0",
+                              )}
+                            />
+                            <span className="truncate">{option.label}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    ))}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          ) : (
             <label className="flex items-center gap-2 text-xs text-(--muted-foreground)">
               <span className="uppercase tracking-[0.16em]">Model</span>
               <Popover
@@ -2837,10 +2891,11 @@ function WorkspaceAssistantPanel({
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
+  forceCompactHeader = false,
 }: WorkspaceAssistantPanelProps) {
   const assistantHeaderRef = React.useRef<HTMLDivElement | null>(null);
   const [isAssistantHeaderCompact, setIsAssistantHeaderCompact] =
-    React.useState(false);
+    React.useState(forceCompactHeader);
   const isThreadEmpty = useThread((thread) => thread.messages.length === 0);
   const isThreadRunning = useThread((thread) => thread.isRunning);
   const [remainingCredits, setRemainingCredits] = React.useState<number | null>(
@@ -2890,6 +2945,11 @@ function WorkspaceAssistantPanel({
   }, [isThreadRunning, loadCredits]);
 
   React.useEffect(() => {
+    if (forceCompactHeader) {
+      setIsAssistantHeaderCompact(true);
+      return;
+    }
+
     const header = assistantHeaderRef.current;
     if (!header) {
       return;
@@ -2917,7 +2977,7 @@ function WorkspaceAssistantPanel({
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [forceCompactHeader]);
 
   return (
     <Card className="rnc-assistant-panel flex h-full min-h-128 flex-col overflow-hidden border-(--card-border) bg-(--assistant-panel-bg) rounded-none">
@@ -2978,6 +3038,7 @@ function WorkspaceAssistantPanel({
               reasoningEnabled={reasoningEnabled}
               setReasoningEnabled={setReasoningEnabled}
               reasoningEnabledRef={reasoningEnabledRef}
+              forceCompactHeader={forceCompactHeader}
               remainingCredits={remainingCredits}
               isUnlimitedCredits={isUnlimitedCredits}
               isCreditsLoading={isCreditsLoading}
@@ -3037,6 +3098,7 @@ export function WorkspaceAssistantUI({
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
+  forceCompactHeader,
 }: WorkspaceAssistantUIProps) {
   return (
     <WorkspaceAssistantPanel
@@ -3050,6 +3112,7 @@ export function WorkspaceAssistantUI({
       reasoningEnabled={reasoningEnabled}
       setReasoningEnabled={setReasoningEnabled}
       reasoningEnabledRef={reasoningEnabledRef}
+      forceCompactHeader={forceCompactHeader}
     />
   );
 }
