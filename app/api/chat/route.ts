@@ -99,6 +99,7 @@ export async function POST(request: Request) {
         try {
           for await (const event of streamSpreadsheetAssistant({
             threadId,
+            userId,
             docId,
             message,
             model,

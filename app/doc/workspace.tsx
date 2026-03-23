@@ -1723,6 +1723,7 @@ export function NewWorkspace({
       docId={documentId}
       isAdmin={isAdmin}
       onNewSession={assistantRuntime.startNewThread}
+      isHydratingSession={assistantRuntime.isHydratingSession}
       selectedModel={assistantRuntime.selectedModel}
       selectedModelLabel={assistantRuntime.selectedModelLabel}
       isModelPickerOpen={assistantRuntime.isModelPickerOpen}

@@ -4,6 +4,7 @@ import type {
   AssistantToolUIProps,
   ChatModelAdapter,
   ThreadMessage,
+  ThreadMessageLike,
   ToolCallMessagePartProps,
 } from "@assistant-ui/react";
 import {
@@ -128,6 +129,7 @@ export type WorkspaceAssistantUIProps = {
   docId?: string;
   isAdmin?: boolean;
   onNewSession?: () => void;
+  isHydratingSession: boolean;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -246,9 +248,15 @@ const MODEL_OPTION_VALUES = new Set<string>(
 const MODEL_STORAGE_KEY = "rnc.ai.workspace-assistant.model";
 const REASONING_STORAGE_KEY = "rnc.ai.workspace-assistant.reasoning-enabled";
 const SKILLS_API_ENDPOINT = "/api/skills";
+const CHAT_HISTORY_API_ENDPOINT = "/api/chat/history";
 const INSUFFICIENT_CREDITS_ERROR_CODE = "INSUFFICIENT_CREDITS";
 const OUT_OF_CREDITS_MESSAGE =
   "You've run out of credits for today. Credits reset to 30 at the next daily reset.";
+
+type PersistedThreadHistoryMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
 
 type AssistantSkill = {
   id: string;
@@ -328,6 +336,7 @@ const useThreadIdFromUrl = () => {
 
   return {
     threadId,
+    persistInUrl,
     markThreadStarted,
     startNewThread,
   };
@@ -788,12 +797,172 @@ const buildTerminalAssistantMessage = (text: string) => ({
   status: { type: "complete" as const, reason: "stop" as const },
 });
 
+const parsePersistedThreadHistoryMessage = (
+  value: unknown,
+): PersistedThreadHistoryMessage | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const maybeMessage = value as {
+    role?: unknown;
+    content?: unknown;
+  };
+  const role = maybeMessage.role;
+  if (role !== "user" && role !== "assistant" && role !== "system") {
+    return null;
+  }
+
+  const content =
+    typeof maybeMessage.content === "string" ? maybeMessage.content : "";
+  if (!content.trim()) {
+    return null;
+  }
+
+  return {
+    role,
+    content,
+  };
+};
+
+const parsePersistedThreadHistoryPayload = (
+  value: unknown,
+): PersistedThreadHistoryMessage[] => {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const messages = (value as { messages?: unknown }).messages;
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .map(parsePersistedThreadHistoryMessage)
+    .filter(
+      (message): message is PersistedThreadHistoryMessage => message !== null,
+    );
+};
+
+const toThreadMessageLike = (
+  message: PersistedThreadHistoryMessage,
+): ThreadMessageLike => ({
+  role: message.role,
+  content: [
+    {
+      type: "text",
+      text: message.content,
+    },
+  ],
+});
+
+const fetchPersistedThreadHistory = async (
+  threadId: string,
+  signal: AbortSignal,
+) => {
+  const response = await fetch(
+    `${CHAT_HISTORY_API_ENDPOINT}?threadId=${encodeURIComponent(threadId)}`,
+    {
+      method: "GET",
+      cache: "no-store",
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    return [] as PersistedThreadHistoryMessage[];
+  }
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  return parsePersistedThreadHistoryPayload(payload);
+};
+
+const useHydratePersistedThreadHistory = ({
+  runtime,
+  threadId,
+  enabled = true,
+}: {
+  runtime: ReturnType<typeof useLocalRuntime>;
+  threadId: string;
+  enabled?: boolean;
+}) => {
+  const hydratedThreadIdRef = React.useRef<string | null>(null);
+  const [isHydratingSession, setIsHydratingSession] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!enabled) {
+      setIsHydratingSession(false);
+      return;
+    }
+
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) {
+      setIsHydratingSession(false);
+      return;
+    }
+
+    if (hydratedThreadIdRef.current === normalizedThreadId) {
+      setIsHydratingSession(false);
+      return;
+    }
+
+    hydratedThreadIdRef.current = normalizedThreadId;
+
+    const controller = new AbortController();
+    const currentThreadState = runtime.thread.getState();
+    if (currentThreadState.messages.length > 0) {
+      setIsHydratingSession(false);
+      return;
+    }
+
+    setIsHydratingSession(true);
+
+    const hydrate = async () => {
+      try {
+        const history = await fetchPersistedThreadHistory(
+          normalizedThreadId,
+          controller.signal,
+        );
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        const threadState = runtime.thread.getState();
+        if (threadState.messages.length > 0) {
+          return;
+        }
+
+        runtime.thread.reset(history.map(toThreadMessageLike));
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        console.error("[assistant] Failed to hydrate thread history", error);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsHydratingSession(false);
+        }
+      }
+    };
+
+    void hydrate();
+
+    return () => {
+      controller.abort();
+      setIsHydratingSession(false);
+    };
+  }, [enabled, runtime, threadId]);
+
+  return isHydratingSession;
+};
+
 /**
  * Hook to create the assistant runtime with model selection state.
  * This can be used at a higher level to wrap multiple components with AssistantRuntimeProvider.
  */
 export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
-  const { threadId, markThreadStarted, startNewThread } = useThreadIdFromUrl();
+  const { threadId, persistInUrl, markThreadStarted, startNewThread } =
+    useThreadIdFromUrl();
 
   const [selectedModel, setSelectedModel] =
     React.useState<string>(DEFAULT_MODEL);
@@ -945,10 +1114,16 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   );
 
   const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
+  const isHydratingSession = useHydratePersistedThreadHistory({
+    runtime,
+    threadId,
+    enabled: persistInUrl,
+  });
 
   return {
     runtime,
     threadId,
+    isHydratingSession,
     startNewThread,
     selectedModel,
     setSelectedModel: handleSelectModel,
@@ -2733,6 +2908,7 @@ type WorkspaceAssistantPanelProps = {
   docId?: string;
   isAdmin?: boolean;
   onNewSession?: () => void;
+  isHydratingSession?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -3169,6 +3345,7 @@ function WorkspaceAssistantPanel({
   docId,
   isAdmin = false,
   onNewSession,
+  isHydratingSession = false,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -3294,7 +3471,7 @@ function WorkspaceAssistantPanel({
       </div>
 
       <AssistantDebugAccessContext.Provider value={{ isAdmin }}>
-        <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
+        <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
           <SpreadsheetToolUIRegistry />
           <ThreadPrimitive.Viewport
             className={cn(
@@ -3367,6 +3544,14 @@ function WorkspaceAssistantPanel({
               </ThreadPrimitive.If>
             </div>
           </div>
+          {isHydratingSession && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+              <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Restoring session...
+              </div>
+            </div>
+          )}
         </ThreadPrimitive.Root>
       </AssistantDebugAccessContext.Provider>
     </Card>
@@ -3383,6 +3568,7 @@ export function WorkspaceAssistantUI({
   docId,
   isAdmin,
   onNewSession,
+  isHydratingSession,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -3399,6 +3585,7 @@ export function WorkspaceAssistantUI({
       docId={docId}
       isAdmin={isAdmin}
       onNewSession={onNewSession}
+      isHydratingSession={isHydratingSession}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
       isModelPickerOpen={isModelPickerOpen}
@@ -3419,7 +3606,8 @@ export function WorkspaceAssistant({
   activeSheetId,
   isAdmin,
 }: WorkspaceAssistantProps) {
-  const { threadId, markThreadStarted, startNewThread } = useThreadIdFromUrl();
+  const { threadId, persistInUrl, markThreadStarted, startNewThread } =
+    useThreadIdFromUrl();
   const [selectedModel, setSelectedModel] =
     React.useState<string>(DEFAULT_MODEL);
   const [isModelPickerOpen, setIsModelPickerOpen] = React.useState(false);
@@ -3578,6 +3766,11 @@ export function WorkspaceAssistant({
       maxSteps: 1,
     },
   );
+  const isHydratingSession = useHydratePersistedThreadHistory({
+    runtime,
+    threadId,
+    enabled: persistInUrl,
+  });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -3586,6 +3779,7 @@ export function WorkspaceAssistant({
         docId={docId}
         isAdmin={isAdmin}
         onNewSession={startNewThread}
+        isHydratingSession={isHydratingSession}
         selectedModel={selectedModel}
         selectedModelLabel={selectedModelLabel}
         isModelPickerOpen={isModelPickerOpen}

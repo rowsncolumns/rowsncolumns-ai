@@ -1,5 +1,6 @@
 import { ChatAnthropic } from "@langchain/anthropic";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import {
   END,
   MemorySaver,
@@ -20,6 +21,7 @@ const DEFAULT_MODEL_TEMPERATURE = 0.2;
 const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096;
 const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 2048;
 const DEFAULT_GRAPH_RECURSION_LIMIT = 75;
+const DEFAULT_LANGGRAPH_CHECKPOINT_SCHEMA = "public";
 const CLAUDE_MODEL_PATTERN = /^claude/i;
 const REASONING_MODEL_PATTERN = /^(o\d|gpt-5|codex)/i;
 
@@ -425,8 +427,47 @@ const sanitizeMessagesForOpenAI = (
   });
 };
 
-const createGraph = () => {
-  const checkpointer = new MemorySaver();
+const buildCheckpointThreadId = (threadId: string, userId?: string) =>
+  userId ? `user:${userId}:thread:${threadId}` : threadId;
+
+let checkpointerPromise: Promise<MemorySaver | PostgresSaver> | null = null;
+
+const getCheckpointer = async () => {
+  if (!checkpointerPromise) {
+    checkpointerPromise = (async () => {
+      const databaseUrl = getEnv("DATABASE_URL");
+      if (!databaseUrl) {
+        console.warn(
+          "[graph] DATABASE_URL is missing. Falling back to in-memory checkpoints.",
+        );
+        return new MemorySaver();
+      }
+
+      const schema =
+        getEnv("LANGGRAPH_CHECKPOINT_SCHEMA") ??
+        DEFAULT_LANGGRAPH_CHECKPOINT_SCHEMA;
+
+      try {
+        const checkpointer = PostgresSaver.fromConnString(databaseUrl, {
+          schema,
+        });
+        await checkpointer.setup();
+        return checkpointer;
+      } catch (error) {
+        console.error(
+          "[graph] Failed to initialize Postgres checkpointer. Falling back to in-memory checkpoints.",
+          error,
+        );
+        return new MemorySaver();
+      }
+    })();
+  }
+
+  return checkpointerPromise;
+};
+
+const createGraph = async () => {
+  const checkpointer = await getCheckpointer();
   const toolNode = new ToolNode(spreadsheetTools);
 
   return new StateGraph(MessagesAnnotation)
@@ -487,19 +528,24 @@ const createGraph = () => {
       [END]: END,
     })
     .addEdge("tools", "call-model")
-    .compile({ checkpointer });
+    .compile({
+      checkpointer,
+    });
 };
 
-type ChatGraph = ReturnType<typeof createGraph>;
+type ChatGraph = Awaited<ReturnType<typeof createGraph>>;
 
-let graph: ChatGraph | null = null;
+let graphPromise: Promise<ChatGraph> | null = null;
 
-const getGraph = () => {
-  if (!graph) {
-    graph = createGraph();
+const getGraph = async () => {
+  if (!graphPromise) {
+    graphPromise = createGraph().catch((error) => {
+      graphPromise = null;
+      throw error;
+    });
   }
 
-  return graph;
+  return graphPromise;
 };
 
 const getThreadConfig = (
@@ -511,10 +557,11 @@ const getThreadConfig = (
     reasoningEnabled?: boolean;
     docId?: string;
     systemInstructions?: string;
+    userId?: string;
   },
 ) => ({
   configurable: {
-    thread_id: threadId,
+    thread_id: buildCheckpointThreadId(threadId, override?.userId),
     ...(override?.model ? { model: override.model } : {}),
     ...(override?.provider ? { provider: override.provider } : {}),
     ...(typeof override?.reasoningEnabled === "boolean"
@@ -530,6 +577,7 @@ const getThreadConfig = (
   tags: ["rnc-ai", "spreadsheet"],
   metadata: {
     threadId,
+    ...(override?.userId ? { userId: override.userId } : {}),
     ...(override?.model ? { model: override.model } : {}),
     ...(override?.provider ? { provider: override.provider } : {}),
     ...(typeof override?.reasoningEnabled === "boolean"
@@ -877,8 +925,127 @@ const isGraphRecursionLimitError = (error: unknown) => {
   );
 };
 
+export type PersistedThreadMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
+const getStoredMessageType = (value: unknown): string | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const maybeMessage = value as {
+    _getType?: () => unknown;
+    type?: unknown;
+    kwargs?: { type?: unknown };
+  };
+
+  if (typeof maybeMessage._getType === "function") {
+    const result = maybeMessage._getType();
+    if (typeof result === "string") {
+      return result;
+    }
+  }
+
+  if (typeof maybeMessage.type === "string") {
+    return maybeMessage.type;
+  }
+
+  if (typeof maybeMessage.kwargs?.type === "string") {
+    return maybeMessage.kwargs.type;
+  }
+
+  return null;
+};
+
+const toPersistedRole = (
+  messageType: string | null,
+): PersistedThreadMessage["role"] | null => {
+  if (!messageType) return null;
+  if (messageType === "human" || messageType === "user") return "user";
+  if (messageType === "ai" || messageType === "assistant") return "assistant";
+  if (messageType === "system") return "system";
+  return null;
+};
+
+const toPersistedThreadMessage = (
+  value: unknown,
+): PersistedThreadMessage | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const role = toPersistedRole(getStoredMessageType(value));
+  if (!role) return null;
+
+  const maybeMessage = value as {
+    content?: unknown;
+    kwargs?: { content?: unknown };
+  };
+  const content = contentToText(maybeMessage.content ?? maybeMessage.kwargs?.content);
+  if (!content.trim()) {
+    return null;
+  }
+
+  return {
+    role,
+    content,
+  };
+};
+
+export async function getSpreadsheetAssistantThreadMessages(input: {
+  threadId: string;
+  userId?: string;
+}): Promise<PersistedThreadMessage[]> {
+  const state = await (await getGraph()).getState(
+    getThreadConfig(input.threadId, "get-thread-state", {
+      userId: input.userId,
+    }),
+  );
+  const values = state.values;
+  if (!values || typeof values !== "object") {
+    return [];
+  }
+
+  const messages = (values as { messages?: unknown }).messages;
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .map(toPersistedThreadMessage)
+    .filter((message): message is PersistedThreadMessage => message !== null);
+}
+
+const persistAssistantMessageToCheckpoint = async (input: {
+  threadId: string;
+  message: string;
+  userId?: string;
+}) => {
+  const message = input.message.trim();
+  if (!message) {
+    return;
+  }
+
+  try {
+    await (await getGraph()).updateState(
+      getThreadConfig(input.threadId, "persist-assistant-message", {
+        userId: input.userId,
+      }),
+      {
+        messages: [new AIMessage(message)],
+      },
+      "call-model",
+    );
+  } catch (error) {
+    console.error("[graph] Failed to persist assistant message", error);
+  }
+};
+
 export async function* streamSpreadsheetAssistant(input: {
   threadId: string;
+  userId?: string;
   docId?: string;
   message: string;
   model?: string;
@@ -898,16 +1065,18 @@ export async function* streamSpreadsheetAssistant(input: {
     reasoningEnabled: input.reasoningEnabled,
     docId: input.docId,
     systemInstructions: input.systemInstructions,
+    userId: input.userId,
   });
 
   // Use streamEvents to get proper LangSmith tracing with the thread
-  const eventStream = getGraph().streamEvents(
+  const eventStream = (await getGraph()).streamEvents(
     {
       messages: [new HumanMessage(input.message)],
     },
     {
       ...config,
       version: "v2",
+      durability: "async",
       recursionLimit: parsePositiveInt(
         getEnv("LANGGRAPH_RECURSION_LIMIT"),
         DEFAULT_GRAPH_RECURSION_LIMIT,
@@ -1085,12 +1254,17 @@ export async function* streamSpreadsheetAssistant(input: {
         );
 
         console.error("[graph] Chain error:", rawErrorMessage);
+        await persistAssistantMessageToCheckpoint({
+          threadId: input.threadId,
+          userId: input.userId,
+          message: errorMessage,
+        });
 
         yield {
           type: "error",
           error: errorMessage,
         };
-        continue;
+        return;
       }
 
       // Handle LLM errors
@@ -1106,23 +1280,52 @@ export async function* streamSpreadsheetAssistant(input: {
         );
 
         console.error("[graph] LLM error:", rawErrorMessage);
+        await persistAssistantMessageToCheckpoint({
+          threadId: input.threadId,
+          userId: input.userId,
+          message: errorMessage,
+        });
 
         yield {
           type: "error",
           error: errorMessage,
         };
-        continue;
+        return;
       }
     }
   } catch (error) {
     if (!isGraphRecursionLimitError(error)) {
-      throw error;
+      const rawErrorMessage =
+        error && typeof error === "object" && "message" in error
+          ? String(error.message)
+          : String(error ?? "");
+      const errorMessage = normalizeAssistantErrorMessage(
+        rawErrorMessage,
+        "Assistant request failed. Please retry.",
+      );
+
+      console.error("[graph] Streaming error:", rawErrorMessage);
+      await persistAssistantMessageToCheckpoint({
+        threadId: input.threadId,
+        userId: input.userId,
+        message: errorMessage,
+      });
+      yield {
+        type: "error",
+        error: errorMessage,
+      };
+      return;
     }
 
     const partialMessage = assistantMessage.trim();
     const fallbackMessage = partialMessage
       ? `${partialMessage}\n\nI hit the tool-iteration limit before finishing. Ask me to continue and I will proceed from here.`
       : "I hit the tool-iteration limit before finishing this request. Ask me to continue and I will proceed.";
+    await persistAssistantMessageToCheckpoint({
+      threadId: input.threadId,
+      userId: input.userId,
+      message: fallbackMessage,
+    });
 
     yield {
       type: "message.complete",
@@ -1144,6 +1347,7 @@ export async function* streamSpreadsheetAssistant(input: {
 
 export async function invokeSpreadsheetAssistant(input: {
   threadId: string;
+  userId?: string;
   message: string;
   model?: string;
   provider?: Provider;
