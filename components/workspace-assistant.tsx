@@ -2961,7 +2961,7 @@ function AssistantComposer({
           rows={3}
           onKeyDown={handleQueueOnEnter}
           placeholder="Type to start sending a message"
-          className="min-h-14 w-full resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
+          className="min-h-10 sm:min-h-14 w-full resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
         />
       </div>
       <div
@@ -3271,7 +3271,7 @@ function WorkspaceAssistantPanel({
             />
           </div>
         </div>
-        <p className="mt-1 text-sm leading-6 text-(--muted-foreground)">
+        <p className="mt-1 hidden text-sm leading-6 text-(--muted-foreground) sm:block">
           {ASSISTANT_TAGLINE}
         </p>
       </div>
