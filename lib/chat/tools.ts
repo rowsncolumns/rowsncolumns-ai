@@ -50,6 +50,7 @@ import {
   persistSpreadsheetPatches,
   type ShareDBSpreadsheetDoc,
 } from "./utils";
+import { expandFormatCellsToRange } from "./formatRangeExpansion";
 import { StyleReference } from "@rowsncolumns/spreadsheet";
 
 const failTool = (
@@ -918,18 +919,22 @@ const handleSpreadsheetFormatRange = async (
         const rangeColCount =
           selection.range.endColumnIndex - selection.range.startColumnIndex + 1;
 
-        // Auto-expand: if exactly one cell is provided, expand it to fill the entire range
-        let expandedCells = cells;
-        if (
-          cells.length === 1 &&
-          cells[0].length === 1 &&
-          (rangeRowCount > 1 || rangeColCount > 1)
-        ) {
-          const singleCellStyle = cells[0][0];
-          expandedCells = Array.from({ length: rangeRowCount }, () =>
-            Array.from({ length: rangeColCount }, () => singleCellStyle),
-          );
+        const expansion = expandFormatCellsToRange(
+          cells,
+          rangeRowCount,
+          rangeColCount,
+          range,
+        );
+
+        if (!expansion.ok) {
+          return JSON.stringify({
+            success: false,
+            error: expansion.error,
+          });
         }
+
+        const expandedCells = expansion.expandedCells;
+        const expansionMode = expansion.expansionMode;
 
         // Convert cells to formatting array
         // Filter out empty cellStyles objects (no formatting to apply)
@@ -981,7 +986,7 @@ const handleSpreadsheetFormatRange = async (
           docId,
           range,
           patchCount: patchTuples.length,
-          autoExpanded: expandedCells !== cells,
+          expansionMode,
         });
 
         return JSON.stringify({
@@ -1014,7 +1019,7 @@ export const spreadsheetFormatRangeTool = tool(handleSpreadsheetFormatRange, {
   description: `Apply visual formatting to a rectangular region of a spreadsheet.
 
 OVERVIEW:
-This tool applies formatting (styles) to a 2D grid of cells at a specified range using A1 notation. It only affects the cells covered by the provided cells array — no other part of the sheet is changed.
+This tool applies formatting (styles) to a 2D grid of cells at a specified range using A1 notation. The cells matrix can match the full range exactly or use supported broadcast shapes (single cell, single row, or single column).
 
 WHEN TO USE THIS TOOL:
 - Making text bold, italic, underlined, or strikethrough
@@ -1061,8 +1066,9 @@ CRITICAL RULES:
 3. Each cell object should have 'cellStyles' with formatting properties.
 4. Use empty objects {} for cells that should not be formatted.
 5. Only the target range is modified — never affects data outside.
-6. AUTO-EXPANSION: If you provide exactly ONE cell [[{...}]], it will automatically expand to fill the entire range. This is useful when applying the same formatting to all cells in a range.
-7. BATCHING: Multiple tool calls are permitted and encouraged for large ranges. You can format in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability.
+6. DIMENSIONS: Supported shapes are 1x1 (fills whole range), 1xC (repeats row down when C matches range columns), Rx1 (repeats column across when R matches range rows), or exact RxC match.
+7. RECTANGULAR INPUT: All rows in 'cells' must have the same number of columns.
+8. BATCHING: Multiple tool calls are permitted and encouraged for large ranges. You can format in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability.
 
 EXAMPLES:
 
@@ -1071,7 +1077,21 @@ Example 1 — Make A3:H3 italic (using auto-expansion):
   cells: [[{"cellStyles": {"textFormat": {"italic": true, "fontSize": 11, "color": "#666666"}}}]]
   // Single cell auto-expands to fill all 8 cells (A3:H3)
 
-Example 2 — Apply distinct formatting to header row (A1:C1):
+Example 2 — Format B2:G13 by repeating one row down:
+  range: "B2:G13"
+  cells: [
+    [
+      {"cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0"}, "horizontalAlignment": "right"}},
+      {"cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0"}, "horizontalAlignment": "right"}},
+      {"cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0"}, "horizontalAlignment": "right"}},
+      {"cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0"}, "horizontalAlignment": "right"}},
+      {"cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0"}, "horizontalAlignment": "right"}},
+      {"cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0"}, "horizontalAlignment": "right"}}
+    ]
+  ]
+  // 1x6 input repeats down to all 12 rows in B2:G13
+
+Example 3 — Apply distinct formatting to header row (A1:C1):
   range: "A1:C1"
   cells: [
     [
@@ -1082,7 +1102,7 @@ Example 2 — Apply distinct formatting to header row (A1:C1):
   ]
   // Each cell gets its own distinct formatting (different background colors)
 
-Example 3 — Format range with mixed styles (A1:B3):
+Example 4 — Format range with mixed styles (A1:B3):
   range: "A1:B3"
   cells: [
     [

@@ -10,6 +10,7 @@
     "lint": "eslint",
     "server": "tsx server.ts",
     "server:watch": "tsx watch server.ts",
+    "test:formatrange:expansion": "tsx --test lib/chat/formatRangeExpansion.test.ts",
     "test:changebatch:large": "tsx scripts/test-changebatch-large.ts",
     "db:migrate:skills": "tsx scripts/create-skills-table.ts",
     "db:migrate:credits": "tsx scripts/create-credit-tables.ts",
