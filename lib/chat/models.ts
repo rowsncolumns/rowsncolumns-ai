@@ -485,3 +485,68 @@ export const SpreadsheetSetRowColDimensionsSchema = z.object({
 export type SpreadsheetSetRowColDimensionsInput = z.infer<
   typeof SpreadsheetSetRowColDimensionsSchema
 >;
+
+// Spreadsheet DuplicateSheet
+export const SpreadsheetDuplicateSheetSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("The sheet ID (1-based) of the sheet to duplicate (default: 1)"),
+  newSheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Optional sheet ID for the new duplicated sheet. If not provided, one will be auto-generated.",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDuplicateSheetInput = z.infer<
+  typeof SpreadsheetDuplicateSheetSchema
+>;
+
+// Spreadsheet DeleteCells
+export const SpreadsheetDeleteCellsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("The sheet ID (1-based, default: 1)"),
+  ranges: z
+    .array(z.string())
+    .describe(
+      "List of A1 notation ranges to delete (e.g., ['A1:B5', 'D3:F10']). Cell contents will be cleared.",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteCellsInput = z.infer<
+  typeof SpreadsheetDeleteCellsSchema
+>;
+
+// Spreadsheet ClearFormatting
+export const SpreadsheetClearFormattingSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("The sheet ID (1-based, default: 1)"),
+  ranges: z
+    .array(z.string())
+    .describe(
+      "List of A1 notation ranges to clear formatting from (e.g., ['A1:B5', 'D3:F10']). Values will be preserved.",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetClearFormattingInput = z.infer<
+  typeof SpreadsheetClearFormattingSchema
+>;

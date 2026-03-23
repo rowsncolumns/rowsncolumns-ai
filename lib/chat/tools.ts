@@ -22,8 +22,14 @@ import {
   type CellStyleData,
   type SpreadsheetChangeBatchInput,
   SpreadsheetChangeBatchSchema,
+  type SpreadsheetClearFormattingInput,
+  SpreadsheetClearFormattingSchema,
   type SpreadsheetCreateSheetInput,
   SpreadsheetCreateSheetSchema,
+  type SpreadsheetDeleteCellsInput,
+  SpreadsheetDeleteCellsSchema,
+  type SpreadsheetDuplicateSheetInput,
+  SpreadsheetDuplicateSheetSchema,
   type SpreadsheetFormatRangeInput,
   SpreadsheetFormatRangeSchema,
   type SpreadsheetInsertColumnsInput,
@@ -2244,6 +2250,460 @@ Example 4 — Set row 1 (header row) to a larger height:
 );
 
 /**
+ * Handler for the spreadsheet_duplicateSheet tool
+ * Copies an existing sheet to a new sheet
+ */
+const handleSpreadsheetDuplicateSheet = async (
+  input: SpreadsheetDuplicateSheetInput,
+): Promise<string> => {
+  const { docId, sheetId: inputSheetId, newSheetId } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to duplicate a sheet",
+      { field: "docId" },
+    );
+  }
+
+  const sheetId = inputSheetId ?? 1;
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_duplicateSheet] Starting:", {
+      docId,
+      sheetId,
+      newSheetId,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Check if source sheet exists
+        const sourceSheet = spreadsheet.sheets.find(
+          (sheet) => sheet.sheetId === sheetId,
+        );
+        if (!sourceSheet) {
+          return failTool(
+            "SHEET_NOT_FOUND",
+            `Sheet with ID ${sheetId} not found`,
+            { sheetId },
+          );
+        }
+
+        // Duplicate the sheet
+        const duplicatedSheetId = spreadsheet.duplicateSheet(
+          sheetId,
+          newSheetId,
+        );
+
+        // Persist changes
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        // Find the new sheet to get its title
+        const newSheet = spreadsheet.sheets.find(
+          (sheet) => sheet.sheetId === duplicatedSheetId,
+        );
+
+        console.log("[spreadsheet_duplicateSheet] Completed:", {
+          docId,
+          sourceSheetId: sheetId,
+          newSheetId: duplicatedSheetId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully duplicated sheet ${sheetId} to new sheet ${duplicatedSheetId}`,
+          sourceSheetId: sheetId,
+          newSheet: {
+            sheetId: duplicatedSheetId,
+            title:
+              (newSheet as { title?: string })?.title ??
+              `Sheet${duplicatedSheetId}`,
+          },
+        });
+      } finally {
+        close();
+      }
+    } catch (error) {
+      console.error("[spreadsheet_duplicateSheet] Error:", error);
+
+      return failTool(
+        "DUPLICATE_SHEET_FAILED",
+        error instanceof Error ? error.message : "Failed to duplicate sheet",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_duplicateSheet tool for LangChain
+ */
+export const spreadsheetDuplicateSheetTool = tool(
+  handleSpreadsheetDuplicateSheet,
+  {
+    name: "spreadsheet_duplicateSheet",
+    description: `Copies an existing sheet to a new sheet in an Athena spreadsheet.
+
+OVERVIEW:
+This tool duplicates an existing sheet (tab) including all its data, formatting, and structure. The new sheet will be an exact copy of the source sheet.
+
+WHEN TO USE THIS TOOL:
+- Creating a backup copy of a sheet before making changes
+- Using an existing sheet as a template for a new sheet
+- Duplicating a sheet to create variations (e.g., monthly reports)
+
+IMPORTANT:
+- This tool only works with Athena spreadsheets, not documents or other document types
+- All indices are 1-based
+
+PARAMETERS:
+- docId: The document ID of the spreadsheet (required)
+- sheetId: The sheet ID (1-based) of the sheet to duplicate (default: 1)
+- newSheetId: Optional sheet ID for the new duplicated sheet. If not provided, one will be auto-generated.
+
+EXAMPLES:
+
+Example 1 — Duplicate the first sheet:
+  docId: "abc123"
+  sheetId: 1
+
+Example 2 — Duplicate a specific sheet with a specific new ID:
+  docId: "abc123"
+  sheetId: 2
+  newSheetId: 5`,
+    schema: SpreadsheetDuplicateSheetSchema,
+  },
+);
+
+/**
+ * Handler for the spreadsheet_deleteCells tool
+ * Deletes (clears) cell contents in multiple ranges
+ */
+const handleSpreadsheetDeleteCells = async (
+  input: SpreadsheetDeleteCellsInput,
+): Promise<string> => {
+  const { docId, sheetId: inputSheetId, ranges } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to delete cells", {
+      field: "docId",
+    });
+  }
+
+  if (!ranges || ranges.length === 0) {
+    return failTool(
+      "MISSING_RANGES",
+      "At least one range is required to delete cells",
+      { field: "ranges" },
+    );
+  }
+
+  const sheetId = inputSheetId ?? 1;
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteCells] Starting:", {
+      docId,
+      sheetId,
+      itemCount: ranges.length,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Convert A1 ranges to selections and delete each
+        const deletedRanges: string[] = [];
+        const errors: Array<{ range: string; error: string }> = [];
+
+        for (const rangeStr of ranges) {
+          try {
+            const selection = addressToSelection(rangeStr);
+
+            if (!selection?.range) {
+              errors.push({
+                range: rangeStr,
+                error: `Invalid range: ${rangeStr}`,
+              });
+              continue;
+            }
+
+            // Create activeCell from the start of the selection
+            const activeCell = {
+              rowIndex: selection.range.startRowIndex,
+              columnIndex: selection.range.startColumnIndex,
+            };
+
+            // Create selections array with the range
+            const selections = [{ range: selection.range }];
+
+            // Delete cells
+            spreadsheet.deleteCells(sheetId, activeCell, selections);
+            deletedRanges.push(rangeStr);
+          } catch (itemError) {
+            errors.push({
+              range: rangeStr,
+              error:
+                itemError instanceof Error
+                  ? itemError.message
+                  : "Failed to delete range",
+            });
+          }
+        }
+
+        // Persist changes
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteCells] Completed:", {
+          docId,
+          sheetId,
+          deletedCount: deletedRanges.length,
+          errorCount: errors.length,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted ${deletedRanges.length} range(s)`,
+          deletedRanges,
+          ...(errors.length > 0 ? { errors } : {}),
+        });
+      } finally {
+        close();
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteCells] Error:", error);
+
+      return failTool(
+        "DELETE_CELLS_FAILED",
+        error instanceof Error ? error.message : "Failed to delete cells",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteCells tool for LangChain
+ */
+export const spreadsheetDeleteCellsTool = tool(handleSpreadsheetDeleteCells, {
+  name: "spreadsheet_deleteCells",
+  description: `Delete (clear) cell contents in multiple ranges within a sheet.
+
+OVERVIEW:
+This tool clears the contents of cells in the specified ranges. It removes values and formulas from cells but does not delete rows or columns.
+
+WHEN TO USE THIS TOOL:
+- Clearing data from specific cell ranges
+- Removing values before writing new data
+- Cleaning up sections of a spreadsheet
+
+IMPORTANT:
+- This tool only works with Athena spreadsheets, not documents or other document types
+- All indices are 1-based
+- This clears cell contents, not the cells themselves (use delete rows/columns for structural changes)
+
+PARAMETERS:
+- docId: The document ID of the spreadsheet (required)
+- sheetId: The sheet ID (1-based, default: 1)
+- ranges: List of A1 notation ranges to delete (e.g., ['A1:B5', 'D3:F10'])
+
+EXAMPLES:
+
+Example 1 — Delete a single range:
+  docId: "abc123"
+  sheetId: 1
+  ranges: ["A1:C10"]
+
+Example 2 — Delete multiple ranges:
+  docId: "abc123"
+  sheetId: 1
+  ranges: ["A1:B5", "D3:F10", "H1:H20"]
+
+Example 3 — Delete a single cell:
+  docId: "abc123"
+  ranges: ["B5"]`,
+  schema: SpreadsheetDeleteCellsSchema,
+});
+
+/**
+ * Handler for the spreadsheet_clearFormatting tool
+ * Clears formatting from multiple cell ranges while preserving values
+ */
+const handleSpreadsheetClearFormatting = async (
+  input: SpreadsheetClearFormattingInput,
+): Promise<string> => {
+  const { docId, sheetId: inputSheetId, ranges } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to clear formatting", {
+      field: "docId",
+    });
+  }
+
+  if (!ranges || ranges.length === 0) {
+    return failTool(
+      "MISSING_RANGES",
+      "At least one range is required to clear formatting",
+      { field: "ranges" },
+    );
+  }
+
+  const sheetId = inputSheetId ?? 1;
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_clearFormatting] Starting:", {
+      docId,
+      sheetId,
+      rangeCount: ranges.length,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Convert A1 ranges to selections and clear formatting for each
+        const clearedRanges: string[] = [];
+        const errors: Array<{ range: string; error: string }> = [];
+
+        for (const rangeStr of ranges) {
+          try {
+            const selection = addressToSelection(rangeStr);
+
+            if (!selection?.range) {
+              errors.push({
+                range: rangeStr,
+                error: `Invalid range: ${rangeStr}`,
+              });
+              continue;
+            }
+
+            // Create activeCell from the start of the selection
+            const activeCell = {
+              rowIndex: selection.range.startRowIndex,
+              columnIndex: selection.range.startColumnIndex,
+            };
+
+            // Create selections array with the range
+            const selections = [{ range: selection.range }];
+
+            // Clear formatting
+            spreadsheet.clearFormatting(sheetId, activeCell, selections);
+            clearedRanges.push(rangeStr);
+          } catch (itemError) {
+            errors.push({
+              range: rangeStr,
+              error:
+                itemError instanceof Error
+                  ? itemError.message
+                  : "Failed to clear formatting",
+            });
+          }
+        }
+
+        // Persist changes
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_clearFormatting] Completed:", {
+          docId,
+          sheetId,
+          clearedCount: clearedRanges.length,
+          errorCount: errors.length,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully cleared formatting from ${clearedRanges.length} range(s)`,
+          clearedRanges,
+          ...(errors.length > 0 ? { errors } : {}),
+        });
+      } finally {
+        close();
+      }
+    } catch (error) {
+      console.error("[spreadsheet_clearFormatting] Error:", error);
+
+      return failTool(
+        "CLEAR_FORMATTING_FAILED",
+        error instanceof Error ? error.message : "Failed to clear formatting",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_clearFormatting tool for LangChain
+ */
+export const spreadsheetClearFormattingTool = tool(
+  handleSpreadsheetClearFormatting,
+  {
+    name: "spreadsheet_clearFormatting",
+    description: `Clear formatting from multiple cell ranges within a sheet.
+
+OVERVIEW:
+This tool removes all visual formatting (colors, borders, fonts, number formats, etc.) from the specified ranges while preserving cell values and formulas.
+
+WHEN TO USE THIS TOOL:
+- Removing unwanted formatting from cells
+- Resetting cells to default appearance
+- Cleaning up imported data that has inconsistent formatting
+- Preparing cells before applying new uniform formatting
+
+IMPORTANT:
+- This tool only works with Athena spreadsheets, not documents or other document types
+- All indices are 1-based
+- Cell values and formulas are preserved - only visual formatting is removed
+
+PARAMETERS:
+- docId: The document ID of the spreadsheet (required)
+- sheetId: The sheet ID (1-based, default: 1)
+- ranges: List of A1 notation ranges to clear formatting from (e.g., ['A1:B5', 'D3:F10'])
+
+EXAMPLES:
+
+Example 1 — Clear formatting from a single range:
+  docId: "abc123"
+  sheetId: 1
+  ranges: ["A1:C10"]
+
+Example 2 — Clear formatting from multiple ranges:
+  docId: "abc123"
+  sheetId: 1
+  ranges: ["A1:B5", "D3:F10", "H1:H20"]
+
+Example 3 — Clear formatting from entire columns:
+  docId: "abc123"
+  ranges: ["A:C"]`,
+    schema: SpreadsheetClearFormattingSchema,
+  },
+);
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
@@ -2257,4 +2717,7 @@ export const spreadsheetTools = [
   spreadsheetSetIterativeModeTool,
   spreadsheetReadDocumentTool,
   spreadsheetSetRowColDimensionsTool,
+  spreadsheetDuplicateSheetTool,
+  spreadsheetDeleteCellsTool,
+  spreadsheetClearFormattingTool,
 ];
