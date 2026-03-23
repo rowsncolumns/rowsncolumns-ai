@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
@@ -17,6 +17,9 @@ type PageProps = {
   params: Promise<{ documentId: string }>;
   searchParams: Promise<{ share?: string | string[] }>;
 };
+
+const MOBILE_USER_AGENT_REGEX =
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
 
 const toShortDocumentId = (documentId: string): string =>
   documentId.slice(0, 8);
@@ -61,12 +64,18 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
   }
 
   const cookieStore = await cookies();
+  const headerStore = await headers();
   const defaultLayout =
     parsePanelLayoutCookie(cookieStore.get(PANEL_LAYOUT_COOKIE)?.value) ??
     DEFAULT_PANEL_LAYOUT;
   const initialThemeMode = parseThemeCookie(
     cookieStore.get(THEME_COOKIE)?.value,
   );
+  const secChUaMobile = headerStore.get("sec-ch-ua-mobile");
+  const userAgent = headerStore.get("user-agent") ?? "";
+  const initialIsMobileLayout =
+    secChUaMobile === "?1" ||
+    (secChUaMobile === null && MOBILE_USER_AGENT_REGEX.test(userAgent));
 
   return (
     <NewWorkspace
@@ -74,6 +83,7 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
       documentId={documentId}
       canManageShare={access.isOwner}
       initialThemeMode={initialThemeMode}
+      initialIsMobileLayout={initialIsMobileLayout}
       currentUser={{
         id: session.user.id,
         name: session.user.name,

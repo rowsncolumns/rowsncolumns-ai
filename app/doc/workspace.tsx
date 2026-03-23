@@ -282,8 +282,8 @@ const ASSISTANT_PANEL_MIN_WIDTH = 350;
 const ASSISTANT_PANEL_DEFAULT_WIDTH = 840;
 const MOBILE_LAYOUT_MEDIA_QUERY = "(max-width: 767px)";
 
-const useMediaQueryMatch = (query: string) => {
-  const [matches, setMatches] = useState(false);
+const useMediaQueryMatch = (query: string, initialValue = false) => {
+  const [matches, setMatches] = useState(initialValue);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1517,6 +1517,7 @@ type NewWorkspaceProps = {
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
+  initialIsMobileLayout: boolean;
 };
 
 export function NewWorkspace({
@@ -1525,8 +1526,12 @@ export function NewWorkspace({
   currentUser,
   initialThemeMode,
   canManageShare,
+  initialIsMobileLayout,
 }: NewWorkspaceProps) {
-  const isMobileLayout = useMediaQueryMatch(MOBILE_LAYOUT_MEDIA_QUERY);
+  const isMobileLayout = useMediaQueryMatch(
+    MOBILE_LAYOUT_MEDIA_QUERY,
+    initialIsMobileLayout,
+  );
   const [mobileTab, setMobileTab] = useState<"chat" | "sheet">("chat");
   // Create the assistant runtime at this level so both panes can use it
   const assistantRuntime = useSpreadsheetAssistantRuntime({
