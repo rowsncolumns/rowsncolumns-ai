@@ -1,4 +1,5 @@
 import { AdminCreditRefillCard } from "@/components/admin-credit-refill-card";
+import { SignOutButton } from "@/components/sign-out-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SiteHeader } from "@/components/site-header";
 import { siteNavigation } from "@/components/site-navigation";
@@ -111,14 +112,7 @@ export default async function AccountSettingsPage() {
                 <AdminCreditRefillCard currentUserId={user.id} />
               ) : null}
 
-              <form action="/auth/sign-out" method="post">
-                <button
-                  type="submit"
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-4 text-sm font-medium text-foreground transition hover:opacity-80"
-                >
-                  Log out
-                </button>
-              </form>
+              <SignOutButton className="inline-flex h-10 items-center justify-center rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-4 text-sm font-medium text-foreground transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-70" />
             </CardContent>
           </Card>
         </div>

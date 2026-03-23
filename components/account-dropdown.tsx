@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown, LogOut, Settings } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { authClient } from "@/lib/auth/client";
 
 type AccountDropdownProps = {
   name: string;
@@ -29,6 +30,27 @@ function initialsFromName(name: string): string {
 export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
   const initials = initialsFromName(name);
   const signOutFormRef = useRef<HTMLFormElement>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+    try {
+      const { error } = await authClient.signOut();
+      if (error) {
+        signOutFormRef.current?.requestSubmit();
+        return;
+      }
+      window.location.assign("/");
+    } catch {
+      signOutFormRef.current?.requestSubmit();
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <DropdownMenu>
@@ -81,12 +103,14 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
         <DropdownMenuSeparator />
         <form ref={signOutFormRef} action="/auth/sign-out" method="post" />
         <DropdownMenuItem
-          onSelect={() => {
-            signOutFormRef.current?.requestSubmit();
+          disabled={isSigningOut}
+          onSelect={(event) => {
+            event.preventDefault();
+            void handleSignOut();
           }}
         >
           <LogOut className="h-4 w-4" />
-          Log out
+          {isSigningOut ? "Logging out..." : "Log out"}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
