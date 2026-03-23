@@ -930,6 +930,11 @@ type PersistedThreadTextPart = {
   text: string;
 };
 
+type PersistedThreadReasoningPart = {
+  type: "reasoning";
+  text: string;
+};
+
 type PersistedThreadToolCallPart = {
   type: "tool-call";
   toolCallId: string;
@@ -941,6 +946,7 @@ type PersistedThreadToolCallPart = {
 
 type PersistedThreadContentPart =
   | PersistedThreadTextPart
+  | PersistedThreadReasoningPart
   | PersistedThreadToolCallPart;
 
 export type PersistedThreadMessage = {
@@ -1281,9 +1287,25 @@ const buildPersistedThreadMessages = (
     }
 
     if (role === "assistant") {
-      const text = contentToText(getStoredMessageProperty(rawMessage, "content"));
+      const storedContent = getStoredMessageProperty(rawMessage, "content");
+      const text = contentToText(storedContent);
+      const contentReasoning = contentToReasoning(storedContent).trim();
+      const kwargsReasoning = additionalKwargsToReasoning(
+        getStoredMessageProperty(rawMessage, "additional_kwargs"),
+      ).trim();
+      const reasoning = [contentReasoning, kwargsReasoning]
+        .filter((value, index, all) => value && all.indexOf(value) === index)
+        .join("\n\n")
+        .trim();
       const toolCalls = getStoredToolCalls(rawMessage);
       const parts: PersistedThreadContentPart[] = [];
+
+      if (reasoning) {
+        parts.push({
+          type: "reasoning",
+          text: reasoning,
+        });
+      }
 
       if (text.trim()) {
         parts.push({
@@ -1389,6 +1411,39 @@ const persistAssistantMessageToCheckpoint = async (input: {
     );
   } catch (error) {
     console.error("[graph] Failed to persist assistant message", error);
+  }
+};
+
+export const persistAssistantFailureToCheckpoint = async (input: {
+  threadId: string;
+  userId?: string;
+  userMessage?: string;
+  errorMessage: string;
+}) => {
+  const errorMessage = input.errorMessage.trim();
+  if (!errorMessage) {
+    return;
+  }
+
+  const messages: (HumanMessage | AIMessage)[] = [];
+  const userMessage = input.userMessage?.trim();
+  if (userMessage) {
+    messages.push(new HumanMessage(userMessage));
+  }
+  messages.push(new AIMessage(errorMessage));
+
+  try {
+    await (await getGraph()).updateState(
+      getThreadConfig(input.threadId, "persist-assistant-failure", {
+        userId: input.userId,
+      }),
+      {
+        messages,
+      },
+      "call-model",
+    );
+  } catch (error) {
+    console.error("[graph] Failed to persist assistant failure", error);
   }
 };
 

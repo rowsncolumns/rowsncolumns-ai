@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { streamSpreadsheetAssistant } from "@/lib/chat/graph";
+import {
+  persistAssistantFailureToCheckpoint,
+  streamSpreadsheetAssistant,
+} from "@/lib/chat/graph";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 import { chargeUserCreditsForRun, getUserCredits } from "@/lib/credits/repository";
 import {
@@ -74,10 +77,18 @@ export async function POST(request: Request) {
     if (!isAdmin) {
       const credits = await getUserCredits(userId);
       if (credits.balance < MIN_CREDITS_PER_RUN) {
+        const outOfCreditsErrorMessage =
+          "Insufficient credits for today. Credits reset to 30 at the next daily reset.";
+        await persistAssistantFailureToCheckpoint({
+          threadId,
+          userId,
+          userMessage: message,
+          errorMessage: outOfCreditsErrorMessage,
+        });
+
         return NextResponse.json(
           {
-            error:
-              "Insufficient credits for today. Credits reset to 30 at the next daily reset.",
+            error: outOfCreditsErrorMessage,
             code: "INSUFFICIENT_CREDITS",
             remainingCredits: credits.balance,
           },

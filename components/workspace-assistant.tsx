@@ -267,6 +267,10 @@ type PersistedThreadHistoryMessage = {
             text: string;
           }
         | {
+            type: "reasoning";
+            text: string;
+          }
+        | {
             type: "tool-call";
             toolCallId?: string;
             toolName: string;
@@ -841,6 +845,17 @@ const parsePersistedThreadHistoryContentPart = (
 
     return {
       type: "text" as const,
+      text: part.text,
+    };
+  }
+
+  if (part.type === "reasoning") {
+    if (typeof part.text !== "string" || part.text.trim().length === 0) {
+      return null;
+    }
+
+    return {
+      type: "reasoning" as const,
       text: part.text,
     };
   }
