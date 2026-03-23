@@ -2,7 +2,7 @@ import { cookies, headers } from "next/headers";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
-import { auth } from "@/lib/auth/server";
+import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import { ensureDocumentAccess } from "@/lib/documents/repository";
 import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme-preference";
 
@@ -48,7 +48,7 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
     ? `/doc/${documentId}?share=${encodeURIComponent(shareToken)}`
     : `/doc/${documentId}`;
 
-  const { data: session } = await auth.getSession();
+  const session = await getServerSessionSafe();
   if (!session?.user) {
     redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
   }

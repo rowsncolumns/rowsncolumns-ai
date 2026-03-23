@@ -1,6 +1,6 @@
 const NEON_AUTH_COOKIE_PREFIX = "__Secure-neon-auth.";
 
-function readSetCookieHeaders(headers: Headers): string[] {
+export function readSetCookieHeaders(headers: Headers): string[] {
   const headerWithGetSetCookie = headers as Headers & {
     getSetCookie?: () => string[];
   };
@@ -10,6 +10,16 @@ function readSetCookieHeaders(headers: Headers): string[] {
 
   const setCookie = headers.get("set-cookie");
   return setCookie ? [setCookie] : [];
+}
+
+export function copySetCookieHeaders(
+  source: Headers,
+  target: Headers,
+): void {
+  const setCookies = readSetCookieHeaders(source);
+  for (const setCookie of setCookies) {
+    target.append("set-cookie", setCookie);
+  }
 }
 
 function isNeonAuthSetCookie(setCookieHeader: string): boolean {

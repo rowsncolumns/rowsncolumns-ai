@@ -10,12 +10,10 @@ import {
 import { AuthModalTrigger } from "@/components/auth-modal-trigger";
 import { SiteHeader } from "@/components/site-header";
 import { siteNavigation } from "@/components/site-navigation";
-import { auth } from "@/lib/auth/server";
+import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Image from "next/image";
-
-const trustLogos = ["Stripe", "Mercury", "Ramp", "Vercel", "Notion", "Scale"];
 
 const metrics = [
   { value: "6.2x", label: "Faster delivery on recurring spreadsheet work" },
@@ -188,7 +186,7 @@ function WorkflowPreviewCard() {
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const { data: session } = await auth.getSession();
+  const session = await getServerSessionSafe();
   const initialUser = session?.user
     ? {
         id: session.user.id,

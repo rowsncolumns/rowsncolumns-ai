@@ -1,14 +1,12 @@
 import { Card } from "@/components/ui/card";
 import { SiteHeader } from "@/components/site-header";
 import { siteNavigation } from "@/components/site-navigation";
-import { auth } from "@/lib/auth/server";
+import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { SignInSubmitButton } from "./sign-in-submit-button";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-const NEXT_COOKIE_MUTATION_ERROR_FRAGMENT =
-  "Cookies can only be modified in a Server Action or Route Handler";
 
 function readSingleParam(value: string | string[] | undefined): string | null {
   if (typeof value === "string") return value;
@@ -38,16 +36,7 @@ export default async function SignInPage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
-  let session: Awaited<ReturnType<typeof auth.getSession>>["data"] | null = null;
-  try {
-    const result = await auth.getSession();
-    session = result.data;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (!message.includes(NEXT_COOKIE_MUTATION_ERROR_FRAGMENT)) {
-      throw error;
-    }
-  }
+  const session = await getServerSessionSafe();
 
   const callbackURL = normalizeCallbackPath(
     readSingleParam(params.callbackURL),

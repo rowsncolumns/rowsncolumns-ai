@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SiteHeader } from "@/components/site-header";
 import { siteNavigation } from "@/components/site-navigation";
 import { isAdminUser } from "@/lib/auth/admin";
-import { auth } from "@/lib/auth/server";
+import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import { INITIAL_CREDITS } from "@/lib/credits/pricing";
 import { getUserCredits } from "@/lib/credits/repository";
 import type { Metadata } from "next";
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AccountSettingsPage() {
-  const { data: session } = await auth.getSession();
+  const session = await getServerSessionSafe();
 
   if (!session?.user) {
     redirect("/auth/sign-in?callbackURL=/account/settings");
@@ -82,12 +82,18 @@ export default async function AccountSettingsPage() {
                   Daily Credits
                 </h3>
                 <p className="mt-2">
-                  <span className="font-medium text-foreground">Remaining:</span>{" "}
-                  {isAdmin ? "Unlimited" : `${credits.balance}/${INITIAL_CREDITS}`}
+                  <span className="font-medium text-foreground">
+                    Remaining:
+                  </span>{" "}
+                  {isAdmin
+                    ? "Unlimited"
+                    : `${credits.balance}/${INITIAL_CREDITS}`}
                 </p>
                 <p>
                   <span className="font-medium text-foreground">Reset:</span>{" "}
-                  {isAdmin ? "Not applicable (admin account)" : `${nextResetLabel} (UTC)`}
+                  {isAdmin
+                    ? "Not applicable (admin account)"
+                    : `${nextResetLabel} (UTC)`}
                 </p>
                 {isAdmin ? (
                   <p className="mt-1 text-xs">
@@ -101,7 +107,9 @@ export default async function AccountSettingsPage() {
                 )}
               </div>
 
-              {isAdmin ? <AdminCreditRefillCard currentUserId={user.id} /> : null}
+              {isAdmin ? (
+                <AdminCreditRefillCard currentUserId={user.id} />
+              ) : null}
 
               <form action="/auth/sign-out" method="post">
                 <button
