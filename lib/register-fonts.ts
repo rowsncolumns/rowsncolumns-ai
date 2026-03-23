@@ -1,4 +1,5 @@
 import path from "path";
+import fs from "fs";
 
 let fontsRegistered = false;
 
@@ -9,15 +10,33 @@ let fontsRegistered = false;
  */
 export function registerFonts() {
   if (fontsRegistered) return;
+  fontsRegistered = true; // Mark as attempted to avoid repeated warnings
 
   // Only register in Node.js environment
   if (typeof window !== "undefined") return;
 
+  const fontsDir = path.join(process.cwd(), "fonts");
+
+  // Check if fonts directory exists
+  if (!fs.existsSync(fontsDir)) {
+    console.warn("[fonts] Fonts directory not found:", fontsDir);
+    return;
+  }
+
+  let registerFont: (
+    path: string,
+    options: { family: string; weight?: string; style?: string },
+  ) => void;
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { registerFont } = require("canvas");
-    const fontsDir = path.join(process.cwd(), "fonts");
+    registerFont = require("canvas").registerFont;
+  } catch {
+    // Canvas not available - this is OK, text measurement will use fallbacks
+    return;
+  }
 
+  try {
     // Register Liberation Sans as "Arial" (metrically compatible)
     registerFont(path.join(fontsDir, "LiberationSans-Regular.ttf"), {
       family: "Arial",
@@ -64,10 +83,10 @@ export function registerFonts() {
       style: "normal",
     });
 
-    fontsRegistered = true;
     console.log("[fonts] Registered Liberation fonts as Arial/Courier New");
   } catch (error) {
-    // Canvas not available or fonts not found - graceful degradation
-    console.warn("[fonts] Could not register fonts:", error);
+    // Font registration failed - graceful degradation
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[fonts] Could not register fonts:", message);
   }
 }
