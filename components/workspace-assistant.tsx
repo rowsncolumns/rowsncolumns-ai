@@ -376,12 +376,21 @@ type StreamingToolCallPart = {
   type: "tool-call";
   toolCallId: string;
   toolName: string;
-  args: Record<string, any>;
+  args: unknown;
   argsText: string;
   result?: unknown;
 };
 
 type StreamingContentPart = StreamingTextPart | StreamingToolCallPart;
+
+const TOOL_INPUT_UNAVAILABLE_MARKER = "__rnc_tool_input_unavailable__";
+
+const createUnavailableToolArgs = () => ({
+  [TOOL_INPUT_UNAVAILABLE_MARKER]: true,
+});
+
+const isUnavailableToolArgs = (value: unknown) =>
+  isRecord(value) && value[TOOL_INPUT_UNAVAILABLE_MARKER] === true;
 
 const appendStreamingDelta = (
   parts: StreamingContentPart[],
@@ -403,7 +412,7 @@ const upsertStreamingToolCall = (
   indexByToolCallId: Map<string, number>,
   toolCallId: string,
   toolName: string,
-  args: Record<string, any>,
+  args: unknown,
 ) => {
   const existingIndex = indexByToolCallId.get(toolCallId);
   if (existingIndex === undefined) {
@@ -482,6 +491,7 @@ const setStreamingToolResult = (
   toolCallId: string,
   toolName: string,
   result: unknown,
+  args?: unknown,
   isError = false,
 ) => {
   const normalizedResult = normalizeStreamingToolResult(result, isError);
@@ -501,8 +511,8 @@ const setStreamingToolResult = (
         type: "tool-call",
         toolCallId,
         toolName,
-        args: {},
-        argsText: "{}",
+        args: args ?? createUnavailableToolArgs(),
+        argsText: JSON.stringify(args ?? createUnavailableToolArgs(), null, 2),
         result: normalizedResult,
       }) - 1;
     indexByToolCallId.set(toolCallId, nextIndex);
@@ -512,6 +522,11 @@ const setStreamingToolResult = (
   const existingPart = parts[existingIndex];
   if (!existingPart || existingPart.type !== "tool-call") {
     return;
+  }
+
+  if (args !== undefined) {
+    existingPart.args = args;
+    existingPart.argsText = JSON.stringify(args, null, 2);
   }
 
   existingPart.result = normalizedResult;
@@ -525,7 +540,11 @@ const snapshotStreamingContent = (parts: StreamingContentPart[]) =>
 
     return {
       ...part,
-      args: { ...part.args },
+      args: isRecord(part.args)
+        ? { ...part.args }
+        : Array.isArray(part.args)
+          ? [...part.args]
+          : part.args,
     };
   }) as any[];
 
@@ -605,7 +624,7 @@ async function* streamAssistantResponse(
         toolPartIndexById,
         toolCallId,
         event.toolName,
-        (event.args as Record<string, any>) ?? {},
+        event.args ?? {},
       );
       yield buildStreamingYield(streamingParts, threadId);
       continue;
@@ -619,6 +638,7 @@ async function* streamAssistantResponse(
         toolCallId,
         event.toolName,
         event.result,
+        event.args,
         event.isError === true,
       );
       yield buildStreamingYield(streamingParts, threadId);
@@ -1276,6 +1296,10 @@ function ToolCallDisplay({
     return null;
   }, [parsedArgs]);
   const formattedArgs = React.useMemo(() => {
+    if (isUnavailableToolArgs(parsedArgs)) {
+      return "Input unavailable: tool call failed before execution and runtime did not emit tool arguments.";
+    }
+
     try {
       const serialized = JSON.stringify(parsedArgs, null, 2);
       return typeof serialized === "string" ? serialized : String(args);

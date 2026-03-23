@@ -972,6 +972,13 @@ export async function* streamSpreadsheetAssistant(input: {
       if (event.event === "on_tool_end") {
         const toolName = event.name;
         const toolOutput = event.data?.output;
+        const toolInput =
+          event.data &&
+          typeof event.data === "object" &&
+          "input" in event.data &&
+          (event.data as { input?: unknown }).input !== undefined
+            ? (event.data as { input?: unknown }).input
+            : undefined;
         const runId = event.run_id;
         const normalized = normalizeToolResult(toolOutput);
         const dedupKey = getToolResultDedupKey({
@@ -989,6 +996,7 @@ export async function* streamSpreadsheetAssistant(input: {
           type: "tool.result",
           toolName,
           toolCallId: runId,
+          ...(toolInput !== undefined ? { args: toolInput } : {}),
           result: normalized.result,
           isError: normalized.isError,
         };
@@ -999,6 +1007,13 @@ export async function* streamSpreadsheetAssistant(input: {
       if (event.event === "on_tool_error") {
         const toolName = event.name;
         const error = event.data?.error as unknown;
+        const toolInput =
+          event.data &&
+          typeof event.data === "object" &&
+          "input" in event.data &&
+          (event.data as { input?: unknown }).input !== undefined
+            ? (event.data as { input?: unknown }).input
+            : undefined;
         const runId = event.run_id;
         const result = {
           success: false,
@@ -1022,6 +1037,7 @@ export async function* streamSpreadsheetAssistant(input: {
           type: "tool.result",
           toolName,
           toolCallId: runId,
+          ...(toolInput !== undefined ? { args: toolInput } : {}),
           result,
           isError: true,
         };

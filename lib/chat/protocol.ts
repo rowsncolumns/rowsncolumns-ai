@@ -30,6 +30,7 @@ export type ChatStreamEvent =
       type: "tool.result";
       toolName: string;
       toolCallId?: string;
+      args?: unknown;
       result: unknown;
       isError?: boolean;
     }

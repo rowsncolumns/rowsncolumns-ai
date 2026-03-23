@@ -493,7 +493,7 @@ function SpreadsheetPane({
   const shareDbStatusLabel =
     shareDbConnectionState === "connecting"
       ? "Reconnecting..."
-      : "ShareDB disconnected";
+      : "Connection lost";
   const shareDbStatusTitle = shareDbConnectionReason
     ? `${shareDbStatusLabel}: ${shareDbConnectionReason}`
     : shareDbStatusLabel;
