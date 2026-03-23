@@ -1,7 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import {
   addressToSelection,
-  alpha2number,
   cellToAddress,
   desanitizeSheetName,
   generateSelectionsFromFormula,
@@ -2037,42 +2036,51 @@ Example 4 — Read specific range from a sheet:
 
 /**
  * Parse a range string and return the indexes and axis type.
- * Column ranges: "A:G" -> { indexes: [1,2,3,4,5,6,7], axis: 'y' }
- * Row ranges: "1:5" -> { indexes: [1,2,3,4,5], axis: 'x' }
+ * Uses addressToSelection for all supported address formats.
+ * Examples: "A", "A:G", "1:5", "A1:H1", "B2:B20".
  */
 const parseRange = (
   range: string,
+  axisHint?: "x" | "y",
 ): { indexes: number[]; axis: "x" | "y" } | null => {
-  const parts = range.split(":");
-  if (parts.length !== 2) {
+  const normalized = range.trim();
+  const selection = addressToSelection(normalized);
+  const gridRange = selection?.range;
+  if (!gridRange) {
     return null;
   }
 
-  const [start, end] = parts;
+  const rowIndexes: number[] = [];
+  for (let i = gridRange.startRowIndex; i <= gridRange.endRowIndex; i++) {
+    if (i <= 0) return null;
+    rowIndexes.push(i);
+  }
 
-  // Check if it's a column range (letters) or row range (numbers)
-  const isColumnRange = /^[A-Z]+$/i.test(start) && /^[A-Z]+$/i.test(end);
-  const isRowRange = /^\d+$/.test(start) && /^\d+$/.test(end);
+  const columnIndexes: number[] = [];
+  for (let i = gridRange.startColumnIndex; i <= gridRange.endColumnIndex; i++) {
+    if (i <= 0) return null;
+    columnIndexes.push(i);
+  }
 
-  if (isColumnRange) {
-    const startIndex = alpha2number(start.toUpperCase());
-    const endIndex = alpha2number(end.toUpperCase());
-    const indexes: number[] = [];
-    for (let i = startIndex; i <= endIndex; i++) {
-      indexes.push(i);
-    }
-    return { indexes, axis: "y" };
-  } else if (isRowRange) {
-    const startIndex = parseInt(start, 10);
-    const endIndex = parseInt(end, 10);
-    if (startIndex <= 0 || endIndex <= 0) {
-      return null;
-    }
-    const indexes: number[] = [];
-    for (let i = startIndex; i <= endIndex; i++) {
-      indexes.push(i);
-    }
-    return { indexes, axis: "x" };
+  if (axisHint === "x") {
+    return { indexes: rowIndexes, axis: "x" };
+  }
+  if (axisHint === "y") {
+    return { indexes: columnIndexes, axis: "y" };
+  }
+
+  const isSingleRow = gridRange.startRowIndex === gridRange.endRowIndex;
+  const isSingleColumn =
+    gridRange.startColumnIndex === gridRange.endColumnIndex;
+
+  if (isSingleRow && !isSingleColumn) {
+    return { indexes: rowIndexes, axis: "x" };
+  }
+  if (isSingleColumn && !isSingleRow) {
+    return { indexes: columnIndexes, axis: "y" };
+  }
+  if (isSingleRow && isSingleColumn) {
+    return { indexes: rowIndexes, axis: "x" };
   }
 
   return null;
@@ -2095,20 +2103,17 @@ const handleSpreadsheetSetRowColDimensions = async (
     );
   }
 
-  // Parse the range to get indexes and axis
-  const parsedRange = parseRange(range);
-  if (!parsedRange) {
+  const hasWidth = width !== undefined;
+  const hasHeight = height !== undefined;
+  if (hasWidth && hasHeight) {
     return failTool(
-      "INVALID_RANGE",
-      `Invalid range format: ${range}. Use column notation (e.g., 'A:G') or row notation (e.g., '1:5').`,
+      "AMBIGUOUS_DIMENSION_SPEC",
+      "Specify only one of width or height",
       { range },
     );
   }
 
-  const { indexes, axis } = parsedRange;
-
-  // Determine which dimension spec to use
-  const dimensionSpec = width || height;
+  const dimensionSpec = width ?? height;
   if (!dimensionSpec) {
     return failTool(
       "MISSING_DIMENSION_SPEC",
@@ -2116,6 +2121,20 @@ const handleSpreadsheetSetRowColDimensions = async (
       { range },
     );
   }
+
+  const axisHint: "x" | "y" = hasHeight ? "x" : "y";
+
+  // Parse the range to get indexes and axis
+  const parsedRange = parseRange(range, axisHint);
+  if (!parsedRange) {
+    return failTool(
+      "INVALID_RANGE",
+      `Invalid range format: ${range}. Use column notation (e.g., 'A:G'), row notation (e.g., '1:5'), or A1 ranges like 'A1:H1'.`,
+      { range },
+    );
+  }
+
+  const { indexes, axis } = parsedRange;
 
   // Validate pixel value when type is "pixels"
   if (dimensionSpec.type === "pixels" && dimensionSpec.value === undefined) {

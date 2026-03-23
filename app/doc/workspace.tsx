@@ -130,7 +130,7 @@ import {
 } from "@/components/workspace-assistant";
 import { MagnifyingGlassIcon } from "@rowsncolumns/icons";
 import { Citation } from "@rowsncolumns/common-types";
-import { uuid } from "@rowsncolumns/utils";
+import { addressToSelection, uuid } from "@rowsncolumns/utils";
 import {
   ChartEditor,
   ChartEditorDialog,
@@ -378,19 +378,20 @@ function SpreadsheetPane({
   currentUser,
   initialThemeMode,
   canManageShare,
+  locale,
+  currency,
 }: {
   documentId: string;
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
+  locale: string;
+  currency: string;
 }) {
   const { data: sessionData } = authClient.useSession();
   const user = sessionData?.user ?? currentUser;
   const shareDbUserId = user.id;
   const shareDbUserTitle = user.name?.trim() || user.email || "User";
-
-  const locale = "en-US";
-  const currency = "USD";
   const [sheets, onChangeSheets] = useState<Sheet[]>(initialSheets);
   const [cellXfs, onChangeCellXfs] = useState<CellXfs | null | undefined>(
     new Map(),
@@ -415,19 +416,7 @@ function SpreadsheetPane({
   const [protectedRanges, onChangeProtectedRanges] = useState<ProtectedRange[]>(
     [],
   );
-  const [citations, onChangeCitations] = useState<Citation[]>([
-    {
-      id: "citation-id",
-      citation_string: "asdasd",
-      range: {
-        sheetId: 1,
-        endRowIndex: 1,
-        startRowIndex: 1,
-        startColumnIndex: 3,
-        endColumnIndex: 3,
-      },
-    },
-  ]);
+  const [citations, onChangeCitations] = useState<Citation[]>([]);
   const [agents, setAgents] = useState<Collaborator[]>([]);
   const [userDefinedColors, setUserDefinedColors] = useState<string[]>([]);
   const [namedRanges, onChangeNamedRanges] = useState<NamedRange[]>([]);
@@ -1335,6 +1324,7 @@ function SpreadsheetPane({
       <div className="min-h-0 flex-1 flex">
         <CanvasGrid
           {...spreadsheetColors}
+          locale={locale}
           instanceId={documentId}
           users={users}
           userId={shareDbUserId}
@@ -1364,7 +1354,6 @@ function SpreadsheetPane({
           enableDataBoundaryNavigation
           enableMagicFill={true}
           showSelectionResizeHandles
-          locale={locale}
           stickyEditor={true}
           showGridLines={showGridLines}
           borderStyles={borderStyles}
@@ -1659,6 +1648,8 @@ type NewWorkspaceProps = {
   canManageShare: boolean;
   initialIsMobileLayout: boolean;
   isAdmin: boolean;
+  locale: string;
+  currency: string;
 };
 
 export function NewWorkspace({
@@ -1669,6 +1660,8 @@ export function NewWorkspace({
   canManageShare,
   initialIsMobileLayout,
   isAdmin,
+  locale,
+  currency,
 }: NewWorkspaceProps) {
   const isMobileLayout = useMediaQueryMatch(
     MOBILE_LAYOUT_MEDIA_QUERY,
@@ -1714,6 +1707,8 @@ export function NewWorkspace({
       currentUser={currentUser}
       initialThemeMode={initialThemeMode}
       canManageShare={canManageShare}
+      locale={locale}
+      currency={currency}
     />
   );
 

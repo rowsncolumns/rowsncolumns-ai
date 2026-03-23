@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import { isAdminUser } from "@/lib/auth/admin";
 import { ensureDocumentAccess } from "@/lib/documents/repository";
+import { resolveLocaleAndCurrency } from "@/lib/locale-preference";
 import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme-preference";
 
 import {
@@ -25,6 +26,12 @@ const MOBILE_USER_AGENT_REGEX =
 const toShortDocumentId = (documentId: string): string =>
   documentId.slice(0, 8);
 
+const getRequestCountryCode = (headerStore: Headers): string | null =>
+  headerStore.get("x-vercel-ip-country") ??
+  headerStore.get("cf-ipcountry") ??
+  headerStore.get("x-country-code") ??
+  headerStore.get("x-appengine-country");
+
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
@@ -37,7 +44,10 @@ export async function generateMetadata({
   };
 }
 
-export default async function DocumentPage({ params, searchParams }: PageProps) {
+export default async function DocumentPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { documentId } = await params;
   const resolvedSearchParams = await searchParams;
   const shareTokenValue = resolvedSearchParams.share;
@@ -74,6 +84,10 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
   );
   const secChUaMobile = headerStore.get("sec-ch-ua-mobile");
   const userAgent = headerStore.get("user-agent") ?? "";
+  const { locale, currency } = resolveLocaleAndCurrency({
+    acceptLanguage: headerStore.get("accept-language"),
+    countryCode: getRequestCountryCode(headerStore),
+  });
   const initialIsMobileLayout =
     secChUaMobile === "?1" ||
     (secChUaMobile === null && MOBILE_USER_AGENT_REGEX.test(userAgent));
@@ -90,6 +104,8 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
       initialThemeMode={initialThemeMode}
       initialIsMobileLayout={initialIsMobileLayout}
       isAdmin={isAdmin}
+      locale={locale}
+      currency={currency}
       currentUser={{
         id: session.user.id,
         name: session.user.name,

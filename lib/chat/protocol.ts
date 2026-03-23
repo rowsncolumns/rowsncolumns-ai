@@ -39,8 +39,35 @@ export type ChatStreamEvent =
       error: string;
     };
 
+const safeJsonStringify = (value: unknown): string => {
+  const visited = new WeakSet<object>();
+
+  return JSON.stringify(value, (_key, currentValue) => {
+    if (typeof currentValue === "bigint") {
+      return currentValue.toString();
+    }
+
+    if (currentValue instanceof Error) {
+      return {
+        name: currentValue.name,
+        message: currentValue.message,
+        stack: currentValue.stack,
+      };
+    }
+
+    if (currentValue && typeof currentValue === "object") {
+      if (visited.has(currentValue)) {
+        return "[Circular]";
+      }
+      visited.add(currentValue);
+    }
+
+    return currentValue;
+  });
+};
+
 export const encodeChatStreamEvent = (event: ChatStreamEvent) => {
-  return `data: ${JSON.stringify(event)}\n\n`;
+  return `data: ${safeJsonStringify(event)}\n\n`;
 };
 
 export async function* parseChatStream(

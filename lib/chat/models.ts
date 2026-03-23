@@ -135,9 +135,7 @@ const SheetSpecSchema = z
       .number()
       .int()
       .optional()
-      .describe(
-        "Sheet ID. If not provided, one will be auto-generated.",
-      ),
+      .describe("Sheet ID. If not provided, one will be auto-generated."),
     index: z.number().int().optional().describe("The order of the sheet"),
     frozenRowCount: z
       .number()
@@ -471,7 +469,7 @@ const DimensionSpecSchema = z.object({
 });
 
 // Spreadsheet SetRowColDimensions
-export const SpreadsheetSetRowColDimensionsSchema = z.object({
+const SpreadsheetSetRowColDimensionsBaseSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
   sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
   range: z
@@ -487,6 +485,9 @@ export const SpreadsheetSetRowColDimensionsSchema = z.object({
   ),
   ...ToolExplanationSchemaShape,
 });
+
+export const SpreadsheetSetRowColDimensionsSchema =
+  SpreadsheetSetRowColDimensionsBaseSchema;
 
 export type SpreadsheetSetRowColDimensionsInput = z.infer<
   typeof SpreadsheetSetRowColDimensionsSchema

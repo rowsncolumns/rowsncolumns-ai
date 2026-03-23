@@ -1,14 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useTransition } from "react";
 import {
   ChevronDown,
   FilePlus,
   FileSpreadsheet,
   FileText,
+  Loader2,
 } from "lucide-react";
 import { uuidString } from "@rowsncolumns/utils";
+import { createPortal } from "react-dom";
 
 import {
   DropdownMenu,
@@ -33,13 +35,21 @@ export function FileMenu({
   onExportCSV,
 }: FileMenuProps) {
   const router = useRouter();
+  const [isCreatingNewSpreadsheet, startCreatingNewSpreadsheet] =
+    useTransition();
   const excelFileInputRef = useRef<HTMLInputElement>(null);
   const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleNewFile = useCallback(() => {
+    if (isCreatingNewSpreadsheet) {
+      return;
+    }
+
     const newDocId = uuidString();
-    router.push(`/doc/${newDocId}`);
-  }, [router]);
+    startCreatingNewSpreadsheet(() => {
+      router.push(`/doc/${newDocId}`);
+    });
+  }, [isCreatingNewSpreadsheet, router, startCreatingNewSpreadsheet]);
 
   const handleImportExcelClick = useCallback(() => {
     excelFileInputRef.current?.click();
@@ -101,6 +111,21 @@ export function FileMenu({
 
   return (
     <div>
+      {isCreatingNewSpreadsheet && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+              <div
+                role="status"
+                aria-live="polite"
+                className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Creating spreadsheet...
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       <input
         ref={excelFileInputRef}
         type="file"
@@ -123,15 +148,30 @@ export function FileMenu({
             variant="ghost"
             size="default"
             className="gap-1 px-2 text-xs font-medium"
+            disabled={isCreatingNewSpreadsheet}
+            aria-busy={isCreatingNewSpreadsheet}
           >
             File
-            <ChevronDown className="h-3.5 w-3.5" />
+            {isCreatingNewSpreadsheet ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
           </ToolbarIconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
-          <DropdownMenuItem onClick={handleNewFile}>
-            <FilePlus className="h-4 w-4" />
-            New Spreadsheet
+          <DropdownMenuItem
+            onClick={handleNewFile}
+            disabled={isCreatingNewSpreadsheet}
+          >
+            {isCreatingNewSpreadsheet ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FilePlus className="h-4 w-4" />
+            )}
+            {isCreatingNewSpreadsheet
+              ? "Creating spreadsheet..."
+              : "New Spreadsheet"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleImportExcelClick}>

@@ -256,6 +256,7 @@ proactively rather than relying on the reactive auto-fix above.
 - Avoid merged cells unless they genuinely improve presentation and won’t interfere with sorting, filtering, or downstream use.
 - Auto-format by default to keep outputs presentable (clear headers, sensible alignment, and appropriate number/date/percent/currency formats).
 - For small edits in existing sheets, avoid broad cosmetic reformatting unless the user requests it.
+- Keep data writes and visual styling separate: write values/formulas first, then apply presentation updates in a follow-up step.
 
 ## When creating a new spreadsheet or sheet
 - Start with a structure that matches the user’s objective.
@@ -542,6 +543,10 @@ type ChatGraph = Awaited<ReturnType<typeof createGraph>>;
 let graphPromise: Promise<ChatGraph> | null = null;
 
 const getGraph = async () => {
+  if (process.env.NODE_ENV !== "production") {
+    return createGraph();
+  }
+
   if (!graphPromise) {
     graphPromise = createGraph().catch((error) => {
       graphPromise = null;
@@ -757,6 +762,7 @@ const tryParseJsonString = (value: string): unknown => {
 type StreamedToolResult = {
   toolName: string;
   toolCallId?: string;
+  args?: unknown;
   result: unknown;
   isError: boolean;
 };
@@ -773,6 +779,8 @@ const extractStreamedToolMessage = (
     kwargs?: unknown;
     name?: unknown;
     tool_call_id?: unknown;
+    input?: unknown;
+    artifact?: unknown;
     status?: unknown;
     content?: unknown;
   };
@@ -781,6 +789,8 @@ const extractStreamedToolMessage = (
       ? (maybeMessage.kwargs as {
           name?: unknown;
           tool_call_id?: unknown;
+          input?: unknown;
+          artifact?: unknown;
           status?: unknown;
           content?: unknown;
         })
@@ -812,6 +822,15 @@ const extractStreamedToolMessage = (
         ? maybeMessage.status
         : undefined;
   const content = kwargs?.content ?? maybeMessage.content;
+  const directInput = kwargs?.input ?? maybeMessage.input;
+  const artifact =
+    kwargs?.artifact && typeof kwargs.artifact === "object"
+      ? (kwargs.artifact as Record<string, unknown>)
+      : maybeMessage.artifact && typeof maybeMessage.artifact === "object"
+        ? (maybeMessage.artifact as Record<string, unknown>)
+        : undefined;
+  const artifactInput = artifact?.input;
+  const args = directInput ?? artifactInput;
 
   if (!isToolMessageType && !toolName && !toolCallId) {
     return null;
@@ -835,6 +854,7 @@ const extractStreamedToolMessage = (
   return {
     toolName: toolName ?? "tool",
     ...(toolCallId ? { toolCallId } : {}),
+    ...(args !== undefined ? { args } : {}),
     result,
     isError,
   };
@@ -874,6 +894,123 @@ const collectStreamedToolResults = (value: unknown): StreamedToolResult[] => {
 
     const record = current as Record<string, unknown>;
     for (const key of ["messages", "message", "chunk", "output", "data"]) {
+      if (key in record) {
+        queue.push(record[key]);
+      }
+    }
+  }
+
+  return results;
+};
+
+type StreamedToolCall = {
+  toolName: string;
+  toolCallId?: string;
+  args: unknown;
+};
+
+const extractStreamedToolCalls = (value: unknown): StreamedToolCall[] => {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const additionalKwargs =
+    "additional_kwargs" in record &&
+    record.additional_kwargs &&
+    typeof record.additional_kwargs === "object"
+      ? (record.additional_kwargs as Record<string, unknown>)
+      : undefined;
+  const direct = Array.isArray(record.tool_calls)
+    ? record.tool_calls
+    : undefined;
+  const nested =
+    additionalKwargs && Array.isArray(additionalKwargs.tool_calls)
+      ? additionalKwargs.tool_calls
+      : undefined;
+  const toolCalls = direct ?? nested ?? [];
+
+  return toolCalls
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const toolCall = item as {
+        id?: unknown;
+        name?: unknown;
+        args?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      };
+      const toolName =
+        typeof toolCall.name === "string"
+          ? toolCall.name
+          : typeof toolCall.function?.name === "string"
+            ? toolCall.function.name
+            : null;
+      if (!toolName) {
+        return null;
+      }
+
+      const argsSource =
+        toolCall.args !== undefined ? toolCall.args : toolCall.function;
+      const args = parseToolCallArgs(argsSource);
+      const toolCallId =
+        typeof toolCall.id === "string" ? toolCall.id : undefined;
+
+      return {
+        toolName,
+        ...(toolCallId ? { toolCallId } : {}),
+        args,
+      };
+    })
+    .filter((toolCall): toolCall is StreamedToolCall => toolCall !== null);
+};
+
+const collectStreamedToolCalls = (value: unknown): StreamedToolCall[] => {
+  const queue: unknown[] = [value];
+  const results: StreamedToolCall[] = [];
+  const visited = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === undefined || current === null) {
+      continue;
+    }
+
+    if (typeof current !== "object") {
+      continue;
+    }
+
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+
+    const toolCalls = extractStreamedToolCalls(current);
+    if (toolCalls.length > 0) {
+      results.push(...toolCalls);
+    }
+
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        queue.push(item);
+      }
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    for (const key of [
+      "messages",
+      "message",
+      "chunk",
+      "output",
+      "outputs",
+      "data",
+      "kwargs",
+      "additional_kwargs",
+      "generations",
+    ]) {
       if (key in record) {
         queue.push(record[key]);
       }
@@ -1495,8 +1632,67 @@ export async function* streamSpreadsheetAssistant(input: {
 
   let assistantMessage = "";
   const emittedToolResultKeys = new Set<string>();
+  const observedToolCallKeys = new Set<string>();
+  const pendingToolArgsByCallId = new Map<string, unknown>();
+  const pendingToolArgsByName = new Map<string, unknown[]>();
+
+  const enqueuePendingToolArgs = (toolCall: StreamedToolCall) => {
+    const key = toolCall.toolCallId
+      ? `id:${toolCall.toolCallId}`
+      : `name:${toolCall.toolName}:${stringifyUnknown(toolCall.args)}`;
+    if (observedToolCallKeys.has(key)) {
+      return;
+    }
+    observedToolCallKeys.add(key);
+
+    if (toolCall.toolCallId) {
+      pendingToolArgsByCallId.set(toolCall.toolCallId, toolCall.args);
+    }
+
+    const existing = pendingToolArgsByName.get(toolCall.toolName);
+    if (existing) {
+      existing.push(toolCall.args);
+    } else {
+      pendingToolArgsByName.set(toolCall.toolName, [toolCall.args]);
+    }
+  };
+
+  const resolveToolArgs = (
+    toolName: string,
+    toolCallId?: string,
+    args?: unknown,
+  ): unknown => {
+    if (args !== undefined) {
+      return args;
+    }
+
+    if (toolCallId) {
+      const byId = pendingToolArgsByCallId.get(toolCallId);
+      if (byId !== undefined) {
+        pendingToolArgsByCallId.delete(toolCallId);
+        return byId;
+      }
+    }
+
+    const byNameQueue = pendingToolArgsByName.get(toolName);
+    if (byNameQueue && byNameQueue.length > 0) {
+      const next = byNameQueue.shift();
+      if (byNameQueue.length === 0) {
+        pendingToolArgsByName.delete(toolName);
+      }
+      return next;
+    }
+
+    return undefined;
+  };
+
   try {
     for await (const event of eventStream) {
+      const observedToolCalls = collectStreamedToolCalls(event.data);
+      for (const toolCall of observedToolCalls) {
+        enqueuePendingToolArgs(toolCall);
+      }
+
       // Handle model start - emit reasoning.start so UI can show thinking indicator
       if (event.event === "on_chat_model_start") {
         yield {
@@ -1541,12 +1737,13 @@ export async function* streamSpreadsheetAssistant(input: {
         const toolName = event.name;
         const toolInput = event.data?.input;
         const runId = event.run_id;
+        const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
 
         yield {
           type: "tool.call",
           toolName,
           toolCallId: runId,
-          args: toolInput,
+          args: resolvedArgs ?? {},
         };
         continue;
       }
@@ -1563,6 +1760,7 @@ export async function* streamSpreadsheetAssistant(input: {
             ? (event.data as { input?: unknown }).input
             : undefined;
         const runId = event.run_id;
+        const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
         const normalized = normalizeToolResult(toolOutput);
         const dedupKey = getToolResultDedupKey({
           toolName,
@@ -1579,7 +1777,7 @@ export async function* streamSpreadsheetAssistant(input: {
           type: "tool.result",
           toolName,
           toolCallId: runId,
-          ...(toolInput !== undefined ? { args: toolInput } : {}),
+          ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
           result: normalized.result,
           isError: normalized.isError,
         };
@@ -1598,6 +1796,7 @@ export async function* streamSpreadsheetAssistant(input: {
             ? (event.data as { input?: unknown }).input
             : undefined;
         const runId = event.run_id;
+        const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
         const result = {
           success: false,
           error:
@@ -1620,7 +1819,7 @@ export async function* streamSpreadsheetAssistant(input: {
           type: "tool.result",
           toolName,
           toolCallId: runId,
-          ...(toolInput !== undefined ? { args: toolInput } : {}),
+          ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
           result,
           isError: true,
         };
@@ -1632,6 +1831,11 @@ export async function* streamSpreadsheetAssistant(input: {
       if (event.event === "on_chain_stream" || event.event === "on_chain_end") {
         const chainToolResults = collectStreamedToolResults(event.data);
         for (const chainToolResult of chainToolResults) {
+          const resolvedArgs = resolveToolArgs(
+            chainToolResult.toolName,
+            chainToolResult.toolCallId,
+            chainToolResult.args,
+          );
           const dedupKey = getToolResultDedupKey(chainToolResult);
           if (emittedToolResultKeys.has(dedupKey)) {
             continue;
@@ -1642,6 +1846,7 @@ export async function* streamSpreadsheetAssistant(input: {
             type: "tool.result",
             toolName: chainToolResult.toolName,
             toolCallId: chainToolResult.toolCallId,
+            ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
             result: chainToolResult.result,
             isError: chainToolResult.isError,
           };
