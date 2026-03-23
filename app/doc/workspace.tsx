@@ -1524,7 +1524,6 @@ function SpreadsheetPane({
           columnCount={columnCount}
           merges={merges}
         />
-
         {shouldShowShareDbStatus && (
           <span
             className={`inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-semibold ${
