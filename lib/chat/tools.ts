@@ -1038,11 +1038,12 @@ WHEN TO USE THIS TOOL:
 - Aligning text horizontally or vertically
 
 FORMATTING BEHAVIOR:
-- Do NOT auto-format unless the user explicitly requests formatting
+- Auto-format by default to make outputs look presentable
+- For small edits on existing sheets, avoid broad cosmetic reformatting unless the user explicitly requests it
 - Preserve existing cell formatting by default
 - When writing data, match the format of surrounding cells if present
 
-WHEN USER REQUESTS FORMATTING, use these standards:
+WHEN FORMATTING IS APPLIED, use these standards:
 - Numbers: right-align, use thousands separator (#,##0)
 - Currency: '$#,##0.00' with parentheses for negatives '($#,##0.00)'
 - Percentages: '0.0%', right-align
