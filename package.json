@@ -33,7 +33,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@rowsncolumns/charts": "^20.0.12",
     "@rowsncolumns/functions": "^7.0.12",
-    "@rowsncolumns/sharedb": "^1.0.15",
+    "@rowsncolumns/sharedb": "^1.0.16",
     "@rowsncolumns/spreadsheet": "^8.0.18",
     "@rowsncolumns/spreadsheet-state": "^21.0.32",
     "@rowsncolumns/ui": "^8.0.13",
