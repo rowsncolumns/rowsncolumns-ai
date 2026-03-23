@@ -84,12 +84,12 @@ export function SignInSubmitButton({
       {pending ? (
         <>
           <Loader2 className="h-5 w-5 animate-spin" />
-          Continuing...
+          Signing in...
         </>
       ) : (
         <>
           {isGoogle ? <GoogleBadge /> : <Github className="h-5 w-5" />}
-          {isGoogle ? "Continue with Google" : "Continue with GitHub"}
+          {isGoogle ? "Sign in with Google" : "Sign in with GitHub"}
         </>
       )}
     </button>

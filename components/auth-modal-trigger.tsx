@@ -151,8 +151,8 @@ export function AuthModalTrigger({
           >
             <GoogleBadge />
             {loadingProvider === "google"
-              ? "Continuing..."
-              : "Continue with Google"}
+              ? "Signing in..."
+              : "Sign in with Google"}
           </button>
 
           <button
@@ -163,8 +163,8 @@ export function AuthModalTrigger({
           >
             <Github className="h-5 w-5" />
             {loadingProvider === "github"
-              ? "Continuing..."
-              : "Continue with GitHub"}
+              ? "Signing in..."
+              : "Sign in with GitHub"}
           </button>
         </div>
 
