@@ -7,6 +7,10 @@ import type {
   ThreadMessageLike,
   ToolCallMessagePartProps,
 } from "@assistant-ui/react";
+import type {
+  ReadonlyJSONObject,
+  ReadonlyJSONValue,
+} from "assistant-stream/utils";
 import {
   AssistantRuntimeProvider,
   ComposerPrimitive,
@@ -255,7 +259,22 @@ const OUT_OF_CREDITS_MESSAGE =
 
 type PersistedThreadHistoryMessage = {
   role: "user" | "assistant" | "system";
-  content: string;
+  content:
+    | string
+    | Array<
+        | {
+            type: "text";
+            text: string;
+          }
+        | {
+            type: "tool-call";
+            toolCallId?: string;
+            toolName: string;
+            args?: Record<string, unknown>;
+            result?: unknown;
+            isError?: boolean;
+          }
+      >;
 };
 
 type AssistantSkill = {
@@ -797,9 +816,99 @@ const buildTerminalAssistantMessage = (text: string) => ({
   status: { type: "complete" as const, reason: "stop" as const },
 });
 
+const parsePersistedThreadHistoryContentPart = (
+  value: unknown,
+  index: number,
+) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const part = value as {
+    type?: unknown;
+    text?: unknown;
+    toolCallId?: unknown;
+    toolName?: unknown;
+    args?: unknown;
+    result?: unknown;
+    isError?: unknown;
+  };
+
+  if (part.type === "text") {
+    if (typeof part.text !== "string" || part.text.trim().length === 0) {
+      return null;
+    }
+
+    return {
+      type: "text" as const,
+      text: part.text,
+    };
+  }
+
+  if (part.type === "tool-call") {
+    if (typeof part.toolName !== "string" || part.toolName.trim().length === 0) {
+      return null;
+    }
+
+    const toolCallId =
+      typeof part.toolCallId === "string" && part.toolCallId.trim().length > 0
+        ? part.toolCallId
+        : `${part.toolName}:${index}`;
+    const normalizedArgs = toReadonlyJsonValue(part.args);
+    const args =
+      normalizedArgs &&
+      typeof normalizedArgs === "object" &&
+      !Array.isArray(normalizedArgs)
+        ? (normalizedArgs as ReadonlyJSONObject)
+        : undefined;
+
+    return {
+      type: "tool-call" as const,
+      toolCallId,
+      toolName: part.toolName,
+      ...(args ? { args } : {}),
+      ...(part.result !== undefined ? { result: part.result } : {}),
+      ...(typeof part.isError === "boolean" ? { isError: part.isError } : {}),
+    };
+  }
+
+  return null;
+};
+
+const toReadonlyJsonValue = (value: unknown): ReadonlyJSONValue | undefined => {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => toReadonlyJsonValue(item))
+      .filter((item): item is ReadonlyJSONValue => item !== undefined);
+  }
+
+  if (value && typeof value === "object") {
+    const record: Record<string, ReadonlyJSONValue> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const normalizedValue = toReadonlyJsonValue(nestedValue);
+      if (normalizedValue === undefined) {
+        continue;
+      }
+      record[key] = normalizedValue;
+    }
+    return record;
+  }
+
+  return undefined;
+};
+
 const parsePersistedThreadHistoryMessage = (
   value: unknown,
-): PersistedThreadHistoryMessage | null => {
+): ThreadMessageLike | null => {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -813,21 +922,37 @@ const parsePersistedThreadHistoryMessage = (
     return null;
   }
 
-  const content =
-    typeof maybeMessage.content === "string" ? maybeMessage.content : "";
-  if (!content.trim()) {
+  if (typeof maybeMessage.content === "string") {
+    if (!maybeMessage.content.trim()) {
+      return null;
+    }
+
+    return {
+      role,
+      content: maybeMessage.content,
+    };
+  }
+
+  if (!Array.isArray(maybeMessage.content)) {
+    return null;
+  }
+
+  const contentParts = maybeMessage.content
+    .map((part, index) => parsePersistedThreadHistoryContentPart(part, index))
+    .filter((part): part is NonNullable<typeof part> => part !== null);
+  if (contentParts.length === 0) {
     return null;
   }
 
   return {
     role,
-    content,
+    content: contentParts,
   };
 };
 
 const parsePersistedThreadHistoryPayload = (
   value: unknown,
-): PersistedThreadHistoryMessage[] => {
+): ThreadMessageLike[] => {
   if (!value || typeof value !== "object") {
     return [];
   }
@@ -839,22 +964,8 @@ const parsePersistedThreadHistoryPayload = (
 
   return messages
     .map(parsePersistedThreadHistoryMessage)
-    .filter(
-      (message): message is PersistedThreadHistoryMessage => message !== null,
-    );
+    .filter((message): message is ThreadMessageLike => message !== null);
 };
-
-const toThreadMessageLike = (
-  message: PersistedThreadHistoryMessage,
-): ThreadMessageLike => ({
-  role: message.role,
-  content: [
-    {
-      type: "text",
-      text: message.content,
-    },
-  ],
-});
 
 const fetchPersistedThreadHistory = async (
   threadId: string,
@@ -870,7 +981,7 @@ const fetchPersistedThreadHistory = async (
   );
 
   if (!response.ok) {
-    return [] as PersistedThreadHistoryMessage[];
+    return [] as ThreadMessageLike[];
   }
 
   const payload = (await response.json().catch(() => null)) as unknown;
@@ -932,7 +1043,7 @@ const useHydratePersistedThreadHistory = ({
           return;
         }
 
-        runtime.thread.reset(history.map(toThreadMessageLike));
+        runtime.thread.reset(history);
       } catch (error) {
         if (isAbortError(error)) {
           return;

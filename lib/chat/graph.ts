@@ -925,9 +925,27 @@ const isGraphRecursionLimitError = (error: unknown) => {
   );
 };
 
+type PersistedThreadTextPart = {
+  type: "text";
+  text: string;
+};
+
+type PersistedThreadToolCallPart = {
+  type: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+  result?: unknown;
+  isError?: boolean;
+};
+
+type PersistedThreadContentPart =
+  | PersistedThreadTextPart
+  | PersistedThreadToolCallPart;
+
 export type PersistedThreadMessage = {
   role: "user" | "assistant" | "system";
-  content: string;
+  content: string | PersistedThreadContentPart[];
 };
 
 const getStoredMessageType = (value: unknown): string | null => {
@@ -938,6 +956,7 @@ const getStoredMessageType = (value: unknown): string | null => {
   const maybeMessage = value as {
     _getType?: () => unknown;
     type?: unknown;
+    id?: unknown;
     kwargs?: { type?: unknown };
   };
 
@@ -956,6 +975,44 @@ const getStoredMessageType = (value: unknown): string | null => {
     return maybeMessage.kwargs.type;
   }
 
+  // Fallback for serialized LangChain message objects persisted as
+  // `{ type: "constructor", id: ["langchain_core","messages","AIMessage"], ... }`.
+  if (maybeMessage.type === "constructor" && Array.isArray(maybeMessage.id)) {
+    const constructorName = maybeMessage.id.findLast(
+      (entry): entry is string => typeof entry === "string" && entry.length > 0,
+    );
+
+    if (constructorName) {
+      if (
+        constructorName === "HumanMessage" ||
+        constructorName === "HumanMessageChunk"
+      ) {
+        return "human";
+      }
+
+      if (
+        constructorName === "AIMessage" ||
+        constructorName === "AIMessageChunk"
+      ) {
+        return "ai";
+      }
+
+      if (
+        constructorName === "SystemMessage" ||
+        constructorName === "SystemMessageChunk"
+      ) {
+        return "system";
+      }
+
+      if (
+        constructorName === "ToolMessage" ||
+        constructorName === "ToolMessageChunk"
+      ) {
+        return "tool";
+      }
+    }
+  }
+
   return null;
 };
 
@@ -969,29 +1026,323 @@ const toPersistedRole = (
   return null;
 };
 
-const toPersistedThreadMessage = (
+const getStoredMessageProperty = (
   value: unknown,
-): PersistedThreadMessage | null => {
+  key: string,
+): unknown | undefined => {
   if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (key in record) {
+    return record[key];
+  }
+
+  const kwargs =
+    "kwargs" in record && record.kwargs && typeof record.kwargs === "object"
+      ? (record.kwargs as Record<string, unknown>)
+      : undefined;
+  if (kwargs && key in kwargs) {
+    return kwargs[key];
+  }
+
+  return undefined;
+};
+
+const parseToolCallArgs = (value: unknown): unknown => {
+  if (typeof value === "string") {
+    return tryParseJsonString(value);
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    "arguments" in (value as Record<string, unknown>)
+  ) {
+    const argumentsValue = (value as { arguments?: unknown }).arguments;
+    if (typeof argumentsValue === "string") {
+      return tryParseJsonString(argumentsValue);
+    }
+  }
+
+  return value;
+};
+
+type ParsedStoredToolCall = {
+  id?: string;
+  name: string;
+  args: unknown;
+};
+
+const getStoredToolCalls = (value: unknown): ParsedStoredToolCall[] => {
+  const direct = getStoredMessageProperty(value, "tool_calls");
+  const additionalKwargs = getStoredMessageProperty(value, "additional_kwargs");
+  const nested =
+    additionalKwargs &&
+    typeof additionalKwargs === "object" &&
+    "tool_calls" in (additionalKwargs as Record<string, unknown>)
+      ? (additionalKwargs as { tool_calls?: unknown }).tool_calls
+      : undefined;
+  const candidate = Array.isArray(direct)
+    ? direct
+    : Array.isArray(nested)
+      ? nested
+      : [];
+
+  return candidate
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const toolCall = item as {
+        id?: unknown;
+        name?: unknown;
+        args?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      };
+      const name =
+        typeof toolCall.name === "string"
+          ? toolCall.name
+          : typeof toolCall.function?.name === "string"
+            ? toolCall.function.name
+            : null;
+      if (!name) {
+        return null;
+      }
+
+      const argsSource =
+        toolCall.args !== undefined ? toolCall.args : toolCall.function;
+      const args = parseToolCallArgs(argsSource);
+      const id = typeof toolCall.id === "string" ? toolCall.id : undefined;
+
+      return {
+        ...(id ? { id } : {}),
+        name,
+        args,
+      };
+    })
+    .filter((toolCall): toolCall is ParsedStoredToolCall => toolCall !== null);
+};
+
+type ParsedStoredToolResult = {
+  toolCallId?: string;
+  toolName?: string;
+  result: unknown;
+  isError: boolean;
+};
+
+const getStoredToolResult = (value: unknown): ParsedStoredToolResult | null => {
+  const messageType = getStoredMessageType(value);
+  if (messageType !== "tool") {
     return null;
   }
 
-  const role = toPersistedRole(getStoredMessageType(value));
-  if (!role) return null;
-
-  const maybeMessage = value as {
-    content?: unknown;
-    kwargs?: { content?: unknown };
-  };
-  const content = contentToText(maybeMessage.content ?? maybeMessage.kwargs?.content);
-  if (!content.trim()) {
-    return null;
-  }
+  const toolCallIdValue = getStoredMessageProperty(value, "tool_call_id");
+  const toolNameValue = getStoredMessageProperty(value, "name");
+  const statusValue = getStoredMessageProperty(value, "status");
+  const contentValue = getStoredMessageProperty(value, "content");
+  const artifactValue = getStoredMessageProperty(value, "artifact");
+  const resultSource = contentValue ?? artifactValue;
+  const result =
+    typeof resultSource === "string"
+      ? tryParseJsonString(resultSource)
+      : resultSource ?? "";
 
   return {
-    role,
-    content,
+    ...(typeof toolCallIdValue === "string" ? { toolCallId: toolCallIdValue } : {}),
+    ...(typeof toolNameValue === "string" ? { toolName: toolNameValue } : {}),
+    result,
+    isError: statusValue === "error",
   };
+};
+
+type ToolCallLocation = {
+  messageIndex: number;
+  partIndex: number;
+};
+
+const getToolCallPartAt = (
+  messages: PersistedThreadMessage[],
+  location: ToolCallLocation,
+): PersistedThreadToolCallPart | null => {
+  const message = messages[location.messageIndex];
+  if (!message || !Array.isArray(message.content)) {
+    return null;
+  }
+
+  const part = message.content[location.partIndex];
+  if (!part || part.type !== "tool-call") {
+    return null;
+  }
+
+  return part;
+};
+
+const getPendingToolCallLocationByName = (
+  indexByName: Map<string, ToolCallLocation[]>,
+  messages: PersistedThreadMessage[],
+  toolName: string,
+): ToolCallLocation | null => {
+  const queue = indexByName.get(toolName);
+  if (!queue || queue.length === 0) {
+    return null;
+  }
+
+  while (queue.length > 0) {
+    const location = queue.shift();
+    if (!location) {
+      continue;
+    }
+    const part = getToolCallPartAt(messages, location);
+    if (part && part.result === undefined) {
+      return location;
+    }
+  }
+
+  return null;
+};
+
+const buildPersistedThreadMessages = (
+  values: unknown[],
+): PersistedThreadMessage[] => {
+  const persistedMessages: PersistedThreadMessage[] = [];
+  const toolCallLocationById = new Map<string, ToolCallLocation>();
+  const pendingToolCallLocationsByName = new Map<string, ToolCallLocation[]>();
+
+  for (const rawMessage of values) {
+    const messageType = getStoredMessageType(rawMessage);
+
+    if (messageType === "tool") {
+      const toolResult = getStoredToolResult(rawMessage);
+      if (toolResult) {
+        const byId =
+          toolResult.toolCallId &&
+          toolCallLocationById.has(toolResult.toolCallId)
+            ? toolCallLocationById.get(toolResult.toolCallId) ?? null
+            : null;
+        const byName =
+          !byId && toolResult.toolName
+            ? getPendingToolCallLocationByName(
+                pendingToolCallLocationsByName,
+                persistedMessages,
+                toolResult.toolName,
+              )
+            : null;
+        const location = byId ?? byName;
+
+        if (location) {
+          const part = getToolCallPartAt(persistedMessages, location);
+          if (part) {
+            part.result = toolResult.result;
+            part.isError = toolResult.isError;
+          }
+        } else if (persistedMessages.length > 0) {
+          const fallbackAssistantIndex = [...persistedMessages]
+            .map((message, index) => ({ message, index }))
+            .reverse()
+            .find((entry) => entry.message.role === "assistant")?.index;
+          if (fallbackAssistantIndex !== undefined) {
+            const fallbackMessage = persistedMessages[fallbackAssistantIndex];
+            const fallbackContent = Array.isArray(fallbackMessage.content)
+              ? fallbackMessage.content
+              : [
+                  {
+                    type: "text" as const,
+                    text: String(fallbackMessage.content),
+                  },
+                ];
+            fallbackContent.push({
+              type: "tool-call",
+              toolCallId:
+                toolResult.toolCallId ??
+                `tool:${toolResult.toolName ?? "tool"}:${fallbackAssistantIndex}:${fallbackContent.length}`,
+              toolName: toolResult.toolName ?? "tool",
+              args: {},
+              result: toolResult.result,
+              isError: toolResult.isError,
+            });
+            fallbackMessage.content = fallbackContent;
+          }
+        }
+
+        if (toolResult.toolCallId) {
+          toolCallLocationById.delete(toolResult.toolCallId);
+        }
+      }
+
+      continue;
+    }
+
+    const role = toPersistedRole(messageType);
+    if (!role) {
+      continue;
+    }
+
+    if (role === "assistant") {
+      const text = contentToText(getStoredMessageProperty(rawMessage, "content"));
+      const toolCalls = getStoredToolCalls(rawMessage);
+      const parts: PersistedThreadContentPart[] = [];
+
+      if (text.trim()) {
+        parts.push({
+          type: "text",
+          text,
+        });
+      }
+
+      const messageIndex = persistedMessages.length;
+      for (const toolCall of toolCalls) {
+        const toolCallId =
+          toolCall.id ??
+          `tool:${toolCall.name}:${messageIndex}:${parts.length}`;
+        parts.push({
+          type: "tool-call",
+          toolCallId,
+          toolName: toolCall.name,
+          args: toolCall.args,
+        });
+
+        const location: ToolCallLocation = {
+          messageIndex,
+          partIndex: parts.length - 1,
+        };
+        if (toolCall.id) {
+          toolCallLocationById.set(toolCall.id, location);
+        }
+
+        const pendingByName = pendingToolCallLocationsByName.get(toolCall.name);
+        if (pendingByName) {
+          pendingByName.push(location);
+        } else {
+          pendingToolCallLocationsByName.set(toolCall.name, [location]);
+        }
+      }
+
+      if (parts.length === 0) {
+        continue;
+      }
+
+      persistedMessages.push({
+        role: "assistant",
+        content: parts,
+      });
+      continue;
+    }
+
+    const text = contentToText(getStoredMessageProperty(rawMessage, "content"));
+    if (!text.trim()) {
+      continue;
+    }
+
+    persistedMessages.push({
+      role,
+      content: text,
+    });
+  }
+
+  return persistedMessages;
 };
 
 export async function getSpreadsheetAssistantThreadMessages(input: {
@@ -1013,9 +1364,7 @@ export async function getSpreadsheetAssistantThreadMessages(input: {
     return [];
   }
 
-  return messages
-    .map(toPersistedThreadMessage)
-    .filter((message): message is PersistedThreadMessage => message !== null);
+  return buildPersistedThreadMessages(messages);
 }
 
 const persistAssistantMessageToCheckpoint = async (input: {
