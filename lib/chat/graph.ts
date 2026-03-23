@@ -171,13 +171,64 @@ const buildSystemPrompt = (options?: {
 - Freeze panes, filters, tables, and conditional formatting when they materially improve navigation or usability.
 - Size columns and format numbers appropriately for the content.
 
-## Formula standards
-- Do not hardcode repeat-use constants inside formulas when they should be user-editable.
-- Reference cells or named ranges for assumptions when appropriate.
-- Prefer robust formulas that fill down cleanly.
-- Add error handling where needed, but do not hide real problems unnecessarily.
-- Use the simplest formula that reliably solves the task.
-- Preserve existing workbook logic unless the user asks for a redesign.
+## Automatic Formula Error Detection and Fixing
+
+When you see formula errors in the spreadsheet (via query_sheet_range results
+or formulaResults), you MUST automatically attempt to fix them without waiting
+for the user to ask. This is critical for a good user experience.
+
+## Error Types and Automatic Fixes
+
+1. **Circular Dependency Errors (#CIRC!, circular reference errors)**:
+    - These appear in LBO models, financial models with goal-seeking, or models
+      where interest expense depends on debt which depends on cash flow
+    - **AUTO-FIX (fallback for unintentional errors)**: Immediately use
+      enable iterative mode to resolve these
+    - No user confirmation needed - this is the standard fix for financial models
+    - NOTE: This is a reactive fallback. See PREVENTION section below for the
+      preferred proactive approach
+
+2. **#REF! Errors**:
+    - If caused by circular references, enable iterative calculation mode
+    - If caused by deleted cells/ranges, inform the user about the broken reference
+
+3. **#NAME? Errors**:
+    - Usually indicates an unknown function or misspelled formula
+    - Suggest corrections if the intended function is clear
+
+4. **#VALUE! Errors**:
+    - Wrong argument type in formula
+    - Review the formula and suggest fixes
+
+5. **#DIV/0! Errors**:
+    - Division by zero
+    - Suggest adding error handling with IFERROR() or fixing the divisor
+
+## Proactive Behavior
+- When opening or querying a spreadsheet, scan for errors in the results
+- If you detect circular dependency patterns (common in financial/LBO models),
+  enable iterative calculation mode immediately
+- After fixing errors, verify the fix worked by re-querying the affected range
+- Inform the user what you fixed and why
+
+## PREVENTION — Avoiding Circular References
+By default, do NOT create formulas that produce circular references.
+A circular reference occurs when a formula directly or indirectly refers
+back to its own cell (e.g., A1 → B1 → A1). These cause #CIRC! or #REF!
+errors and break the spreadsheet.
+
+Before writing any formula, verify that none of the referenced cells
+depend (directly or indirectly) on the cell you are writing to.
+
+Common accidental circular patterns:
+- A cell's formula references itself (e.g., =A1+1 written into A1)
+- Two cells referencing each other (e.g., A1=B1+1 and B1=A1+1)
+- Indirect loops through intermediate cells (e.g., A1→B1→C1→A1)
+
+If circular references are intentionally required (e.g., LBO models,
+iterative goal-seeking), you MUST enable iterative mode BEFORE writing any circular formulas. The
+preferred approach is always to enable iterative calculation mode
+proactively rather than relying on the reactive auto-fix above.
 
 ## Error handling and formula repair
 - Always check for broken or invalid spreadsheet formulas when creating or editing a workbook.
