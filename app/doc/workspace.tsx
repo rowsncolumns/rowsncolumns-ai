@@ -283,9 +283,7 @@ const ASSISTANT_PANEL_DEFAULT_WIDTH = 840;
 const MOBILE_LAYOUT_MEDIA_QUERY = "(max-width: 767px)";
 
 const useMediaQueryMatch = (query: string) => {
-  const [matches, setMatches] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia(query).matches : false,
-  );
+  const [matches, setMatches] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") {
