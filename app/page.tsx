@@ -240,7 +240,7 @@ export default async function Home() {
                 <div className="rise-in-delayed">
                   <Card className="overflow-hidden bg-[var(--card-bg-solid)] shadow-[0_30px_80px_var(--card-shadow)]">
                     <CardContent className="p-3 sm:p-4">
-                      <div className="overflow-hidden rounded-[16px] border border-[var(--card-border)] bg-[var(--sheet-bg)]">
+                      <div className="overflow-hidden rounded-2xl border border-(--card-border) bg-(--sheet-bg)">
                         <Image
                           src="/demo-img.jpg"
                           alt="RowsnColumns AI spreadsheet workflow preview"
@@ -271,7 +271,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section id="platform" className="px-4 py-12 sm:px-8 sm:py-16 lg:px-12">
+      <section id="platform" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <Badge variant="muted">Platform</Badge>
@@ -323,7 +323,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section id="workflows" className="px-4 py-12 sm:px-8 sm:py-16 lg:px-12">
+      <section id="workflows" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto grid max-w-7xl items-stretch gap-5 sm:gap-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
           <Card className="h-full overflow-hidden border-black/5 bg-[linear-gradient(180deg,#121722_0%,#1b2230_100%)] text-white">
             <CardHeader className="p-5 pb-4 sm:p-8 sm:pb-6 lg:p-10 lg:pb-6">
@@ -383,7 +383,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section id="security" className="px-4 py-12 sm:px-8 sm:py-16 lg:px-12">
+      <section id="security" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <Card className="overflow-hidden bg-[linear-gradient(135deg,#131822_0%,#1b2230_100%)] text-white">
             <div className="grid gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[0.95fr_1.05fr] lg:p-10">
@@ -447,7 +447,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section id="pricing" className="px-4 py-12 sm:px-8 sm:py-16 lg:px-12">
+      <section id="pricing" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <Card className="overflow-hidden bg-[linear-gradient(135deg,var(--pricing-gradient-start),var(--pricing-gradient-end))]">
             <div className="grid gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center lg:p-10">
