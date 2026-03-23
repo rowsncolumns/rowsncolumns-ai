@@ -10,6 +10,7 @@ import {
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 
+import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import type { ChatStreamEvent } from "@/lib/chat/protocol";
 import { spreadsheetTools } from "@/lib/chat/tools";
 
@@ -1074,16 +1075,20 @@ export async function* streamSpreadsheetAssistant(input: {
       // Handle chain/graph errors (e.g., invalid tool arguments from LLM)
       if (event.event === "on_chain_error") {
         const error = event.data?.error as unknown;
-        const errorMessage =
+        const rawErrorMessage =
           error && typeof error === "object" && "message" in error
             ? String(error.message)
             : String(error);
+        const errorMessage = normalizeAssistantErrorMessage(
+          rawErrorMessage,
+          "Unable to process this request. Please retry.",
+        );
 
-        console.error("[graph] Chain error:", errorMessage);
+        console.error("[graph] Chain error:", rawErrorMessage);
 
         yield {
           type: "error",
-          error: `Processing error: ${errorMessage}`,
+          error: errorMessage,
         };
         continue;
       }
@@ -1091,16 +1096,20 @@ export async function* streamSpreadsheetAssistant(input: {
       // Handle LLM errors
       if (event.event === "on_llm_error") {
         const error = event.data?.error as unknown;
-        const errorMessage =
+        const rawErrorMessage =
           error && typeof error === "object" && "message" in error
             ? String(error.message)
             : String(error);
+        const errorMessage = normalizeAssistantErrorMessage(
+          rawErrorMessage,
+          "The model request failed. Please retry.",
+        );
 
-        console.error("[graph] LLM error:", errorMessage);
+        console.error("[graph] LLM error:", rawErrorMessage);
 
         yield {
           type: "error",
-          error: `Model error: ${errorMessage}`,
+          error: errorMessage,
         };
         continue;
       }

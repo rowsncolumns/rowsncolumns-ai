@@ -104,6 +104,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { parseChatStream } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
 import { cn } from "@/lib/utils";
@@ -725,7 +726,10 @@ async function* streamAssistantResponse(
     }
 
     if (event.type === "error") {
-      const errorMessage = event.error || "Assistant request failed.";
+      const errorMessage = normalizeAssistantErrorMessage(
+        event.error ?? "",
+        "Assistant request failed.",
+      );
       appendStreamingDelta(streamingParts, "text", `\n\n${errorMessage}`);
       yield buildStreamingYield(
         streamingParts,
@@ -754,7 +758,10 @@ const normalizeAssistantClientError = (error: unknown) => {
     }
 
     if (error.message.trim()) {
-      return error.message;
+      return normalizeAssistantErrorMessage(
+        error.message,
+        "Assistant request failed.",
+      );
     }
   }
 
@@ -770,7 +777,7 @@ const getAssistantRequestErrorMessage = (
   }
 
   if (typeof payload?.error === "string" && payload.error.trim().length > 0) {
-    return payload.error;
+    return normalizeAssistantErrorMessage(payload.error, "Assistant request failed.");
   }
 
   return "Assistant request failed.";
