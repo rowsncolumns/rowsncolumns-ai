@@ -1081,6 +1081,41 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Set row/column dimensions",
     failed: "Failed to set row/column dimensions",
   },
+  spreadsheet_duplicateSheet: {
+    running: "Duplicating sheet",
+    success: "Duplicated sheet",
+    failed: "Failed to duplicate sheet",
+  },
+  spreadsheet_deleteCells: {
+    running: "Deleting cells",
+    success: "Deleted cells",
+    failed: "Failed to delete cells",
+  },
+  spreadsheet_clearFormatting: {
+    running: "Clearing formatting",
+    success: "Cleared formatting",
+    failed: "Failed to clear formatting",
+  },
+  spreadsheet_applyFill: {
+    running: "Applying fill",
+    success: "Applied fill",
+    failed: "Failed to apply fill",
+  },
+  spreadsheet_insertNote: {
+    running: "Inserting note",
+    success: "Inserted note",
+    failed: "Failed to insert note",
+  },
+  spreadsheet_deleteRows: {
+    running: "Deleting rows",
+    success: "Deleted rows",
+    failed: "Failed to delete rows",
+  },
+  spreadsheet_deleteColumns: {
+    running: "Deleting columns",
+    success: "Deleted columns",
+    failed: "Failed to delete columns",
+  },
 };
 
 const formatToolNameFallback = (toolName: string) =>
@@ -1519,6 +1554,13 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_setIterativeMode",
   "spreadsheet_readDocument",
   "spreadsheet_setRowColDimensions",
+  "spreadsheet_duplicateSheet",
+  "spreadsheet_deleteCells",
+  "spreadsheet_clearFormatting",
+  "spreadsheet_applyFill",
+  "spreadsheet_insertNote",
+  "spreadsheet_deleteRows",
+  "spreadsheet_deleteColumns",
 ] as const;
 
 function SpreadsheetToolUIRegistration({

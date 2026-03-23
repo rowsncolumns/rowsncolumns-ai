@@ -550,3 +550,103 @@ export const SpreadsheetClearFormattingSchema = z.object({
 export type SpreadsheetClearFormattingInput = z.infer<
   typeof SpreadsheetClearFormattingSchema
 >;
+
+// Spreadsheet ApplyFill
+export const SpreadsheetApplyFillSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("The sheet ID (1-based, default: 1)"),
+  activeCell: z
+    .string()
+    .describe(
+      "The active cell in A1 notation (e.g., 'A1'). This is the anchor point, typically the top-left cell of the source selection.",
+    ),
+  sourceRange: z
+    .string()
+    .describe(
+      "The source range in A1 notation containing the pattern to extend (e.g., 'A1:A2' for a two-cell pattern).",
+    ),
+  fillRange: z
+    .string()
+    .describe(
+      "The target fill range in A1 notation (INCLUSIVE of source range). This defines the entire area to fill (e.g., 'A1:A10' to fill A3:A10 from pattern in A1:A2).",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetApplyFillInput = z.infer<
+  typeof SpreadsheetApplyFillSchema
+>;
+
+// Spreadsheet InsertNote
+export const SpreadsheetInsertNoteSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("The sheet ID (1-based, default: 1)"),
+  cell: z
+    .string()
+    .describe(
+      "The cell in A1 notation where to insert/update the note (e.g., 'A1', 'B5').",
+    ),
+  note: z
+    .string()
+    .optional()
+    .describe(
+      "The note text to insert. If omitted or empty, the existing note will be removed.",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetInsertNoteInput = z.infer<
+  typeof SpreadsheetInsertNoteSchema
+>;
+
+// Spreadsheet DeleteRows
+export const SpreadsheetDeleteRowsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("The sheet ID (1-based, default: 1)"),
+  rowIndexes: z
+    .array(z.number().int())
+    .describe(
+      "List of 1-based row indexes to delete (e.g., [1, 3, 5] deletes rows 1, 3, and 5).",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteRowsInput = z.infer<
+  typeof SpreadsheetDeleteRowsSchema
+>;
+
+// Spreadsheet DeleteColumns
+export const SpreadsheetDeleteColumnsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("The sheet ID (1-based, default: 1)"),
+  columnIndexes: z
+    .array(z.number().int())
+    .describe(
+      "List of 1-based column indexes to delete (e.g., [1, 3] deletes columns A and C). A=1, B=2, C=3, etc.",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteColumnsInput = z.infer<
+  typeof SpreadsheetDeleteColumnsSchema
+>;

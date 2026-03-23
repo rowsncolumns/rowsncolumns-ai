@@ -20,6 +20,8 @@ import {
   type CellData,
   type CellFormatType,
   type CellStyleData,
+  type SpreadsheetApplyFillInput,
+  SpreadsheetApplyFillSchema,
   type SpreadsheetChangeBatchInput,
   SpreadsheetChangeBatchSchema,
   type SpreadsheetClearFormattingInput,
@@ -28,12 +30,18 @@ import {
   SpreadsheetCreateSheetSchema,
   type SpreadsheetDeleteCellsInput,
   SpreadsheetDeleteCellsSchema,
+  type SpreadsheetDeleteColumnsInput,
+  SpreadsheetDeleteColumnsSchema,
+  type SpreadsheetDeleteRowsInput,
+  SpreadsheetDeleteRowsSchema,
   type SpreadsheetDuplicateSheetInput,
   SpreadsheetDuplicateSheetSchema,
   type SpreadsheetFormatRangeInput,
   SpreadsheetFormatRangeSchema,
   type SpreadsheetInsertColumnsInput,
   SpreadsheetInsertColumnsSchema,
+  type SpreadsheetInsertNoteInput,
+  SpreadsheetInsertNoteSchema,
   type SpreadsheetInsertRowsInput,
   SpreadsheetInsertRowsSchema,
   type SpreadsheetQueryRangeInput,
@@ -1558,6 +1566,11 @@ export const spreadsheetQueryRangeTool = tool(handleSpreadsheetQueryRange, {
   name: "spreadsheet_queryRange",
   description: `Query multiple ranges of cells from an Athena spreadsheet to get cell data.
 
+ROUTING GUIDANCE (PRIMARY TOOL FOR TARGETED READS):
+- Use this tool whenever the user asks for specific cells/ranges, even for a single sheet.
+- Use this tool for spot checks, validations after edits, and any scoped read.
+- Prefer this over spreadsheet_readDocument when the target range/sheet section is known.
+
 ⚠️ CRITICAL: When querying based on a screenshot or visual inspection:
 • ALWAYS query the FULL visible range shown in the screenshot
 • If you see columns up to L in the screenshot, query through column L
@@ -1957,6 +1970,11 @@ export const spreadsheetReadDocumentTool = tool(handleSpreadsheetReadDocument, {
 
 OVERVIEW:
 This tool reads cell data from a spreadsheet and returns it in a structured format. You can read all sheets, a specific sheet by ID or name, or a specific range within a sheet.
+
+ROUTING GUIDANCE (OVERVIEW-FIRST TOOL):
+- Use this tool for broad workbook or sheet exploration and structural understanding.
+- If the user asks for specific cells/ranges (targeted reads), use spreadsheet_queryRange instead.
+- Prefer spreadsheet_readDocument when deciding what ranges to query next, not for repeated scoped reads.
 
 WHEN TO USE THIS TOOL:
 - Getting an overview of the entire spreadsheet structure
@@ -2704,6 +2722,580 @@ Example 3 — Clear formatting from entire columns:
 );
 
 /**
+ * Handler for the spreadsheet_applyFill tool
+ * Applies Excel-style fill operation to extend data patterns
+ */
+const handleSpreadsheetApplyFill = async (
+  input: SpreadsheetApplyFillInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId: inputSheetId,
+    activeCell: activeCellStr,
+    sourceRange,
+    fillRange,
+  } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to apply fill", {
+      field: "docId",
+    });
+  }
+
+  if (!activeCellStr) {
+    return failTool("MISSING_ACTIVE_CELL", "activeCell is required", {
+      field: "activeCell",
+    });
+  }
+
+  if (!sourceRange) {
+    return failTool("MISSING_SOURCE_RANGE", "sourceRange is required", {
+      field: "sourceRange",
+    });
+  }
+
+  if (!fillRange) {
+    return failTool("MISSING_FILL_RANGE", "fillRange is required", {
+      field: "fillRange",
+    });
+  }
+
+  const sheetId = inputSheetId ?? 1;
+
+  // Parse activeCell from A1 notation
+  const activeCellSelection = addressToSelection(activeCellStr);
+  if (!activeCellSelection?.range) {
+    return failTool(
+      "INVALID_ACTIVE_CELL",
+      `Invalid activeCell: ${activeCellStr}`,
+      { activeCell: activeCellStr },
+    );
+  }
+
+  const activeCell = {
+    rowIndex: activeCellSelection.range.startRowIndex,
+    columnIndex: activeCellSelection.range.startColumnIndex,
+  };
+
+  // Parse sourceRange from A1 notation
+  const sourceSelection = addressToSelection(sourceRange);
+  if (!sourceSelection?.range) {
+    return failTool(
+      "INVALID_SOURCE_RANGE",
+      `Invalid sourceRange: ${sourceRange}`,
+      { sourceRange },
+    );
+  }
+
+  // Parse fillRange from A1 notation
+  const fillSelection = addressToSelection(fillRange);
+  if (!fillSelection?.range) {
+    return failTool("INVALID_FILL_RANGE", `Invalid fillRange: ${fillRange}`, {
+      fillRange,
+    });
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_applyFill] Starting:", {
+      docId,
+      sheetId,
+      activeCell,
+      sourceRange,
+      fillRange,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Create selections array from source range
+        const selections = [{ range: sourceSelection.range }];
+
+        // Apply fill operation
+        await spreadsheet.applyFill(
+          sheetId,
+          activeCell,
+          { range: fillSelection.range },
+          selections,
+        );
+
+        // Persist changes
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_applyFill] Completed:", {
+          docId,
+          sheetId,
+          sourceRange,
+          fillRange,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully applied fill from ${sourceRange} to ${fillRange}`,
+          sourceRange,
+          fillRange,
+        });
+      } finally {
+        close();
+      }
+    } catch (error) {
+      console.error("[spreadsheet_applyFill] Error:", error);
+
+      return failTool(
+        "APPLY_FILL_FAILED",
+        error instanceof Error ? error.message : "Failed to apply fill",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_applyFill tool for LangChain
+ */
+export const spreadsheetApplyFillTool = tool(handleSpreadsheetApplyFill, {
+  name: "spreadsheet_applyFill",
+  description: `Apply Excel-style fill operation to extend data patterns across a range.
+
+OVERVIEW:
+This tool replicates Excel's fill functionality (drag-to-fill or Ctrl+D/Ctrl+R), automatically extending:
+• Values (copy same value)
+• Number sequences (1, 2, 3... or 10, 20, 30...)
+• Date sequences (incrementing days, months, years)
+• Formulas (adjusting cell references automatically)
+• Formatting from source cells to target cells
+
+WHEN TO USE THIS TOOL:
+- Extending number or date sequences
+- Copying formulas down/across with auto-adjusted references
+- Replicating values or formatting patterns
+- Creating series like months, weekdays, or custom patterns
+
+IMPORTANT:
+- This tool only works with Athena spreadsheets, not documents or other document types
+- All indices are 1-based
+- fillRange must INCLUDE the sourceRange (it's the entire area, not just the destination)
+- The tool auto-detects patterns (numbers, dates, series)
+
+PARAMETERS:
+- docId: The document ID of the spreadsheet (required)
+- sheetId: The sheet ID (1-based, default: 1)
+- activeCell: A1 notation for the active cell, typically the top-left of the source (e.g., 'A1')
+- sourceRange: A1 notation for the source range containing the pattern (e.g., 'A1:A2')
+- fillRange: A1 notation for the entire fill area INCLUDING source (e.g., 'A1:A10')
+
+EXAMPLES:
+
+Example 1 — Fill down a number sequence (1, 2 in A1:A2 → fills 3, 4, 5 in A3:A5):
+  docId: "abc123"
+  sheetId: 1
+  activeCell: "A1"
+  sourceRange: "A1:A2"
+  fillRange: "A1:A5"
+
+Example 2 — Copy a formula down (formula in B2 → copy to B3:B10):
+  docId: "abc123"
+  activeCell: "B2"
+  sourceRange: "B2"
+  fillRange: "B2:B10"
+
+Example 3 — Fill right with a value (value in A1 → copy to B1:E1):
+  docId: "abc123"
+  activeCell: "A1"
+  sourceRange: "A1"
+  fillRange: "A1:E1"
+
+Example 4 — Extend a date series (Jan, Feb in A1:A2 → fills Mar, Apr... in A3:A12):
+  docId: "abc123"
+  activeCell: "A1"
+  sourceRange: "A1:A2"
+  fillRange: "A1:A12"`,
+  schema: SpreadsheetApplyFillSchema,
+});
+
+/**
+ * Handler for the spreadsheet_insertNote tool
+ * Inserts or updates a note (comment) on a cell
+ */
+const handleSpreadsheetInsertNote = async (
+  input: SpreadsheetInsertNoteInput,
+): Promise<string> => {
+  const { docId, sheetId: inputSheetId, cell, note } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to insert a note", {
+      field: "docId",
+    });
+  }
+
+  if (!cell) {
+    return failTool("MISSING_CELL", "cell is required", { field: "cell" });
+  }
+
+  const sheetId = inputSheetId ?? 1;
+
+  // Parse cell from A1 notation
+  const cellSelection = addressToSelection(cell);
+  if (!cellSelection?.range) {
+    return failTool("INVALID_CELL", `Invalid cell: ${cell}`, { cell });
+  }
+
+  const cellInterface = {
+    rowIndex: cellSelection.range.startRowIndex,
+    columnIndex: cellSelection.range.startColumnIndex,
+  };
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_insertNote] Starting:", {
+      docId,
+      sheetId,
+      cell,
+      noteLength: note?.length ?? 0,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Insert or remove note
+        spreadsheet.insertNote(sheetId, cellInterface, note);
+
+        // Persist changes
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        const action = note ? "inserted/updated" : "removed";
+        console.log("[spreadsheet_insertNote] Completed:", {
+          docId,
+          sheetId,
+          cell,
+          action,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully ${action} note on cell ${cell}`,
+          cell,
+        });
+      } finally {
+        close();
+      }
+    } catch (error) {
+      console.error("[spreadsheet_insertNote] Error:", error);
+
+      return failTool(
+        "INSERT_NOTE_FAILED",
+        error instanceof Error ? error.message : "Failed to insert note",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_insertNote tool for LangChain
+ */
+export const spreadsheetInsertNoteTool = tool(handleSpreadsheetInsertNote, {
+  name: "spreadsheet_insertNote",
+  description: `Insert, update, or remove a note (comment) on a cell.
+
+OVERVIEW:
+This tool adds a note/comment to a specific cell. Notes are visible when hovering over the cell and can contain explanatory text, instructions, or comments.
+
+WHEN TO USE THIS TOOL:
+- Adding explanatory notes to cells
+- Providing context or instructions for specific data
+- Leaving comments for collaborators
+- Removing existing notes (by omitting the note parameter)
+
+IMPORTANT:
+- This tool only works with Athena spreadsheets, not documents or other document types
+- All indices are 1-based
+- To remove a note, call without the note parameter or with an empty string
+
+PARAMETERS:
+- docId: The document ID of the spreadsheet (required)
+- sheetId: The sheet ID (1-based, default: 1)
+- cell: A1 notation for the cell (e.g., 'A1', 'B5')
+- note: The note text (optional - omit to remove existing note)
+
+EXAMPLES:
+
+Example 1 — Add a note to a cell:
+  docId: "abc123"
+  cell: "A1"
+  note: "This is the header row"
+
+Example 2 — Update an existing note:
+  docId: "abc123"
+  cell: "B5"
+  note: "Updated calculation method"
+
+Example 3 — Remove a note from a cell:
+  docId: "abc123"
+  cell: "A1"`,
+  schema: SpreadsheetInsertNoteSchema,
+});
+
+/**
+ * Handler for the spreadsheet_deleteRows tool
+ * Deletes rows from a spreadsheet
+ */
+const handleSpreadsheetDeleteRows = async (
+  input: SpreadsheetDeleteRowsInput,
+): Promise<string> => {
+  const { docId, sheetId: inputSheetId, rowIndexes } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to delete rows", {
+      field: "docId",
+    });
+  }
+
+  if (!rowIndexes || rowIndexes.length === 0) {
+    return failTool(
+      "MISSING_ROW_INDEXES",
+      "At least one row index is required",
+      { field: "rowIndexes" },
+    );
+  }
+
+  const sheetId = inputSheetId ?? 1;
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteRows] Starting:", {
+      docId,
+      sheetId,
+      rowIndexes,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Delete rows
+        spreadsheet.deleteRow(sheetId, rowIndexes);
+
+        // Persist changes
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteRows] Completed:", {
+          docId,
+          sheetId,
+          rowIndexes,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted ${rowIndexes.length} row(s)`,
+          deletedRows: rowIndexes,
+        });
+      } finally {
+        close();
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteRows] Error:", error);
+
+      return failTool(
+        "DELETE_ROWS_FAILED",
+        error instanceof Error ? error.message : "Failed to delete rows",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteRows tool for LangChain
+ */
+export const spreadsheetDeleteRowsTool = tool(handleSpreadsheetDeleteRows, {
+  name: "spreadsheet_deleteRows",
+  description: `Delete rows from a spreadsheet.
+
+OVERVIEW:
+This tool removes entire rows from a sheet. All data in the specified rows will be deleted, and rows below will shift up.
+
+WHEN TO USE THIS TOOL:
+- Removing unwanted data rows
+- Cleaning up empty rows
+- Deleting multiple rows at once
+
+IMPORTANT:
+- This tool only works with Athena spreadsheets, not documents or other document types
+- All indices are 1-based (row 1 is the first row)
+- Deleting rows will shift all rows below upward
+- This is a destructive operation - data cannot be recovered
+
+PARAMETERS:
+- docId: The document ID of the spreadsheet (required)
+- sheetId: The sheet ID (1-based, default: 1)
+- rowIndexes: Array of 1-based row indexes to delete (e.g., [1, 3, 5])
+
+EXAMPLES:
+
+Example 1 — Delete a single row:
+  docId: "abc123"
+  sheetId: 1
+  rowIndexes: [5]
+
+Example 2 — Delete multiple rows:
+  docId: "abc123"
+  sheetId: 1
+  rowIndexes: [2, 4, 6, 8]
+
+Example 3 — Delete a range of consecutive rows (rows 10-15):
+  docId: "abc123"
+  rowIndexes: [10, 11, 12, 13, 14, 15]`,
+  schema: SpreadsheetDeleteRowsSchema,
+});
+
+/**
+ * Handler for the spreadsheet_deleteColumns tool
+ * Deletes columns from a spreadsheet
+ */
+const handleSpreadsheetDeleteColumns = async (
+  input: SpreadsheetDeleteColumnsInput,
+): Promise<string> => {
+  const { docId, sheetId: inputSheetId, columnIndexes } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to delete columns", {
+      field: "docId",
+    });
+  }
+
+  if (!columnIndexes || columnIndexes.length === 0) {
+    return failTool(
+      "MISSING_COLUMN_INDEXES",
+      "At least one column index is required",
+      { field: "columnIndexes" },
+    );
+  }
+
+  const sheetId = inputSheetId ?? 1;
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteColumns] Starting:", {
+      docId,
+      sheetId,
+      columnIndexes,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Delete columns
+        spreadsheet.deleteColumn(sheetId, columnIndexes);
+
+        // Persist changes
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteColumns] Completed:", {
+          docId,
+          sheetId,
+          columnIndexes,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted ${columnIndexes.length} column(s)`,
+          deletedColumns: columnIndexes,
+        });
+      } finally {
+        close();
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteColumns] Error:", error);
+
+      return failTool(
+        "DELETE_COLUMNS_FAILED",
+        error instanceof Error ? error.message : "Failed to delete columns",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteColumns tool for LangChain
+ */
+export const spreadsheetDeleteColumnsTool = tool(
+  handleSpreadsheetDeleteColumns,
+  {
+    name: "spreadsheet_deleteColumns",
+    description: `Delete columns from a spreadsheet.
+
+OVERVIEW:
+This tool removes entire columns from a sheet. All data in the specified columns will be deleted, and columns to the right will shift left.
+
+WHEN TO USE THIS TOOL:
+- Removing unwanted data columns
+- Cleaning up empty columns
+- Deleting multiple columns at once
+
+IMPORTANT:
+- This tool only works with Athena spreadsheets, not documents or other document types
+- All indices are 1-based (A=1, B=2, C=3, etc.)
+- Deleting columns will shift all columns to the right leftward
+- This is a destructive operation - data cannot be recovered
+
+PARAMETERS:
+- docId: The document ID of the spreadsheet (required)
+- sheetId: The sheet ID (1-based, default: 1)
+- columnIndexes: Array of 1-based column indexes to delete (A=1, B=2, C=3, etc.)
+
+EXAMPLES:
+
+Example 1 — Delete column A:
+  docId: "abc123"
+  sheetId: 1
+  columnIndexes: [1]
+
+Example 2 — Delete columns B and D:
+  docId: "abc123"
+  sheetId: 1
+  columnIndexes: [2, 4]
+
+Example 3 — Delete columns A through C:
+  docId: "abc123"
+  columnIndexes: [1, 2, 3]`,
+    schema: SpreadsheetDeleteColumnsSchema,
+  },
+);
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
@@ -2720,4 +3312,8 @@ export const spreadsheetTools = [
   spreadsheetDuplicateSheetTool,
   spreadsheetDeleteCellsTool,
   spreadsheetClearFormattingTool,
+  spreadsheetApplyFillTool,
+  spreadsheetInsertNoteTool,
+  spreadsheetDeleteRowsTool,
+  spreadsheetDeleteColumnsTool,
 ];
