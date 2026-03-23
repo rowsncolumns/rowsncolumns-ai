@@ -10,6 +10,7 @@ import { authClient } from "@/lib/auth/client";
 type AuthModalTriggerProps = {
   triggerText: string;
   authenticatedTriggerText?: string;
+  initialIsAuthenticated?: boolean;
   triggerVariant?: "ghost" | "hero";
   redirectTo?: string;
   className?: string;
@@ -43,14 +44,20 @@ function GoogleBadge() {
 export function AuthModalTrigger({
   triggerText,
   authenticatedTriggerText,
+  initialIsAuthenticated = false,
   triggerVariant = "ghost",
   redirectTo = "/doc",
   className = "",
   showIconOnMobile = false,
 }: AuthModalTriggerProps) {
-  const { data: sessionData } = authClient.useSession();
+  const { data: sessionData, isPending: isSessionPending } =
+    authClient.useSession();
+  const isAuthenticated =
+    Boolean(sessionData?.user) ||
+    (isSessionPending && initialIsAuthenticated);
+
   const resolvedTriggerText =
-    sessionData?.user && authenticatedTriggerText
+    isAuthenticated && authenticatedTriggerText
       ? authenticatedTriggerText
       : triggerText;
   const [open, setOpen] = useState(false);
@@ -94,7 +101,7 @@ export function AuthModalTrigger({
   );
 
   const handleTriggerClick = useCallback(async () => {
-    if (sessionData?.user) {
+    if (isAuthenticated) {
       window.location.assign(redirectTo);
       return;
     }
@@ -106,7 +113,7 @@ export function AuthModalTrigger({
     }
 
     setOpen(true);
-  }, [redirectTo, sessionData?.user]);
+  }, [isAuthenticated, redirectTo]);
 
   const modal = open ? (
     <div

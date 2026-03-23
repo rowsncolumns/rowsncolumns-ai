@@ -12,6 +12,7 @@ import { SiteHeader } from "@/components/site-header";
 import { siteNavigation } from "@/components/site-navigation";
 import { auth } from "@/lib/auth/server";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Image from "next/image";
 
 const trustLogos = ["Stripe", "Mercury", "Ramp", "Vercel", "Notion", "Scale"];
@@ -196,6 +197,11 @@ export default async function Home() {
         image: session.user.image,
       }
     : undefined;
+  const cookieStore = await cookies();
+  const hasAuthSessionCookie = cookieStore
+    .getAll()
+    .some((cookie) => cookie.name.endsWith(".session_token"));
+  const initialIsAuthenticated = Boolean(initialUser || hasAuthSessionCookie);
 
   return (
     <main className="relative overflow-hidden">
@@ -226,6 +232,7 @@ export default async function Home() {
                     <AuthModalTrigger
                       triggerText="Try for free"
                       authenticatedTriggerText="New spreadsheet"
+                      initialIsAuthenticated={initialIsAuthenticated}
                       triggerVariant="hero"
                       redirectTo="/doc"
                     />
