@@ -10,7 +10,7 @@ function readSingleParam(value: string | string[] | undefined): string | null {
 }
 
 function normalizeRedirectPath(value: string | null): string {
-  if (value && value.startsWith("/")) return value;
+  if (value && value.startsWith("/") && !value.startsWith("//")) return value;
   return "/doc";
 }
 

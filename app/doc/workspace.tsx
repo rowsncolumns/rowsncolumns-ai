@@ -164,6 +164,61 @@ const getShareDbUrl = () => {
 };
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
+type ShareDbConnectionState =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "stopped"
+  | "closed";
+
+const normalizeShareDbConnectionState = (
+  state: unknown,
+): ShareDbConnectionState => {
+  switch (state) {
+    case "connected":
+      return "connected";
+    case "disconnected":
+      return "disconnected";
+    case "stopped":
+      return "stopped";
+    case "closed":
+      return "closed";
+    default:
+      return "connecting";
+  }
+};
+
+const formatShareDbReason = (reason: unknown): string | null => {
+  if (!reason) return null;
+  if (typeof reason === "string") {
+    const value = reason.trim();
+    return value.length > 0 ? value : null;
+  }
+  if (reason instanceof Error) {
+    return reason.message.trim() || reason.name;
+  }
+  if (typeof reason === "object") {
+    const value = reason as {
+      message?: unknown;
+      reason?: unknown;
+      code?: unknown;
+      type?: unknown;
+    };
+    if (typeof value.reason === "string" && value.reason.trim()) {
+      return value.reason.trim();
+    }
+    if (typeof value.message === "string" && value.message.trim()) {
+      return value.message.trim();
+    }
+    if (typeof value.code === "number") {
+      return `code ${value.code}`;
+    }
+    if (typeof value.type === "string" && value.type.trim()) {
+      return value.type.trim();
+    }
+  }
+  return null;
+};
 
 const createShareDbSocket = (): ShareDBSocket => {
   const reconnectingSocket = new ReconnectingWebSocket(getShareDbUrl());
@@ -381,6 +436,67 @@ function SpreadsheetPane({
     defaultSpreadsheetTheme,
   );
   const [iterativeEnabled, setIterativeEnabled] = useState(false);
+  const [shareDbConnectionState, setShareDbConnectionState] =
+    useState<ShareDbConnectionState>(() =>
+      normalizeShareDbConnectionState(connection.state),
+    );
+  const [shareDbConnectionReason, setShareDbConnectionReason] = useState<
+    string | null
+  >(null);
+  const [hasSeenShareDbConnected, setHasSeenShareDbConnected] =
+    useState<boolean>(false);
+
+  useEffect(() => {
+    const handleStateChange = (state: unknown, reason?: unknown) => {
+      const normalizedState = normalizeShareDbConnectionState(state);
+      setShareDbConnectionState(normalizedState);
+
+      if (normalizedState === "connected") {
+        setHasSeenShareDbConnected(true);
+      }
+
+      if (normalizedState === "connected" || normalizedState === "connecting") {
+        setShareDbConnectionReason(null);
+        return;
+      }
+
+      const parsedReason = formatShareDbReason(reason);
+      if (parsedReason) {
+        setShareDbConnectionReason(parsedReason);
+      }
+    };
+
+    const handleConnectionError = (error: unknown) => {
+      const parsedError = formatShareDbReason(error);
+      if (parsedError) {
+        setShareDbConnectionReason(parsedError);
+      }
+    };
+
+    connection.on("state", handleStateChange);
+    connection.on("connection error", handleConnectionError);
+    connection.on("error", handleConnectionError);
+
+    handleStateChange(connection.state);
+
+    return () => {
+      connection.removeListener("state", handleStateChange);
+      connection.removeListener("connection error", handleConnectionError);
+      connection.removeListener("error", handleConnectionError);
+    };
+  }, []);
+
+  const isShareDbConnected = shareDbConnectionState === "connected";
+  const shouldShowShareDbStatus =
+    !isShareDbConnected &&
+    (shareDbConnectionState !== "connecting" || hasSeenShareDbConnected);
+  const shareDbStatusLabel =
+    shareDbConnectionState === "connecting"
+      ? "Reconnecting..."
+      : "ShareDB disconnected";
+  const shareDbStatusTitle = shareDbConnectionReason
+    ? `${shareDbStatusLabel}: ${shareDbConnectionReason}`
+    : shareDbStatusLabel;
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -682,6 +798,12 @@ function SpreadsheetPane({
       hideLoader();
     } else {
       showLoader("Loading document...");
+    }
+  }, [synced]);
+
+  useEffect(() => {
+    if (synced) {
+      setHasSeenShareDbConnected(true);
     }
   }, [synced]);
 
@@ -1371,6 +1493,7 @@ function SpreadsheetPane({
 
       <BottomBar>
         <NewSheetButton onClick={onCreateNewSheet} />
+
         <SheetSwitcher
           sheets={sheets}
           activeSheetId={activeSheetId}
@@ -1401,6 +1524,20 @@ function SpreadsheetPane({
           columnCount={columnCount}
           merges={merges}
         />
+
+        {shouldShowShareDbStatus && (
+          <span
+            className={`inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-semibold ${
+              shareDbConnectionState === "connecting"
+                ? "border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground)"
+                : "border-(--panel-border) bg-(--assistant-stop-bg) text-(--assistant-stop-fg)"
+            }`}
+            title={shareDbStatusTitle}
+            aria-live="polite"
+          >
+            {shareDbStatusLabel}
+          </span>
+        )}
       </BottomBar>
 
       <ConditionalFormatDialog>

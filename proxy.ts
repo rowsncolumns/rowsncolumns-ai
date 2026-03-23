@@ -8,6 +8,20 @@ const authMiddleware = auth.middleware({
 
 export default async function proxy(request: NextRequest) {
   const response = await authMiddleware(request);
+
+  const locationHeader = response.headers.get("location");
+  if (locationHeader && response.status >= 300 && response.status < 400) {
+    const redirectUrl = new URL(locationHeader, request.url);
+    if (
+      redirectUrl.pathname === "/auth/sign-in" &&
+      !redirectUrl.searchParams.has("callbackURL")
+    ) {
+      const callbackPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+      redirectUrl.searchParams.set("callbackURL", callbackPath);
+      response.headers.set("location", redirectUrl.toString());
+    }
+  }
+
   normalizeNeonAuthSetCookieHeadersInPlace(response.headers);
   return response;
 }

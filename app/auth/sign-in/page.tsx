@@ -15,7 +15,7 @@ function readSingleParam(value: string | string[] | undefined): string | null {
 }
 
 function normalizeCallbackPath(value: string | null): string {
-  if (value && value.startsWith("/")) return value;
+  if (value && value.startsWith("/") && !value.startsWith("//")) return value;
   return "/doc";
 }
 
@@ -40,14 +40,14 @@ export default async function SignInPage({
     searchParams,
   ]);
 
-  if (session?.user) {
-    redirect("/doc");
-  }
-
-  const error = readSingleParam(params.error);
   const callbackURL = normalizeCallbackPath(
     readSingleParam(params.callbackURL),
   );
+  if (session?.user) {
+    redirect(callbackURL);
+  }
+
+  const error = readSingleParam(params.error);
 
   return (
     <main className="relative flex min-h-dvh flex-col overflow-hidden">
