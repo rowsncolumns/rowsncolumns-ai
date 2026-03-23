@@ -182,6 +182,7 @@ export function FileMenu({
             <FileText className="h-4 w-4" />
             Import CSV
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleExportExcel}>
             <FileSpreadsheet className="h-4 w-4" />
             Export as Excel
