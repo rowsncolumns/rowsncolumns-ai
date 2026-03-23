@@ -26,10 +26,22 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import {
+  colorKeys,
+  defaultSpreadsheetTheme,
+  Sheet,
+  SpreadsheetTheme,
+  TableView,
   useNavigateToSheetRange,
   useSpreadsheetApi,
 } from "@rowsncolumns/spreadsheet";
-import { addressToSheetRange, uuidString } from "@rowsncolumns/utils";
+import type { CellInterface, CellXfs } from "@rowsncolumns/common-types";
+import {
+  addressToSheetRange,
+  MAX_COLUMN_COUNT,
+  MAX_ROW_COUNT,
+  selectionToAddress,
+  uuidString,
+} from "@rowsncolumns/utils";
 import {
   Bug,
   Check,
@@ -95,6 +107,7 @@ import { parseChatStream } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@rowsncolumns/ui";
+import { useSpreadsheetState } from "@rowsncolumns/spreadsheet-state";
 
 type SheetInfo = {
   sheetId: number;
@@ -106,6 +119,7 @@ type WorkspaceAssistantProps = {
   docId?: string;
   sheets?: SheetInfo[];
   activeSheetId?: number;
+  isAdmin?: boolean;
 };
 
 /**
@@ -115,6 +129,7 @@ type WorkspaceAssistantProps = {
 export type WorkspaceAssistantUIProps = {
   prompts: string[];
   docId?: string;
+  isAdmin?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -1606,6 +1621,7 @@ function SpreadsheetToolUIRegistry() {
 }
 
 function AssistantMessage() {
+  const { isAdmin } = React.useContext(AssistantDebugAccessContext);
   const role = useMessage((message) => message.role);
   const userMessageText = useMessage((message) =>
     message.role !== "user"
@@ -1667,7 +1683,7 @@ function AssistantMessage() {
     !showTypingIndicatorBeforeText &&
     (hasAnyVisibleReasoning || hasAnyToolCall || hasAnyVisibleText);
   const showDebugIcon =
-    process.env.NODE_ENV !== "production" &&
+    (process.env.NODE_ENV !== "production" || isAdmin) &&
     role === "assistant" &&
     debugUrl &&
     !isMessageRunning;
@@ -1783,20 +1799,28 @@ function AssistantMessage() {
 }
 
 // Re-export for convenience
-export { AssistantRuntimeProvider, useAssistantInstructions };
+export { AssistantRuntimeProvider };
 
-/**
- * Injects document ID into the assistant instructions.
- * Must be used inside an AssistantRuntimeProvider.
- */
-export function DocInstructions({ docId }: { docId?: string }) {
-  const instruction = React.useMemo(() => {
-    if (!docId) return "";
-    return `You are helping the user edit a spreadsheet.\nDocument ID: ${docId}\n\nWhen using the spreadsheet_changeBatch tool, always pass this exact docId.`;
-  }, [docId]);
+type UseFrontendReadableOptions = {
+  description: string;
+  value: unknown;
+  disabled?: boolean;
+};
 
-  useAssistantInstructions(instruction);
-  return null;
+function convertToJSON(description: string, value: any): string {
+  return `${description}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
+}
+export function useFrontendReadable({
+  description,
+  value,
+  disabled,
+}: UseFrontendReadableOptions) {
+  const instruction = React.useMemo(
+    () => convertToJSON(description, value),
+    [description, value],
+  );
+
+  useAssistantInstructions({ instruction, disabled });
 }
 
 /**
@@ -1804,28 +1828,111 @@ export function DocInstructions({ docId }: { docId?: string }) {
  * Must be used inside an AssistantRuntimeProvider.
  */
 export function SheetsInstructions({
+  documentId,
   sheets,
   activeSheetId,
+  activeCell,
+  cellXfs,
+  tables,
+  theme,
+  getSheetName,
+  getSheetProperties,
 }: {
-  sheets?: SheetInfo[];
+  documentId: string;
+  sheets?: Sheet[];
   activeSheetId?: number;
+  activeCell: CellInterface;
+  cellXfs?: CellXfs | null;
+  tables?: TableView[] | null;
+  theme?: SpreadsheetTheme;
+  getSheetName?: ReturnType<typeof useSpreadsheetState>["getSheetName"];
+  getSheetProperties?: ReturnType<
+    typeof useSpreadsheetState
+  >["getSheetProperties"];
 }) {
-  const instruction = React.useMemo(() => {
-    if (!sheets || sheets.length === 0) return "";
+  const sheetSummary = React.useMemo(
+    () =>
+      sheets?.map((s) => ({
+        title: s.title,
+        sheetId: s.sheetId,
+      })) ?? [],
+    [sheets],
+  );
 
-    const sheetList = sheets
-      .map(
-        (s) =>
-          `- sheetId: ${s.sheetId}, title: "${s.title}"${
-            s.sheetId === activeSheetId ? " (active)" : ""
-          }`,
-      )
-      .join("\n");
+  useFrontendReadable({
+    description: `Available sheets in the current workbook
+`,
+    value: sheetSummary,
+  });
 
-    return `Available sheets in the current workbook:\n${sheetList}\n\nWhen modifying cells, use the appropriate sheetId for the target sheet.`;
-  }, [sheets, activeSheetId]);
+  useFrontendReadable({
+    description: "The user is focused on sheetId: ",
+    value: activeSheetId,
+  });
 
-  useAssistantInstructions(instruction);
+  useFrontendReadable({
+    description: `The user's currently focussed / active cell in the spreadsheet`,
+    value: activeCell,
+  });
+
+  useFrontendReadable({
+    description: `This object represents the cell formatting applied in the spreadsheet.
+Each cell format is identified by a "sid" in the styles.
+The formats are stored in a cellXfs registry map, where the key is the format ID and the value describes the formatting details
+`,
+    value: cellXfs ? Object.fromEntries([...cellXfs]) : {},
+  });
+
+  // Tables
+  const tableValue = tables?.map(({ bandedRange, ...table }) => {
+    const sheetProps = getSheetProperties?.(table.sheetId);
+    const address = selectionToAddress(
+      { range: table.range },
+      getSheetName?.(table.sheetId),
+      undefined,
+      sheetProps?.rowCount ?? MAX_ROW_COUNT,
+      sheetProps?.columnCount ?? MAX_COLUMN_COUNT,
+    );
+
+    return {
+      ...table,
+      ref: address,
+    };
+  });
+
+  useFrontendReadable({
+    description: `The Spreadsheet has the following tables. Tables have a title and and array of columns. Tables ranges do not overlap. Tables are always referenced using table name and ID. User cannot change the ID, but they can change the columns, table name and range.
+
+List of tables:
+`,
+    value: tableValue,
+  });
+
+  // Map theme colors for Agent to comprehend
+  const themeColorMapping = React.useMemo(() => {
+    const activeTheme = theme ?? defaultSpreadsheetTheme;
+    const themeColorKeysByIndex: Record<number, string> = {};
+    const themeColorsByIndex: Record<number, string | undefined> = {};
+
+    for (const [index, key] of colorKeys) {
+      themeColorKeysByIndex[index] = key;
+      themeColorsByIndex[index] = activeTheme.themeColors[key];
+    }
+
+    return {
+      name: activeTheme.name,
+      primaryFontFamily: activeTheme.primaryFontFamily,
+      themeColorKeysByIndex,
+      themeColorsByIndex,
+      darkThemeColors: activeTheme.darkThemeColors ?? null,
+    };
+  }, [theme]);
+
+  useFrontendReadable({
+    description: `The current active theme of the spreadsheet has the following colors. Theme colors are mapped by this dictionary.
+`,
+    value: themeColorMapping,
+  });
 
   return null;
 }
@@ -2519,6 +2626,7 @@ function NewSessionButton({ iconOnly = false }: { iconOnly?: boolean }) {
 type WorkspaceAssistantPanelProps = {
   prompts: string[];
   docId?: string;
+  isAdmin?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -2554,6 +2662,10 @@ type AssistantComposerProps = Omit<WorkspaceAssistantPanelProps, "prompts"> & {
   isUnlimitedCredits: boolean;
   isCreditsLoading: boolean;
 };
+
+const AssistantDebugAccessContext = React.createContext<{ isAdmin: boolean }>({
+  isAdmin: false,
+});
 
 function AssistantComposer({
   selectedModel,
@@ -2949,6 +3061,7 @@ function AssistantComposer({
 function WorkspaceAssistantPanel({
   prompts,
   docId,
+  isAdmin = false,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -3070,80 +3183,82 @@ function WorkspaceAssistantPanel({
         </p>
       </div>
 
-      <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
-        <SpreadsheetToolUIRegistry />
-        <ThreadPrimitive.Viewport
-          className={cn(
-            "min-h-0 overflow-y-auto px-5",
-            isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
-          )}
-        >
-          <div className="space-y-4">
-            <ThreadPrimitive.Messages
-              components={{
-                UserMessage: AssistantMessage,
-                AssistantMessage,
-              }}
-            />
-          </div>
-        </ThreadPrimitive.Viewport>
+      <AssistantDebugAccessContext.Provider value={{ isAdmin }}>
+        <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
+          <SpreadsheetToolUIRegistry />
+          <ThreadPrimitive.Viewport
+            className={cn(
+              "min-h-0 overflow-y-auto px-5",
+              isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
+            )}
+          >
+            <div className="space-y-4">
+              <ThreadPrimitive.Messages
+                components={{
+                  UserMessage: AssistantMessage,
+                  AssistantMessage,
+                }}
+              />
+            </div>
+          </ThreadPrimitive.Viewport>
 
-        <div
-          className={cn(
-            "rnc-assistant-divider w-full px-5 py-4",
-            isThreadEmpty ? "my-auto border-t-0" : "border-t border-black/8",
-          )}
-        >
-          <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
-            <AssistantComposer
-              selectedModel={selectedModel}
-              selectedModelLabel={selectedModelLabel}
-              isModelPickerOpen={isModelPickerOpen}
-              setIsModelPickerOpen={setIsModelPickerOpen}
-              setSelectedModel={setSelectedModel}
-              reasoningEnabled={reasoningEnabled}
-              setReasoningEnabled={setReasoningEnabled}
-              reasoningEnabledRef={reasoningEnabledRef}
-              forceCompactHeader={forceCompactHeader}
-              remainingCredits={remainingCredits}
-              isUnlimitedCredits={isUnlimitedCredits}
-              isCreditsLoading={isCreditsLoading}
-            />
-            <ThreadPrimitive.If empty>
-              <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
-                <TooltipProvider delayDuration={200}>
-                  {prompts.map((prompt) => (
-                    <Tooltip key={prompt}>
-                      <TooltipTrigger asChild>
-                        <ThreadPrimitive.Suggestion
-                          prompt={prompt}
-                          send
-                          className="rnc-assistant-suggestion w-56 rounded-xl border border-black/10 bg-[#fff9f2] px-4 py-3 text-left text-sm leading-5 text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]"
-                        >
-                          <span
-                            className="block overflow-hidden"
-                            style={{
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                              textOverflow: "ellipsis",
-                            }}
+          <div
+            className={cn(
+              "rnc-assistant-divider w-full px-5 py-4",
+              isThreadEmpty ? "my-auto border-t-0" : "border-t border-black/8",
+            )}
+          >
+            <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
+              <AssistantComposer
+                selectedModel={selectedModel}
+                selectedModelLabel={selectedModelLabel}
+                isModelPickerOpen={isModelPickerOpen}
+                setIsModelPickerOpen={setIsModelPickerOpen}
+                setSelectedModel={setSelectedModel}
+                reasoningEnabled={reasoningEnabled}
+                setReasoningEnabled={setReasoningEnabled}
+                reasoningEnabledRef={reasoningEnabledRef}
+                forceCompactHeader={forceCompactHeader}
+                remainingCredits={remainingCredits}
+                isUnlimitedCredits={isUnlimitedCredits}
+                isCreditsLoading={isCreditsLoading}
+              />
+              <ThreadPrimitive.If empty>
+                <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
+                  <TooltipProvider delayDuration={200}>
+                    {prompts.map((prompt) => (
+                      <Tooltip key={prompt}>
+                        <TooltipTrigger asChild>
+                          <ThreadPrimitive.Suggestion
+                            prompt={prompt}
+                            send
+                            className="rnc-assistant-suggestion w-56 rounded-xl border border-black/10 bg-[#fff9f2] px-4 py-3 text-left text-sm leading-5 text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]"
                           >
-                            {prompt}
-                          </span>
-                        </ThreadPrimitive.Suggestion>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" align="center">
-                        {prompt}
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </TooltipProvider>
-              </div>
-            </ThreadPrimitive.If>
+                            <span
+                              className="block overflow-hidden"
+                              style={{
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {prompt}
+                            </span>
+                          </ThreadPrimitive.Suggestion>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="center">
+                          {prompt}
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </TooltipProvider>
+                </div>
+              </ThreadPrimitive.If>
+            </div>
           </div>
-        </div>
-      </ThreadPrimitive.Root>
+        </ThreadPrimitive.Root>
+      </AssistantDebugAccessContext.Provider>
     </Card>
   );
 }
@@ -3156,6 +3271,7 @@ function WorkspaceAssistantPanel({
 export function WorkspaceAssistantUI({
   prompts,
   docId,
+  isAdmin,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -3170,6 +3286,7 @@ export function WorkspaceAssistantUI({
     <WorkspaceAssistantPanel
       prompts={prompts}
       docId={docId}
+      isAdmin={isAdmin}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
       isModelPickerOpen={isModelPickerOpen}
@@ -3183,11 +3300,12 @@ export function WorkspaceAssistantUI({
   );
 }
 
-function WorkspaceAssistantInner({
+export function WorkspaceAssistant({
   prompts,
   docId,
   sheets,
   activeSheetId,
+  isAdmin,
 }: WorkspaceAssistantProps) {
   const threadId = useStableThreadId();
   const [selectedModel, setSelectedModel] =
@@ -3354,6 +3472,7 @@ function WorkspaceAssistantInner({
       <WorkspaceAssistantPanel
         prompts={prompts}
         docId={docId}
+        isAdmin={isAdmin}
         selectedModel={selectedModel}
         selectedModelLabel={selectedModelLabel}
         isModelPickerOpen={isModelPickerOpen}
@@ -3365,8 +3484,4 @@ function WorkspaceAssistantInner({
       />
     </AssistantRuntimeProvider>
   );
-}
-
-export function WorkspaceAssistant(props: WorkspaceAssistantProps) {
-  return <WorkspaceAssistantInner {...props} />;
 }

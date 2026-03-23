@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
+import { isAdminUser } from "@/lib/auth/admin";
 import { ensureDocumentAccess } from "@/lib/documents/repository";
 import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme-preference";
 
@@ -76,6 +77,10 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
   const initialIsMobileLayout =
     secChUaMobile === "?1" ||
     (secChUaMobile === null && MOBILE_USER_AGENT_REGEX.test(userAgent));
+  const isAdmin = isAdminUser({
+    id: session.user.id,
+    email: session.user.email,
+  });
 
   return (
     <NewWorkspace
@@ -84,6 +89,7 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
       canManageShare={access.isOwner}
       initialThemeMode={initialThemeMode}
       initialIsMobileLayout={initialIsMobileLayout}
+      isAdmin={isAdmin}
       currentUser={{
         id: session.user.id,
         name: session.user.name,

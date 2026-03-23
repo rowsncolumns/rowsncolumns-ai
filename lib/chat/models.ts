@@ -130,9 +130,15 @@ const ColorSchema = z.union([
 // Spreadsheet CreateSheet
 const SheetSpecSchema = z
   .object({
-    title: z.string().describe("Name of the sheet"),
-    sheetId: z.number().int().describe("Sheet ID (required)"),
-    index: z.number().int().describe("The order of the sheet"),
+    title: z.string().optional().describe("Name of the sheet"),
+    sheetId: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        "Sheet ID. If not provided, one will be auto-generated.",
+      ),
+    index: z.number().int().optional().describe("The order of the sheet"),
     frozenRowCount: z
       .number()
       .int()

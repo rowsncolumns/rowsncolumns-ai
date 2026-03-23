@@ -124,7 +124,6 @@ import {
 } from "@/lib/theme-preference";
 import {
   AssistantRuntimeProvider,
-  DocInstructions,
   SheetsInstructions,
   useSpreadsheetAssistantRuntime,
   WorkspaceAssistantUI,
@@ -437,9 +436,7 @@ function SpreadsheetPane({
   );
   const [iterativeEnabled, setIterativeEnabled] = useState(false);
   const [shareDbConnectionState, setShareDbConnectionState] =
-    useState<ShareDbConnectionState>(() =>
-      normalizeShareDbConnectionState(connection.state),
-    );
+    useState<ShareDbConnectionState>("connecting");
   const [shareDbConnectionReason, setShareDbConnectionReason] = useState<
     string | null
   >(null);
@@ -722,6 +719,7 @@ function SpreadsheetPane({
     onChangeLocale,
 
     // For shared strings
+    getSheetProperties,
   } = useSpreadsheetState({
     onIterativeCalculationEnabled: setIterativeEnabled,
     recalculateOnOpen: false,
@@ -923,8 +921,14 @@ function SpreadsheetPane({
       <LoadingIndicator />
       {/* Inject sheets context into assistant instructions */}
       <SheetsInstructions
-        sheets={sheets.map((s) => ({ sheetId: s.sheetId, title: s.title }))}
+        sheets={sheets}
         activeSheetId={activeSheetId}
+        activeCell={activeCell}
+        documentId={documentId}
+        cellXfs={cellXfs}
+        tables={tables}
+        getSheetProperties={getSheetProperties}
+        getSheetName={getSheetName}
       />
       <Toolbar enableFloating>
         <FileMenu
@@ -1654,6 +1658,7 @@ type NewWorkspaceProps = {
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
   initialIsMobileLayout: boolean;
+  isAdmin: boolean;
 };
 
 export function NewWorkspace({
@@ -1663,6 +1668,7 @@ export function NewWorkspace({
   initialThemeMode,
   canManageShare,
   initialIsMobileLayout,
+  isAdmin,
 }: NewWorkspaceProps) {
   const isMobileLayout = useMediaQueryMatch(
     MOBILE_LAYOUT_MEDIA_QUERY,
@@ -1715,6 +1721,7 @@ export function NewWorkspace({
     <WorkspaceAssistantUI
       prompts={starterPrompts}
       docId={documentId}
+      isAdmin={isAdmin}
       selectedModel={assistantRuntime.selectedModel}
       selectedModelLabel={assistantRuntime.selectedModelLabel}
       isModelPickerOpen={assistantRuntime.isModelPickerOpen}
@@ -1739,9 +1746,6 @@ export function NewWorkspace({
             }}
           />
         </div>
-
-        {/* Inject docId instructions at the top level */}
-        <DocInstructions docId={documentId} />
 
         <SpreadsheetProvider>
           <div className="flex min-h-0 flex-1 flex-col">

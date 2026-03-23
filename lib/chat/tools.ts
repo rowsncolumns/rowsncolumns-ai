@@ -457,8 +457,8 @@ const handleSpreadsheetCreateSheet = async (
 
         console.log("[spreadsheet_createSheet] Completed:", {
           docId,
-          newSheetId: newSheet?.sheetId,
-          newSheetTitle: newSheet?.title,
+          newSheetId: newSheet.sheetId,
+          newSheetTitle: newSheet.title,
           patchCount: patchTuples.length,
         });
 
