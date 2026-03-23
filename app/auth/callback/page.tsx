@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-const SESSION_RETRY_DELAYS_MS = [120, 240, 360];
 
 function readSingleParam(value: string | string[] | undefined): string | null {
   if (typeof value === "string") return value;
@@ -15,11 +14,6 @@ function normalizeRedirectPath(value: string | null): string {
   if (value && value.startsWith("/")) return value;
   return "/doc";
 }
-
-const wait = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 function buildSignInErrorRedirect({
   callbackPath,
@@ -78,15 +72,9 @@ export default async function AuthCallbackPage({
     );
   }
 
-  for (let attempt = 0; attempt <= SESSION_RETRY_DELAYS_MS.length; attempt += 1) {
-    const { data: session } = await auth.getSession();
-    if (session?.user) {
-      redirect(redirectTo);
-    }
-
-    if (attempt < SESSION_RETRY_DELAYS_MS.length) {
-      await wait(SESSION_RETRY_DELAYS_MS[attempt]!);
-    }
+  const { data: session } = await auth.getSession();
+  if (session?.user) {
+    redirect(redirectTo);
   }
 
   redirect(
