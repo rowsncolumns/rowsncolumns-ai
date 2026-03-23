@@ -3033,7 +3033,7 @@ function AssistantComposer({
                     role="combobox"
                     aria-expanded={isModelPickerOpen}
                     aria-label="Select model"
-                    className="rnc-assistant-chip h-8 min-w-42 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
+                    className="rnc-assistant-chip h-8 min-w-40 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
                   >
                     <span className="truncate">{selectedModelLabel}</span>
                     <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
@@ -3271,7 +3271,7 @@ function WorkspaceAssistantPanel({
             />
           </div>
         </div>
-        <p className="mt-1 hidden text-sm leading-6 text-(--muted-foreground) sm:block">
+        <p className="mt-1 text-sm leading-6 text-(--muted-foreground)">
           {ASSISTANT_TAGLINE}
         </p>
       </div>
