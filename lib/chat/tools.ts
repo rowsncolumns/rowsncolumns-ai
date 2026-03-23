@@ -1037,10 +1037,11 @@ WHEN TO USE THIS TOOL:
 - Aligning text horizontally or vertically
 
 FORMATTING BEHAVIOR:
-- Auto-format by default to make outputs look presentable
+- Auto-format lightly by default to make outputs look presentable
 - For small edits on existing sheets, avoid broad cosmetic reformatting unless the user explicitly requests it
 - Preserve existing cell formatting by default
 - When writing data, match the format of surrounding cells if present
+- Do not apply bold to entire tables/ranges by default; reserve bold for headers, section labels, and totals
 
 WHEN FORMATTING IS APPLIED, use these standards:
 - Numbers: right-align, use thousands separator (#,##0)
@@ -1050,6 +1051,7 @@ WHEN FORMATTING IS APPLIED, use these standards:
 - Headers: bold, center-align
 - Totals: bold with top border
 - Column headers (Year 1, Year 2, etc.): bold, center-align
+- Data body cells: regular weight (non-bold) unless emphasis is explicitly requested
 
 INPUT CELL CONVENTION (financial models only, when requested):
 - Light blue background
@@ -1076,7 +1078,8 @@ CRITICAL RULES:
 4. Use empty objects {} for cells that should not be formatted.
 5. Only the target range is modified — never affects data outside.
 6. AUTO-EXPANSION: If you provide exactly ONE cell [[{...}]], it will automatically expand to fill the entire range. This is useful when applying the same formatting to all cells in a range.
-7. BATCHING: Multiple tool calls are permitted and encouraged for large ranges. You can format in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability.
+7. If using AUTO-EXPANSION with textFormat.bold=true, only do so for header-only or totals-only ranges. Do not auto-expand bold across mixed header+data regions.
+8. BATCHING: Multiple tool calls are permitted and encouraged for large ranges. You can format in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability.
 
 EXAMPLES:
 
@@ -1100,8 +1103,8 @@ Example 3 — Format range with mixed styles (A1:B3):
   range: "A1:B3"
   cells: [
     [
-      {"cellStyles": {"textFormat": {"bold": true}, "backgroundColor": "#E8E8E8"}},
-      {"cellStyles": {"textFormat": {"bold": true}, "backgroundColor": "#E8E8E8"}}
+      {"cellStyles": {"backgroundColor": "#E8E8E8"}},
+      {"cellStyles": {"backgroundColor": "#E8E8E8"}}
     ],
     [
       {"cellStyles": {"textFormat": {"italic": true}}},
@@ -1112,7 +1115,7 @@ Example 3 — Format range with mixed styles (A1:B3):
       {"cellStyles": {"backgroundColor": "#FFFACD"}}
     ]
   ]
-  // Row 1: Bold with gray background
+  // Row 1: Gray background
   // Row 2: First cell italic, second cell no formatting
   // Row 3: First cell underlined, second cell yellow background`,
   schema: SpreadsheetFormatRangeSchema,

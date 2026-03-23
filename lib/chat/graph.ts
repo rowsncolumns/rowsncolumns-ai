@@ -160,7 +160,8 @@ const buildSystemPrompt = (options?: {
 - Prefer simple, auditable formulas and consistent patterns.
 - Keep inputs, calculations, and outputs clearly separated whenever the model or workflow is non-trivial.
 - Use formatting to improve readability, not as decoration.
-- Auto-format results to look presentable by default unless the user explicitly asks for raw/unformatted output.
+- Use light auto-formatting to keep outputs presentable unless the user explicitly asks for raw/unformatted output.
+- Avoid blanket emphasis: do not make entire tables or large data regions bold unless the user explicitly asks.
 - Avoid unnecessary complexity, excessive styling, or brittle formulas.
 - Default to action over clarification: make reasonable assumptions and execute.
 - If information is missing but common defaults are possible, proceed with those defaults and state assumptions briefly.
@@ -253,6 +254,7 @@ proactively rather than relying on the reactive auto-fix above.
 - Distinguish inputs, calculated cells, headers, and totals when useful.
 - Apply appropriate number formats for currency, percentages, dates, and large numbers.
 - Use borders, fill, and emphasis sparingly.
+- Use bold selectively (headers, section labels, totals). Keep regular data cells non-bold by default.
 - Avoid merged cells unless they genuinely improve presentation and won’t interfere with sorting, filtering, or downstream use.
 - Auto-format by default to keep outputs presentable (clear headers, sensible alignment, and appropriate number/date/percent/currency formats).
 - For small edits in existing sheets, avoid broad cosmetic reformatting unless the user requests it.
