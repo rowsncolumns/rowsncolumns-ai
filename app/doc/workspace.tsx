@@ -1613,7 +1613,7 @@ export function NewWorkspace({
                 }
                 className="flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <TabsList className="grid h-11 w-full grid-cols-2 rounded-2xl border border-black/10 bg-[#f4efe8] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] h-auto rounded-xl">
+                <TabsList className="grid w-full grid-cols-2 border border-black/10 bg-[#f4efe8] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] h-auto rounded-xl">
                   <TabsTrigger
                     value="chat"
                     className="h-9 rounded-xl text-[15px] font-semibold tracking-[-0.01em] text-[#5b5f66] data-[state=active]:bg-white data-[state=active]:text-[#1e2430] data-[state=active]:shadow-[0_1px_2px_rgba(0,0,0,0.09)] data-[state=inactive]:hover:text-[#2b3340]"
@@ -1627,26 +1627,34 @@ export function NewWorkspace({
                     Sheet
                   </TabsTrigger>
                 </TabsList>
-                <TabsContent
-                  value="chat"
-                  forceMount
-                  className="mt-2 min-h-0 flex-1"
-                  style={{ display: mobileTab === "chat" ? "flex" : "none" }}
-                >
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {assistantPane}
-                  </div>
-                </TabsContent>
-                <TabsContent
-                  value="sheet"
-                  forceMount
-                  className="mt-2 min-h-0 flex-1"
-                  style={{ display: mobileTab === "sheet" ? "flex" : "none" }}
-                >
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {spreadsheetPane}
-                  </div>
-                </TabsContent>
+                <div className="relative mt-2 min-h-0 flex-1 overflow-hidden">
+                  <TabsContent
+                    value="chat"
+                    forceMount
+                    className={`absolute inset-0 min-h-0 ${
+                      mobileTab === "chat"
+                        ? "z-10 flex"
+                        : "z-0 flex pointer-events-none select-none opacity-0"
+                    }`}
+                  >
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                      {assistantPane}
+                    </div>
+                  </TabsContent>
+                  <TabsContent
+                    value="sheet"
+                    forceMount
+                    className={`absolute inset-0 min-h-0 ${
+                      mobileTab === "sheet"
+                        ? "z-10 flex"
+                        : "z-0 flex pointer-events-none select-none opacity-0"
+                    }`}
+                  >
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                      {spreadsheetPane}
+                    </div>
+                  </TabsContent>
+                </div>
               </Tabs>
             ) : (
               <Group
