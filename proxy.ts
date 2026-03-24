@@ -1,10 +1,35 @@
 import { auth } from "@/lib/auth/server";
-import { normalizeNeonAuthSetCookieHeadersInPlace } from "@/lib/auth/cookie-compat";
+import {
+  normalizeNeonAuthSetCookieHeadersInPlace,
+  type NeonAuthCookieCompatibilityMode,
+} from "@/lib/auth/cookie-compat";
 import type { NextRequest } from "next/server";
 
 const authMiddleware = auth.middleware({
   loginUrl: "/auth/sign-in",
 });
+const COOKIE_COMPAT_PARAM = "cookieCompat";
+const COOKIE_COMPAT_PRESERVE_VALUE = "preserve";
+
+function resolveCookieCompatibilityMode(
+  request: NextRequest,
+): NeonAuthCookieCompatibilityMode {
+  if (
+    request.nextUrl.searchParams.get(COOKIE_COMPAT_PARAM) ===
+    COOKIE_COMPAT_PRESERVE_VALUE
+  ) {
+    return "preserve";
+  }
+
+  if (
+    request.headers.get("x-rnc-cookie-compat") ===
+    COOKIE_COMPAT_PRESERVE_VALUE
+  ) {
+    return "preserve";
+  }
+
+  return "normalize";
+}
 
 export default async function proxy(request: NextRequest) {
   const response = await authMiddleware(request);
@@ -22,7 +47,10 @@ export default async function proxy(request: NextRequest) {
     }
   }
 
-  normalizeNeonAuthSetCookieHeadersInPlace(response.headers);
+  normalizeNeonAuthSetCookieHeadersInPlace(
+    response.headers,
+    resolveCookieCompatibilityMode(request),
+  );
   return response;
 }
 

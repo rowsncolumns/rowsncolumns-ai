@@ -1464,9 +1464,14 @@ const handleSpreadsheetQueryRange = async (
                 if (formula) {
                   // Formula cell: [formatted, effective, formula]
                   cells[address] = [fv ?? ev ?? null, ev ?? null, formula];
-                } else if (fv !== undefined && fv !== ev && fv !== String(ev)) {
+                } else if (
+                  !isNil(fv) &&
+                  !isNil(ev) &&
+                  fv !== ev &&
+                  fv !== String(ev)
+                ) {
                   // Formatted differs from effective: [formatted, effective]
-                  cells[address] = [fv, ev ?? null];
+                  cells[address] = [fv, ev];
                 } else {
                   // Plain value
                   cells[address] = ev ?? fv ?? null;
@@ -1907,9 +1912,14 @@ const handleSpreadsheetReadDocument = async (
               if (formula) {
                 // Formula cell: [formatted, effective, formula]
                 cells[address] = [fv ?? ev ?? null, ev ?? null, formula];
-              } else if (fv !== undefined && fv !== ev && fv !== String(ev)) {
+              } else if (
+                !isNil(fv) &&
+                !isNil(ev) &&
+                fv !== ev &&
+                fv !== String(ev)
+              ) {
                 // Formatted differs from effective: [formatted, effective]
-                cells[address] = [fv, ev ?? null];
+                cells[address] = [fv, ev];
               } else {
                 // Plain value
                 cells[address] = ev ?? fv ?? null;

@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth/client";
+import { withCookieCompatCallbackURL } from "@/lib/auth/cookie-compat-client";
 
 type AuthModalTriggerProps = {
   triggerText: string;
@@ -76,7 +77,9 @@ export function AuthModalTrigger({
   }, [open]);
 
   const callbackURL = useMemo(() => {
-    return `/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`;
+    return withCookieCompatCallbackURL(
+      `/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`,
+    );
   }, [redirectTo]);
 
   const handleSocialSignIn = useCallback(

@@ -1,3 +1,7 @@
+const NEON_AUTH_COOKIE_PREFIX = "__Secure-neon-auth.";
+
+export type NeonAuthCookieCompatibilityMode = "normalize" | "preserve";
+
 function splitCombinedSetCookieHeader(setCookieHeader: string): string[] {
   const parts: string[] = [];
   let segmentStart = 0;
@@ -8,8 +12,9 @@ function splitCombinedSetCookieHeader(setCookieHeader: string): string[] {
     }
 
     const potentialCookie = setCookieHeader.slice(index + 1);
-    const nextCookieStartsHere =
-      /^\s*[-!#$%&'*+.^_`|~0-9A-Za-z]+=/.test(potentialCookie);
+    const nextCookieStartsHere = /^\s*[-!#$%&'*+.^_`|~0-9A-Za-z]+=/.test(
+      potentialCookie,
+    );
 
     if (!nextCookieStartsHere) {
       continue;
@@ -45,21 +50,60 @@ export function readSetCookieHeaders(headers: Headers): string[] {
   return splitCombinedSetCookieHeader(setCookie);
 }
 
-export function copySetCookieHeaders(
-  source: Headers,
-  target: Headers,
-): void {
+export function copySetCookieHeaders(source: Headers, target: Headers): void {
   const setCookies = readSetCookieHeaders(source);
   for (const setCookie of setCookies) {
     target.append("set-cookie", setCookie);
   }
 }
 
-function normalizeNeonAuthSetCookie(setCookieHeader: string): string {
-  // Preserve upstream cookie attributes as-is.
-  // Excel taskpane runs in a third-party iframe context and requires
-  // `SameSite=None; Secure` (and optionally `Partitioned`) cookies.
-  return setCookieHeader;
+function isNeonAuthSetCookie(setCookieHeader: string): boolean {
+  const [cookieName] = setCookieHeader.split("=", 1);
+  return cookieName.trimStart().startsWith(NEON_AUTH_COOKIE_PREFIX);
+}
+
+function normalizeNeonAuthSetCookieWithMode(
+  setCookieHeader: string,
+  mode: NeonAuthCookieCompatibilityMode,
+): string {
+  if (mode === "preserve") {
+    return setCookieHeader;
+  }
+
+  if (!isNeonAuthSetCookie(setCookieHeader)) {
+    return setCookieHeader;
+  }
+
+  const parts = setCookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return setCookieHeader;
+  }
+
+  const normalizedParts: string[] = [];
+  for (const part of parts) {
+    if (/^partitioned$/i.test(part)) {
+      continue;
+    }
+
+    if (/^samesite=/i.test(part)) {
+      const sameSiteValue = part
+        .slice(part.indexOf("=") + 1)
+        .trim()
+        .toLowerCase();
+      if (sameSiteValue === "none") {
+        normalizedParts.push("SameSite=Lax");
+        continue;
+      }
+    }
+
+    normalizedParts.push(part);
+  }
+
+  return normalizedParts.join("; ");
 }
 
 function didSetCookieHeadersChange(
@@ -81,13 +125,16 @@ function didSetCookieHeadersChange(
 
 export function normalizeNeonAuthSetCookieHeadersInPlace(
   headers: Headers,
+  mode: NeonAuthCookieCompatibilityMode = "normalize",
 ): boolean {
   const originalSetCookies = readSetCookieHeaders(headers);
   if (originalSetCookies.length === 0) {
     return false;
   }
 
-  const normalizedSetCookies = originalSetCookies.map(normalizeNeonAuthSetCookie);
+  const normalizedSetCookies = originalSetCookies.map((setCookie) =>
+    normalizeNeonAuthSetCookieWithMode(setCookie, mode),
+  );
   if (!didSetCookieHeadersChange(originalSetCookies, normalizedSetCookies)) {
     return false;
   }
@@ -102,9 +149,10 @@ export function normalizeNeonAuthSetCookieHeadersInPlace(
 
 export function cloneResponseWithNormalizedNeonAuthCookies(
   response: Response,
+  mode: NeonAuthCookieCompatibilityMode = "normalize",
 ): Response {
   const headers = new Headers(response.headers);
-  const changed = normalizeNeonAuthSetCookieHeadersInPlace(headers);
+  const changed = normalizeNeonAuthSetCookieHeadersInPlace(headers, mode);
   if (!changed) {
     return response;
   }

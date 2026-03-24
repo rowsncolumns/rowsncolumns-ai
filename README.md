@@ -141,15 +141,19 @@ yarn db:migrate:document-shares
 
 Excel taskpane runs inside a third-party iframe, so auth cookies must preserve upstream `SameSite=None; Secure` attributes (and optionally `Partitioned`) for OAuth/session continuity.
 
-This app keeps Neon auth `Set-Cookie` headers as-is at app boundaries (not in `node_modules`):
+This app applies compatibility at app boundaries (not in `node_modules`):
 
 - Utility: `lib/auth/cookie-compat.ts`
 - API boundary: `app/api/auth/[...path]/route.ts`
 - Middleware boundary: `proxy.ts`
 
-Compatibility rule:
+Compatibility rules:
 
-- Preserve all upstream attributes on `Set-Cookie` headers unchanged
+- Default (web Safari): normalize Neon auth cookies for Safari compatibility
+  - remove `Partitioned`
+  - rewrite `SameSite=None` to `SameSite=Lax`
+- Taskpane iframe flows: preserve upstream `Set-Cookie` attributes unchanged
+  - enabled via `cookieCompat=preserve` on callback URLs
 
 Notes:
 
@@ -174,7 +178,8 @@ curl -i -X POST 'https://rowsncolumns.ai/api/auth/sign-in/social' \
 
 Expected `Set-Cookie` for Neon auth cookies:
 
-- Preserves upstream attributes exactly (for example `SameSite=None; Secure`, with optional `Partitioned`)
+- Web Safari flow: contains `SameSite=Lax`, does not contain `Partitioned`
+- Taskpane flow (`cookieCompat=preserve`): preserves upstream attributes exactly
 
 ## Getting Started
 
