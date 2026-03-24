@@ -69,6 +69,7 @@ const handleMcpRequest = async (request: Request) => {
 
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
+    enableJsonResponse: true,
   });
   const server = createSpreadsheetMcpServer();
 
