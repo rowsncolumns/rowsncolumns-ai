@@ -60,6 +60,7 @@ const normalizeToolResult = (value: unknown) => {
 };
 
 const SPREADSHEET_APP_RESOURCE_URI = "ui://rowsncolumns/spreadsheet-view.html";
+const MCP_PUBLIC_DOC_BASE_PATH = "/mcp/doc";
 
 const createShareDBDocument = async (docId: string) => {
   const { doc, close } = await getShareDBDocument(docId);
@@ -216,14 +217,58 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
   <script>
     (() => {
       const appBaseUrl = ${JSON.stringify(appBaseUrl)};
+      const publicDocBasePath = ${JSON.stringify(MCP_PUBLIC_DOC_BASE_PATH)};
       const state = { docId: null, sheetId: null, url: null };
+      const protocolVersion = "2026-01-26";
+      const appInfo = {
+        name: "rowsncolumns-spreadsheet-app",
+        version: "1.0.0",
+      };
+      const appCapabilities = {
+        tools: {},
+        availableDisplayModes: ["inline", "fullscreen"],
+      };
       const frame = document.getElementById("sheetFrame");
       const meta = document.getElementById("meta");
       const openLink = document.getElementById("openLink");
       const placeholder = document.getElementById("placeholder");
+      const pendingRequests = new Map();
+      let requestId = 0;
+      let hostInitialized = false;
 
       const readString = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
       const readInt = (value) => Number.isFinite(value) ? Math.trunc(value) : null;
+
+      const sendNotification = (method, params = {}) => {
+        window.parent.postMessage(
+          { jsonrpc: "2.0", method, params },
+          "*",
+        );
+      };
+
+      const sendRequest = (method, params = {}) => {
+        const id = ++requestId;
+        return new Promise((resolve, reject) => {
+          pendingRequests.set(id, { resolve, reject });
+          window.parent.postMessage(
+            { jsonrpc: "2.0", id, method, params },
+            "*",
+          );
+          window.setTimeout(() => {
+            if (!pendingRequests.has(id)) return;
+            pendingRequests.delete(id);
+            reject(new Error(method + " timed out"));
+          }, 4000);
+        });
+      };
+
+      const notifySize = () => {
+        const root = document.documentElement;
+        const body = document.body;
+        const width = Math.ceil(Math.max(root.scrollWidth, body.scrollWidth, root.clientWidth, 320));
+        const height = Math.ceil(Math.max(root.scrollHeight, body.scrollHeight, 560));
+        sendNotification("ui/notifications/size-changed", { width, height });
+      };
 
       const parseToolPayload = (value) => {
         if (!value || typeof value !== "object") return null;
@@ -236,7 +281,7 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
       const buildUrl = (docId, sheetId, url) => {
         if (url) return url;
         if (!docId) return null;
-        const next = new URL("/doc/" + encodeURIComponent(docId), appBaseUrl);
+        const next = new URL(publicDocBasePath + "/" + encodeURIComponent(docId), appBaseUrl);
         if (sheetId !== null && sheetId !== undefined) {
           next.searchParams.set("sheetId", String(sheetId));
         }
@@ -250,6 +295,7 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
           meta.textContent = "Waiting for spreadsheet data...";
           placeholder.style.display = "grid";
           frame.removeAttribute("src");
+          notifySize();
           return;
         }
         meta.textContent = state.docId
@@ -259,6 +305,7 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         if (frame.src !== finalUrl) {
           frame.src = finalUrl;
         }
+        notifySize();
       };
 
       const applyPayload = (payload) => {
@@ -269,9 +316,43 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         render();
       };
 
+      const initializeHost = async () => {
+        if (hostInitialized) return;
+        try {
+          await sendRequest("ui/initialize", {
+            appInfo,
+            appCapabilities,
+            protocolVersion,
+          });
+          hostInitialized = true;
+          sendNotification("ui/notifications/initialized", {});
+          notifySize();
+        } catch (error) {
+          console.error("Failed to initialize MCP app host", error);
+          // Continue rendering anyway so non-MCP hosts still show content.
+          notifySize();
+        }
+      };
+
       window.addEventListener("message", (event) => {
         const message = event.data;
-        if (!message || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
+        if (!message || message.jsonrpc !== "2.0") {
+          return;
+        }
+
+        if (message.id !== undefined && pendingRequests.has(message.id)) {
+          const pending = pendingRequests.get(message.id);
+          pendingRequests.delete(message.id);
+          if (!pending) return;
+          if (Object.prototype.hasOwnProperty.call(message, "error")) {
+            pending.reject(message.error);
+          } else {
+            pending.resolve(message.result);
+          }
+          return;
+        }
+
+        if (typeof message.method !== "string") {
           return;
         }
 
@@ -285,7 +366,20 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         }
       });
 
+      frame.addEventListener("load", () => {
+        notifySize();
+      });
+
+      if (typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(() => notifySize());
+        ro.observe(document.documentElement);
+        ro.observe(document.body);
+      } else {
+        window.addEventListener("resize", () => notifySize());
+      }
+
       render();
+      initializeHost();
     })();
   </script>
 </body>
@@ -296,7 +390,10 @@ const createSpreadsheetDocumentHandler = async (args: unknown) => {
 
   const docId = parsed.docId ?? uuidString();
   const result = await createShareDBDocument(docId);
-  const url = new URL(`/doc/${encodeURIComponent(docId)}`, resolveAppBaseUrl());
+  const url = new URL(
+    `${MCP_PUBLIC_DOC_BASE_PATH}/${encodeURIComponent(docId)}`,
+    resolveAppBaseUrl(),
+  );
 
   return {
     content: [
@@ -436,7 +533,10 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         })
         .parse(args);
 
-      const url = new URL(`/doc/${encodeURIComponent(parsed.docId)}`, appBaseUrl);
+      const url = new URL(
+        `${MCP_PUBLIC_DOC_BASE_PATH}/${encodeURIComponent(parsed.docId)}`,
+        appBaseUrl,
+      );
       if (parsed.sheetId !== undefined) {
         url.searchParams.set("sheetId", String(parsed.sheetId));
       }
