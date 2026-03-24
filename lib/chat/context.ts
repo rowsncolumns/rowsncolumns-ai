@@ -36,6 +36,21 @@ export type SpreadsheetAssistantContext = {
   };
 };
 
+type SpreadsheetContextPayloadInput = {
+  documentId: string;
+  sheets?: Array<{ title: string; sheetId: number }>;
+  activeSheetId?: number | null;
+  activeCell?: {
+    rowIndex: number;
+    columnIndex: number;
+    a1Address?: string | null;
+  } | null;
+  cellXfs?: Record<string, unknown> | null;
+  tables?: TableSummary[];
+  charts?: ChartSummary[];
+  theme?: SpreadsheetAssistantContext["theme"];
+};
+
 const instructionLine = (description: string, value: unknown) =>
   `${description}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
 
@@ -140,6 +155,40 @@ List of charts:
   }
 
   return lines.join("\n\n");
+};
+
+export const buildSpreadsheetContextPayload = (
+  input: SpreadsheetContextPayloadInput,
+) => {
+  const assistantContext: SpreadsheetAssistantContext = {
+    documentId: input.documentId,
+    ...(input.sheets && input.sheets.length > 0 ? { sheets: input.sheets } : {}),
+    ...(typeof input.activeSheetId === "number"
+      ? { activeSheetId: input.activeSheetId }
+      : {}),
+    ...(input.activeCell
+      ? {
+          activeCell: {
+            rowIndex: input.activeCell.rowIndex,
+            columnIndex: input.activeCell.columnIndex,
+            a1Address: input.activeCell.a1Address ?? null,
+          },
+        }
+      : {}),
+    ...(input.cellXfs ? { cellXfs: input.cellXfs } : {}),
+    ...(input.tables && input.tables.length > 0 ? { tables: input.tables } : {}),
+    ...(input.charts && input.charts.length > 0 ? { charts: input.charts } : {}),
+    ...(input.theme ? { theme: input.theme } : {}),
+  };
+
+  const contextInstructions =
+    buildSpreadsheetContextInstructions(assistantContext) ??
+    `Context for ${input.documentId}`;
+
+  return {
+    assistantContext,
+    contextInstructions,
+  };
 };
 
 const asRecord = (value: unknown) =>

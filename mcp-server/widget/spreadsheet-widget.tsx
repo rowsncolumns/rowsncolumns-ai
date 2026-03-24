@@ -836,7 +836,9 @@ function SpreadsheetDocumentView({
           rowIndex: activeCell.rowIndex,
           columnIndex: activeCell.columnIndex,
         },
-        selections: serializeSelections(selections as Array<{ range?: unknown }>),
+        selections: serializeSelections(
+          selections as Array<{ range?: unknown }>,
+        ),
         locale,
         currency,
       };
@@ -846,7 +848,15 @@ function SpreadsheetDocumentView({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [activeCell, activeSheetId, currency, docId, locale, onSyncUiState, selections]);
+  }, [
+    activeCell,
+    activeSheetId,
+    currency,
+    docId,
+    locale,
+    onSyncUiState,
+    selections,
+  ]);
 
   return (
     <div

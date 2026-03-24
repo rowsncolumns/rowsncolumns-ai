@@ -18,6 +18,8 @@ import {
   type ShareDBSpreadsheetDoc,
 } from "../lib/chat/utils";
 import { resolveAppBaseUrl, resolveAppOrigin } from "./app-url";
+import { selectionToAddress } from "@rowsncolumns/utils";
+import { buildSpreadsheetContextPayload } from "../lib/chat/context";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" &&
@@ -174,6 +176,251 @@ const safeOrigin = (raw: string | null) => {
   } catch {
     return null;
   }
+};
+
+const columnIndexToName = (columnIndex: number) => {
+  let n = columnIndex;
+  let out = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out || "A";
+};
+
+const cellToA1 = (cell: { rowIndex: number; columnIndex: number } | null) => {
+  if (!cell) return null;
+  if (!Number.isFinite(cell.rowIndex) || !Number.isFinite(cell.columnIndex)) {
+    return null;
+  }
+  if (cell.rowIndex < 1 || cell.columnIndex < 1) {
+    return null;
+  }
+  return `${columnIndexToName(cell.columnIndex)}${cell.rowIndex}`;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  isPlainRecord(value) ? value : null;
+
+const asNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const asString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const asStringRecord = (value: unknown): Record<string, string> | null => {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  const next: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (typeof entry === "string") {
+      next[key] = entry;
+    }
+  }
+  return Object.keys(next).length > 0 ? next : null;
+};
+
+type GridRange = {
+  startRowIndex: number;
+  endRowIndex: number;
+  startColumnIndex: number;
+  endColumnIndex: number;
+};
+
+const readRange = (value: unknown): GridRange | null => {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const startRowIndex = asNumber(record.startRowIndex);
+  const endRowIndex = asNumber(record.endRowIndex);
+  const startColumnIndex = asNumber(record.startColumnIndex);
+  const endColumnIndex = asNumber(record.endColumnIndex);
+
+  if (
+    startRowIndex === null ||
+    endRowIndex === null ||
+    startColumnIndex === null ||
+    endColumnIndex === null
+  ) {
+    return null;
+  }
+
+  return {
+    startRowIndex,
+    endRowIndex,
+    startColumnIndex,
+    endColumnIndex,
+  };
+};
+
+const toA1Range = (
+  range: GridRange | null,
+  sheetName?: string,
+): string | null => {
+  if (!range) {
+    return null;
+  }
+
+  return (
+    selectionToAddress(
+      {
+        range,
+      },
+      sheetName,
+    ) ?? null
+  );
+};
+
+const MAX_CONTEXT_ITEMS = 200;
+
+const limitSummaries = <T>(items: T[]) =>
+  items.length > MAX_CONTEXT_ITEMS ? items.slice(0, MAX_CONTEXT_ITEMS) : items;
+
+const buildSheetNameById = (
+  sheets: Array<{ sheetId: number; title: string }>,
+) => {
+  const lookup = new Map<number, string>();
+  for (const sheet of sheets) {
+    if (typeof sheet.sheetId === "number" && typeof sheet.title === "string") {
+      lookup.set(sheet.sheetId, sheet.title);
+    }
+  }
+  return lookup;
+};
+
+const buildTableSummaries = ({
+  tables,
+  sheetNameById,
+}: {
+  tables: unknown[];
+  sheetNameById: Map<number, string>;
+}) =>
+  limitSummaries(
+    tables.flatMap((entry) => {
+      const table = asRecord(entry);
+      if (!table) {
+        return [];
+      }
+
+      const tableId = table.id ?? table.tableId;
+      const sheetId = asNumber(table.sheetId);
+      if (
+        (typeof tableId !== "string" && typeof tableId !== "number") ||
+        sheetId === null
+      ) {
+        return [];
+      }
+
+      const title = asString(table.title) ?? `Table ${tableId}`;
+      const range = readRange(table.range);
+      const ref =
+        toA1Range(range, sheetNameById.get(sheetId)) ??
+        asString(table.ref) ??
+        "";
+      const columnsRaw = Array.isArray(table.columns) ? table.columns : [];
+      const columns = columnsRaw.flatMap((columnEntry) => {
+        const column = asRecord(columnEntry);
+        const name = column ? asString(column.name) : null;
+        return name ? [name] : [];
+      });
+
+      return [
+        {
+          tableId,
+          title,
+          sheetId,
+          ref,
+          columns,
+        },
+      ];
+    }),
+  );
+
+const buildChartSummaries = ({
+  charts,
+  sheetNameById,
+}: {
+  charts: unknown[];
+  sheetNameById: Map<number, string>;
+}) =>
+  limitSummaries(
+    charts.flatMap((entry) => {
+      const chart = asRecord(entry);
+      if (!chart) {
+        return [];
+      }
+
+      const chartId = chart.chartId ?? chart.id;
+      if (typeof chartId !== "string" && typeof chartId !== "number") {
+        return [];
+      }
+
+      const spec = asRecord(chart.spec);
+      const position = asRecord(chart.position);
+      const sheetId = asNumber(position?.sheetId ?? chart.sheetId) ?? undefined;
+      const title = asString(spec?.title ?? chart.title);
+      const subtitle = asString(spec?.subtitle ?? chart.subtitle);
+      const chartType =
+        asString(spec?.chartType ?? chart.chartType) ?? undefined;
+
+      const directDataRange = readRange(spec?.dataRange);
+      const domains = Array.isArray(spec?.domains) ? spec.domains : [];
+      const firstDomain = asRecord(domains[0]);
+      const sources = Array.isArray(firstDomain?.sources)
+        ? firstDomain.sources
+        : [];
+      const firstSource = asRecord(sources[0]);
+      const sourceRange = readRange(firstSource);
+      const sourceSheetId = asNumber(firstSource?.sheetId) ?? sheetId;
+      const dataRange =
+        toA1Range(
+          directDataRange ?? sourceRange,
+          sourceSheetId ? sheetNameById.get(sourceSheetId) : undefined,
+        ) ??
+        asString(spec?.dataRange) ??
+        null;
+
+      return [
+        {
+          chartId,
+          ...(sheetId ? { sheetId } : {}),
+          ...(title ? { title } : {}),
+          ...(subtitle ? { subtitle } : {}),
+          ...(chartType ? { chartType } : {}),
+          ...(dataRange ? { dataRange } : {}),
+        },
+      ];
+    }),
+  );
+
+const buildThemeSummary = (value: unknown) => {
+  const theme = asRecord(value);
+  if (!theme) {
+    return undefined;
+  }
+
+  const summary = {
+    ...(asString(theme.name) ? { name: asString(theme.name)! } : {}),
+    ...(asString(theme.primaryFontFamily)
+      ? { primaryFontFamily: asString(theme.primaryFontFamily)! }
+      : {}),
+    ...(asStringRecord(theme.themeColorKeysByIndex)
+      ? { themeColorKeysByIndex: asStringRecord(theme.themeColorKeysByIndex)! }
+      : {}),
+    ...(asStringRecord(theme.themeColorsByIndex)
+      ? { themeColorsByIndex: asStringRecord(theme.themeColorsByIndex)! }
+      : {}),
+    ...(asStringRecord(theme.darkThemeColors)
+      ? { darkThemeColors: asStringRecord(theme.darkThemeColors)! }
+      : {}),
+  };
+
+  return Object.keys(summary).length > 0 ? summary : undefined;
 };
 
 const readWidgetBundle = async () => {
@@ -363,7 +610,29 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         };
       }
 
-      const sheets = Array.isArray(data.sheets) ? data.sheets : [];
+      const sheetsRaw = Array.isArray(data.sheets) ? data.sheets : [];
+      const sheets = sheetsRaw.flatMap((entry) => {
+        const sheet = asRecord(entry);
+        const sheetId = asNumber(sheet?.sheetId);
+        const title = asString(sheet?.title);
+        if (sheetId === null || !title) {
+          return [];
+        }
+        return [{ sheetId, title }];
+      });
+      const sheetNameById = buildSheetNameById(sheets);
+      const tables = Array.isArray(data.tables)
+        ? buildTableSummaries({
+            tables: data.tables,
+            sheetNameById,
+          })
+        : [];
+      const charts = Array.isArray(data.charts)
+        ? buildChartSummaries({
+            charts: data.charts,
+            sheetNameById,
+          })
+        : [];
       const activeSheetId =
         uiState?.activeSheetId ??
         (sheets[0] && typeof sheets[0].sheetId === "number"
@@ -373,6 +642,29 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         sheets.find((sheet) => sheet.sheetId === activeSheetId)?.title ?? null;
       const localeForContext = uiState?.locale ?? resolveWidgetLocale();
       const currencyForContext = uiState?.currency ?? resolveWidgetCurrency();
+      const activeCell = uiState?.activeCell ?? null;
+      const activeCellA1 = cellToA1(activeCell);
+      const themeSummary = buildThemeSummary(
+        (data as Record<string, unknown>).theme,
+      );
+      const cellXfsRecord = asRecord(data.cellXfs) ?? null;
+      const { assistantContext, contextInstructions } =
+        buildSpreadsheetContextPayload({
+          documentId: parsed.docId,
+          sheets,
+          activeSheetId,
+          activeCell: activeCell
+            ? {
+                rowIndex: activeCell.rowIndex,
+                columnIndex: activeCell.columnIndex,
+                a1Address: activeCellA1,
+              }
+            : null,
+          cellXfs: cellXfsRecord,
+          tables,
+          charts,
+          theme: themeSummary,
+        });
       const context = {
         docId: parsed.docId,
         exists: true,
@@ -382,8 +674,18 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         sheets,
         activeSheetId,
         activeSheetTitle,
-        activeCell: uiState?.activeCell ?? null,
+        activeCell: activeCell
+          ? {
+              rowIndex: activeCell.rowIndex,
+              columnIndex: activeCell.columnIndex,
+              a1Address: activeCellA1,
+            }
+          : null,
         selections: uiState?.selections ?? [],
+        cellXfs: cellXfsRecord ?? undefined,
+        tables,
+        charts,
+        theme: themeSummary,
         tablesCount: Array.isArray(data.tables) ? data.tables.length : 0,
         chartsCount: Array.isArray(data.charts) ? data.charts.length : 0,
         namedRangesCount: Array.isArray(data.namedRanges)
@@ -399,17 +701,15 @@ export const registerSpreadsheetTools = (server: McpServer) => {
           ? data.conditionalFormats.length
           : 0,
         updatedAt: uiState?.updatedAt ?? null,
+        assistantContext,
+        contextInstructions,
       };
 
       return {
         content: [
           {
             type: "text",
-            text: `Context for ${parsed.docId}: ${context.sheetCount} sheet(s), active sheet ${context.activeSheetTitle ?? context.activeSheetId ?? "n/a"}, active cell ${
-              context.activeCell
-                ? `R${context.activeCell.rowIndex + 1}C${context.activeCell.columnIndex + 1}`
-                : "n/a"
-            }.`,
+            text: contextInstructions,
           },
         ],
         structuredContent: context,
@@ -489,9 +789,7 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         ...(parsed.activeCell ? { activeCell: parsed.activeCell } : {}),
         ...(parsed.selections ? { selections: parsed.selections } : {}),
         ...(parsed.locale ? { locale: parsed.locale } : {}),
-        ...(parsed.currency
-          ? { currency: parsed.currency.toUpperCase() }
-          : {}),
+        ...(parsed.currency ? { currency: parsed.currency.toUpperCase() } : {}),
         updatedAt: new Date().toISOString(),
       });
 
@@ -648,5 +946,4 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       };
     },
   );
-
 };
