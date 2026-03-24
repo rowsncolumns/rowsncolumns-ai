@@ -6,6 +6,17 @@ type EventEmitterInstance = {
   __listeners?: ListenerMap;
 };
 
+type EventEmitterLike = EventEmitterInstance & {
+  on(event: string, handler: Handler): EventEmitterLike;
+  addListener(event: string, handler: Handler): EventEmitterLike;
+  once(event: string, handler: Handler): EventEmitterLike;
+  off(event: string, handler: Handler): EventEmitterLike;
+  removeListener(event: string, handler: Handler): EventEmitterLike;
+  emit(event: string, ...args: unknown[]): boolean;
+  removeAllListeners(event?: string): EventEmitterLike;
+  setMaxListeners(maxListeners: number): EventEmitterLike;
+};
+
 function getListeners(instance: EventEmitterInstance): ListenerMap {
   if (!instance.__listeners) {
     instance.__listeners = new Map<string, Set<Handler>>();
@@ -14,28 +25,28 @@ function getListeners(instance: EventEmitterInstance): ListenerMap {
 }
 
 type EventEmitterCtor = {
-  new (): EventEmitterInstance;
-  (this: EventEmitterInstance): void;
+  new (): EventEmitterLike;
+  (this: EventEmitterLike): void;
   prototype: {
-    on(event: string, handler: Handler): EventEmitterInstance;
-    addListener(event: string, handler: Handler): EventEmitterInstance;
-    once(event: string, handler: Handler): EventEmitterInstance;
-    off(event: string, handler: Handler): EventEmitterInstance;
-    removeListener(event: string, handler: Handler): EventEmitterInstance;
+    on(event: string, handler: Handler): EventEmitterLike;
+    addListener(event: string, handler: Handler): EventEmitterLike;
+    once(event: string, handler: Handler): EventEmitterLike;
+    off(event: string, handler: Handler): EventEmitterLike;
+    removeListener(event: string, handler: Handler): EventEmitterLike;
     emit(event: string, ...args: unknown[]): boolean;
-    removeAllListeners(event?: string): EventEmitterInstance;
-    setMaxListeners(maxListeners: number): EventEmitterInstance;
+    removeAllListeners(event?: string): EventEmitterLike;
+    setMaxListeners(maxListeners: number): EventEmitterLike;
   };
 };
 
 export const EventEmitter = function EventEmitter(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
 ) {
   getListeners(this);
 } as EventEmitterCtor;
 
 EventEmitter.prototype.on = function on(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   event: string,
   handler: Handler,
 ) {
@@ -47,7 +58,7 @@ EventEmitter.prototype.on = function on(
 };
 
 EventEmitter.prototype.addListener = function addListener(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   event: string,
   handler: Handler,
 ) {
@@ -55,7 +66,7 @@ EventEmitter.prototype.addListener = function addListener(
 };
 
 EventEmitter.prototype.once = function once(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   event: string,
   handler: Handler,
 ) {
@@ -67,7 +78,7 @@ EventEmitter.prototype.once = function once(
 };
 
 EventEmitter.prototype.off = function off(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   event: string,
   handler: Handler,
 ) {
@@ -84,7 +95,7 @@ EventEmitter.prototype.off = function off(
 };
 
 EventEmitter.prototype.removeListener = function removeListener(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   event: string,
   handler: Handler,
 ) {
@@ -92,7 +103,7 @@ EventEmitter.prototype.removeListener = function removeListener(
 };
 
 EventEmitter.prototype.emit = function emit(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   event: string,
   ...args: unknown[]
 ) {
@@ -108,7 +119,7 @@ EventEmitter.prototype.emit = function emit(
 };
 
 EventEmitter.prototype.removeAllListeners = function removeAllListeners(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   event?: string,
 ) {
   const listeners = getListeners(this);
@@ -121,7 +132,7 @@ EventEmitter.prototype.removeAllListeners = function removeAllListeners(
 };
 
 EventEmitter.prototype.setMaxListeners = function setMaxListeners(
-  this: EventEmitterInstance,
+  this: EventEmitterLike,
   _maxListeners: number,
 ) {
   return this;
