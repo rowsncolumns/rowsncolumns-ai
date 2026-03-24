@@ -623,3 +623,291 @@ export const SpreadsheetDeleteColumnsSchema = z.object({
 export type SpreadsheetDeleteColumnsInput = z.infer<
   typeof SpreadsheetDeleteColumnsSchema
 >;
+
+// Table theme - simplified for LLM
+const TableThemeSchema = z
+  .enum(["none", "light", "medium", "dark"])
+  .optional()
+  .describe(
+    "Table style theme. 'light' = subtle styling, 'medium' = balanced (default), 'dark' = bold styling.",
+  );
+
+// Column definition for tables
+const TableColumnSchema = z.object({
+  name: z.string().describe("Column header name"),
+  formula: z
+    .string()
+    .optional()
+    .describe(
+      "Optional formula for calculated columns (e.g., '=[Price]*[Quantity]'). Uses structured references.",
+    ),
+  filterButton: z
+    .boolean()
+    .optional()
+    .describe("Whether to show filter button on this column. Default: true."),
+});
+
+export type TableColumn = z.infer<typeof TableColumnSchema>;
+
+// Banding properties for alternating row/column colors
+const BandingPropertiesSchema = z.object({
+  headerColor: ColorSchema.optional().describe(
+    "Header band color as hex string (e.g., '#4472C4') or theme reference",
+  ),
+  footerColor: ColorSchema.optional().describe(
+    "Footer band color as hex string or theme reference",
+  ),
+  firstBandColor: ColorSchema.optional().describe(
+    "First (odd) alternating band color as hex string (e.g., '#D6DCE5') or theme reference",
+  ),
+  secondBandColor: ColorSchema.optional().describe(
+    "Second (even) alternating band color as hex string (e.g., '#FFFFFF') or theme reference",
+  ),
+  headerBorder: BordersSchema.describe("Header row border"),
+  footerBorder: BordersSchema.describe("Footer row border"),
+  firstBandBorder: BordersSchema.describe("First (odd) band border"),
+  secondBandBorder: BordersSchema.describe("Second (even) band border"),
+});
+
+const BandedRangeSchema = z
+  .object({
+    rowProperties: BandingPropertiesSchema.optional().describe(
+      "Banding colors for alternating rows",
+    ),
+    columnProperties: BandingPropertiesSchema.optional().describe(
+      "Banding colors for alternating columns",
+    ),
+  })
+  .describe("REQUIRED when showRowStripes or showColumnStripes is true.");
+
+// Spreadsheet CreateTable
+export const SpreadsheetCreateTableSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  range: z
+    .string()
+    .describe(
+      "The A1 notation range for the table (e.g., 'A1:D10'). First row becomes headers.",
+    ),
+  title: z
+    .string()
+    .min(1)
+    .describe(
+      "REQUIRED: Table name (must be unique per workbook). Used for structured references like TableName[Column].",
+    ),
+  columns: z
+    .array(TableColumnSchema)
+    .describe(
+      "Column definitions. Simple: [{ name: 'Price' }]. Calculated: [{ name: 'Total', formula: '=[Price]*[Qty]' }]",
+    ),
+  theme: TableThemeSchema,
+  headerRow: z
+    .boolean()
+    .optional()
+    .describe("Whether the table displays a header row. Default: true."),
+  totalRow: z
+    .boolean()
+    .optional()
+    .describe("Whether the table displays a totals row. Default: false."),
+  showRowStripes: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether to show alternating row colors. When true, you MUST also provide bandedRange.",
+    ),
+  showColumnStripes: z
+    .boolean()
+    .optional()
+    .describe("Whether to show alternating column colors."),
+  showFirstColumn: z
+    .boolean()
+    .optional()
+    .describe("Whether to highlight the first column."),
+  showLastColumn: z
+    .boolean()
+    .optional()
+    .describe("Whether to highlight the last column."),
+  filterButton: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether to show filter buttons on column headers. Default: true.",
+    ),
+  bandedRange: BandedRangeSchema.optional(),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetCreateTableInput = z.infer<
+  typeof SpreadsheetCreateTableSchema
+>;
+
+// Spreadsheet UpdateTable
+export const SpreadsheetUpdateTableSchema = z
+  .object({
+    docId: z.string().describe("The document ID of the spreadsheet"),
+    sheetId: z.number().int().describe("The sheet ID"),
+    tableId: z
+      .string()
+      .optional()
+      .describe("The table ID to update. Provide either tableId or tableName."),
+    tableName: z
+      .string()
+      .optional()
+      .describe(
+        "The table name/title to update. Provide either tableId or tableName.",
+      ),
+    title: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("New table name/title. Must be unique within the workbook."),
+    columns: z
+      .array(TableColumnSchema)
+      .optional()
+      .describe(
+        "Updated column definitions. Must match the current number of columns.",
+      ),
+    theme: TableThemeSchema,
+    headerRow: z.boolean().optional().describe("Whether to show header row."),
+    totalRow: z.boolean().optional().describe("Whether to show a totals row."),
+    showRowStripes: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether to show alternating row colors. When true, you MUST also provide bandedRange.",
+      ),
+    showColumnStripes: z
+      .boolean()
+      .optional()
+      .describe("Whether to show alternating column colors."),
+    showFirstColumn: z
+      .boolean()
+      .optional()
+      .describe("Whether to highlight the first column."),
+    showLastColumn: z
+      .boolean()
+      .optional()
+      .describe("Whether to highlight the last column."),
+    filterButton: z
+      .boolean()
+      .optional()
+      .describe("Whether to show filter buttons on column headers."),
+    bandedRange: BandedRangeSchema.nullable()
+      .optional()
+      .describe(
+        "Color definitions for banding. Set to null to remove existing banding.",
+      ),
+    ...ToolExplanationSchemaShape,
+  })
+  .refine((data) => data.tableId || data.tableName, {
+    message: "Either tableId or tableName must be provided",
+  });
+
+export type SpreadsheetUpdateTableInput = z.infer<
+  typeof SpreadsheetUpdateTableSchema
+>;
+
+// Chart type enum
+const ChartTypeSchema = z
+  .enum(["bar", "column", "line", "pie", "area", "scatter"])
+  .describe(
+    "Chart type: 'bar' (horizontal), 'column' (vertical), 'line', 'pie', 'area', 'scatter'",
+  );
+
+// Stacked type for bar/column/area charts
+const StackedTypeSchema = z
+  .enum(["stacked", "percentStacked", "unstacked"])
+  .optional()
+  .describe(
+    "Stacking mode for bar/column/area charts. 'stacked' = values stacked, 'percentStacked' = 100% stacked.",
+  );
+
+// Spreadsheet CreateChart
+export const SpreadsheetCreateChartSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  dataRange: z
+    .string()
+    .describe(
+      "The A1 notation range containing chart data (e.g., 'A1:D10'). First row/column typically contains labels.",
+    ),
+  chartType: ChartTypeSchema,
+  title: z.string().optional().describe("Chart title displayed at the top."),
+  subtitle: z.string().optional().describe("Chart subtitle below the title."),
+  anchorCell: z
+    .string()
+    .optional()
+    .describe(
+      "Cell where chart's top-left corner is placed (e.g., 'F1'). Defaults to right of data.",
+    ),
+  width: z
+    .number()
+    .int()
+    .optional()
+    .describe("Chart width in pixels. Default: 400."),
+  height: z
+    .number()
+    .int()
+    .optional()
+    .describe("Chart height in pixels. Default: 300."),
+  stackedType: StackedTypeSchema,
+  xAxisTitle: z
+    .string()
+    .optional()
+    .describe("Title for horizontal axis (categories)."),
+  yAxisTitle: z
+    .string()
+    .optional()
+    .describe("Title for vertical axis (values)."),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetCreateChartInput = z.infer<
+  typeof SpreadsheetCreateChartSchema
+>;
+
+// Spreadsheet UpdateChart
+export const SpreadsheetUpdateChartSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  chartId: z.string().describe("The chart ID to update (required)."),
+  title: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("New chart title. Set to null to clear."),
+  subtitle: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("New chart subtitle. Set to null to clear."),
+  dataRange: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("New data range in A1 notation (e.g., 'A1:D20')."),
+  chartType: ChartTypeSchema.optional().describe("Change chart type."),
+  stackedType: StackedTypeSchema,
+  xAxisTitle: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("New horizontal axis title. Set to null to clear."),
+  yAxisTitle: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("New vertical axis title. Set to null to clear."),
+  anchorCell: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Move chart to this cell (e.g., 'H1')."),
+  width: z.number().int().optional().describe("New chart width in pixels."),
+  height: z.number().int().optional().describe("New chart height in pixels."),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetUpdateChartInput = z.infer<
+  typeof SpreadsheetUpdateChartSchema
+>;

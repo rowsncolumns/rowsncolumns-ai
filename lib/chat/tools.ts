@@ -13,6 +13,7 @@ import {
   getExtendedValueNumber,
   getExtendedValueString,
   isNil,
+  uuidString,
 } from "@rowsncolumns/utils";
 
 import {
@@ -53,6 +54,14 @@ import {
   SpreadsheetReadDocumentSchema,
   type SpreadsheetSetRowColDimensionsInput,
   SpreadsheetSetRowColDimensionsSchema,
+  type SpreadsheetCreateTableInput,
+  SpreadsheetCreateTableSchema,
+  type SpreadsheetUpdateTableInput,
+  SpreadsheetUpdateTableSchema,
+  type SpreadsheetCreateChartInput,
+  SpreadsheetCreateChartSchema,
+  type SpreadsheetUpdateChartInput,
+  SpreadsheetUpdateChartSchema,
 } from "./models";
 import {
   cellsToValues,
@@ -63,7 +72,15 @@ import {
   persistSpreadsheetPatches,
   type ShareDBSpreadsheetDoc,
 } from "./utils";
-import { StyleReference } from "@rowsncolumns/spreadsheet";
+import {
+  type StyleReference,
+  type TableTheme,
+  type BandedDefinition,
+  type TableView,
+  type EmbeddedChart,
+  type ChartSpec,
+} from "@rowsncolumns/spreadsheet";
+import type { SelectionArea } from "@rowsncolumns/common-types";
 
 const failTool = (
   errorCode: string,
@@ -1510,7 +1527,6 @@ const handleSpreadsheetQueryRange = async (
                   ? cellXfs.get(String((ef as StyleReference)?.sid))
                   : ef;
 
-                console.log("ef", ef, cellXfs, style, cellData);
                 if (!cellData) {
                   styles[address] = null;
                   continue;
@@ -2503,7 +2519,7 @@ const handleSpreadsheetDeleteCells = async (
             };
 
             // Create selections array with the range
-            const selections = [{ range: selection.range }];
+            const selections: SelectionArea[] = [{ range: selection.range }];
 
             // Delete cells
             spreadsheet.deleteCells(sheetId, activeCell, selections);
@@ -3345,6 +3361,854 @@ Example 3 — Delete columns A through C:
 );
 
 /**
+ * Map simplified theme to actual TableTheme value
+ */
+const mapTableTheme = (
+  theme: "none" | "light" | "medium" | "dark" | undefined,
+): TableTheme | undefined => {
+  switch (theme) {
+    case "none":
+      return "None";
+    case "light":
+      return "TableStyleLight9";
+    case "medium":
+      return "TableStyleMedium2";
+    case "dark":
+      return "TableStyleDark1";
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * Handler for the spreadsheet_createTable tool
+ */
+const handleSpreadsheetCreateTable = async (
+  input: SpreadsheetCreateTableInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId,
+    range,
+    title,
+    columns,
+    theme,
+    bandedRange,
+    ...options
+  } = input;
+
+  // Create table ID
+  const tableId = uuidString();
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to create a table", {
+      field: "docId",
+    });
+  }
+
+  if (!title || title.trim().length === 0) {
+    return failTool("MISSING_TITLE", "title is required for creating a table", {
+      field: "title",
+    });
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_createTable] Starting:", {
+      docId,
+      sheetId,
+      range,
+      title,
+    });
+
+    try {
+      const selection = addressToSelection(range);
+      if (!selection?.range) {
+        return failTool("INVALID_RANGE", `Invalid range: ${range}`, { range });
+      }
+
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Build table spec
+        const tableSpec = {
+          id: tableId,
+          title,
+          sheetId,
+          columns: columns.map((col) => ({
+            name: col.name,
+            ...(col.formula ? { formula: col.formula } : {}),
+            ...(col.filterButton !== undefined
+              ? { filterButton: col.filterButton }
+              : {}),
+          })),
+          ...options,
+          ...(bandedRange ? { bandedRange } : {}),
+        };
+
+        // Map simplified theme to actual theme
+        const mappedTheme = mapTableTheme(theme);
+
+        // Create the table
+        const activeCell = {
+          rowIndex: selection.range.startRowIndex,
+          columnIndex: selection.range.startColumnIndex,
+        };
+        const selections: SelectionArea[] = [{ range: selection.range }];
+
+        spreadsheet.createTable(
+          sheetId,
+          activeCell,
+          selections,
+          tableSpec as Partial<TableView>,
+          mappedTheme as TableTheme | undefined,
+          bandedRange as BandedDefinition | undefined,
+        );
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_createTable] Completed:", {
+          docId,
+          title,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully created table "${title}" at ${range}`,
+          tableName: title,
+          tableId,
+          range,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_createTable] Error:", error);
+      return failTool(
+        "CREATE_TABLE_FAILED",
+        error instanceof Error ? error.message : "Failed to create table",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_createTable tool for LangChain
+ */
+export const spreadsheetCreateTableTool = tool(handleSpreadsheetCreateTable, {
+  name: "spreadsheet_createTable",
+  description: `Create a formatted table from a range of cells.
+
+OVERVIEW:
+This tool converts a cell range into a structured table with headers, optional styling, and filtering capabilities. Tables support structured references in formulas (e.g., TableName[Column]).
+
+WHEN TO USE THIS TOOL:
+- Converting raw data into a formatted table
+- Adding filter buttons to column headers
+- Applying alternating row colors (banding)
+- Creating calculated columns with formulas
+
+IMPORTANT:
+- The first row of the range becomes the header row
+- Table names must be unique within the workbook
+- When showRowStripes is true, you MUST also provide bandedRange
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- range: A1 notation range (e.g., 'A1:D10')
+- title: Table name (required, must be unique)
+- columns: Column definitions with name, optional formula, optional filterButton
+- theme: 'none', 'light', 'medium', or 'dark'
+- headerRow: Whether to show header row (default: true)
+- totalRow: Whether to show totals row (default: false)
+- showRowStripes: Enable alternating row colors (requires bandedRange)
+- bandedRange: Color definitions for row/column banding
+
+EXAMPLES:
+
+Example 1 — Simple table:
+  docId: "abc123"
+  sheetId: 1
+  range: "A1:C10"
+  title: "SalesData"
+  columns: [{ name: "Product" }, { name: "Price" }, { name: "Quantity" }]
+
+Example 2 — Table with calculated column:
+  docId: "abc123"
+  sheetId: 1
+  range: "A1:D10"
+  title: "Invoice"
+  columns: [
+    { name: "Item" },
+    { name: "Price" },
+    { name: "Qty" },
+    { name: "Total", formula: "=[Price]*[Qty]" }
+  ]
+  theme: "medium"`,
+  schema: SpreadsheetCreateTableSchema,
+});
+
+/**
+ * Handler for the spreadsheet_updateTable tool
+ */
+const handleSpreadsheetUpdateTable = async (
+  input: SpreadsheetUpdateTableInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId,
+    tableId,
+    tableName,
+    theme,
+    columns,
+    bandedRange,
+    ...updates
+  } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to update a table", {
+      field: "docId",
+    });
+  }
+
+  if (!tableId && !tableName) {
+    return failTool(
+      "MISSING_TABLE_IDENTIFIER",
+      "Either tableId or tableName is required to update a table",
+      {
+        fields: ["tableId", "tableName"],
+      },
+    );
+  }
+
+  const tableIdentifier = tableId || tableName;
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_updateTable] Starting:", {
+      docId,
+      sheetId,
+      tableId,
+      tableName,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Find the table by ID or name
+        const tables = spreadsheet.tables || [];
+        const table = tables.find(
+          (t) => t.id === tableId || t.title === tableName,
+        );
+
+        if (!table) {
+          return failTool(
+            "TABLE_NOT_FOUND",
+            `Table "${tableIdentifier}" not found`,
+            { tableId, tableName },
+          );
+        }
+
+        // Build update spec
+        const updateSpec: Record<string, unknown> = {
+          ...updates,
+        };
+
+        // Map simplified theme to actual theme
+        if (theme) {
+          updateSpec.theme = mapTableTheme(theme);
+        }
+
+        // Map columns if provided
+        if (columns) {
+          updateSpec.columns = columns.map((col) => ({
+            name: col.name,
+            ...(col.formula ? { formula: col.formula } : {}),
+            ...(col.filterButton !== undefined
+              ? { filterButton: col.filterButton }
+              : {}),
+          }));
+        }
+
+        // Handle bandedRange - include null to remove existing banding
+        if (bandedRange !== undefined) {
+          updateSpec.bandedRange = bandedRange;
+        }
+
+        spreadsheet.updateTable(sheetId, table.id, updateSpec);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_updateTable] Completed:", {
+          docId,
+          tableId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully updated table "${tableId}"`,
+          tableId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_updateTable] Error:", error);
+      return failTool(
+        "UPDATE_TABLE_FAILED",
+        error instanceof Error ? error.message : "Failed to update table",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_updateTable tool for LangChain
+ */
+export const spreadsheetUpdateTableTool = tool(handleSpreadsheetUpdateTable, {
+  name: "spreadsheet_updateTable",
+  description: `Update properties of an existing table.
+
+OVERVIEW:
+This tool modifies an existing table's properties such as name, theme, column definitions, and display options.
+
+WHEN TO USE THIS TOOL:
+- Renaming a table
+- Changing table theme/style
+- Adding or removing totals row
+- Modifying column headers or calculated columns
+- Toggling row/column stripes
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- tableId: The table ID to update (provide either tableId or tableName)
+- tableName: The table name to update (provide either tableId or tableName)
+- title: New table name (for renaming)
+- columns: Updated column definitions
+- theme: 'none', 'light', 'medium', or 'dark'
+- headerRow: Whether to show header row
+- totalRow: Whether to show totals row
+- showRowStripes: Enable alternating row colors
+- showColumnStripes: Enable alternating column colors
+- bandedRange: Color definitions for banding (set to null to remove)
+
+EXAMPLES:
+
+Example 1 — Change table theme by name:
+  docId: "abc123"
+  sheetId: 1
+  tableName: "SalesData"
+  theme: "dark"
+
+Example 2 — Add totals row:
+  docId: "abc123"
+  sheetId: 1
+  tableName: "Invoice"
+  totalRow: true
+
+Example 3 — Remove banding:
+  docId: "abc123"
+  sheetId: 1
+  tableName: "SalesData"
+  bandedRange: null
+  showRowStripes: false`,
+  schema: SpreadsheetUpdateTableSchema,
+});
+
+/**
+ * Map simplified stacked type to library stacked type
+ */
+const mapStackedType = (
+  stackedType: "stacked" | "percentStacked" | "unstacked" | undefined,
+): "STACKED" | "PERCENT_STACKED" | "UNSTACKED" | undefined => {
+  switch (stackedType) {
+    case "stacked":
+      return "STACKED";
+    case "percentStacked":
+      return "PERCENT_STACKED";
+    case "unstacked":
+      return "UNSTACKED";
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * Handler for the spreadsheet_createChart tool
+ */
+const handleSpreadsheetCreateChart = async (
+  input: SpreadsheetCreateChartInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId,
+    dataRange,
+    chartType,
+    title,
+    subtitle,
+    anchorCell,
+    width = 400,
+    height = 300,
+    stackedType,
+    xAxisTitle,
+    yAxisTitle,
+  } = input;
+
+  const chartId = uuidString();
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to create a chart", {
+      field: "docId",
+    });
+  }
+
+  if (!dataRange) {
+    return failTool(
+      "MISSING_DATA_RANGE",
+      "dataRange is required for creating a chart",
+      { field: "dataRange" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_createChart] Starting:", {
+      docId,
+      sheetId,
+      dataRange,
+      chartType,
+    });
+
+    try {
+      const selection = addressToSelection(dataRange);
+      if (!selection?.range) {
+        return failTool("INVALID_RANGE", `Invalid data range: ${dataRange}`, {
+          dataRange,
+        });
+      }
+
+      // Parse anchor cell if provided
+      let anchorCellParsed = {
+        rowIndex: selection.range.startRowIndex,
+        columnIndex: selection.range.endColumnIndex + 2, // Default: 2 columns right of data
+      };
+      if (anchorCell) {
+        const anchorSelection = addressToSelection(anchorCell);
+        if (anchorSelection?.range) {
+          anchorCellParsed = {
+            rowIndex: anchorSelection.range.startRowIndex,
+            columnIndex: anchorSelection.range.startColumnIndex,
+          };
+        }
+      }
+
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Build chart spec
+        const chartSpec: Partial<ChartSpec> = {
+          chartType,
+          title,
+          subtitle,
+          horizontalAxisTitle: xAxisTitle,
+          verticalAxisTitle: yAxisTitle,
+          stackedType: mapStackedType(stackedType),
+          domains: [
+            {
+              sources: [
+                {
+                  sheetId,
+                  startRowIndex: selection.range.startRowIndex,
+                  endRowIndex: selection.range.endRowIndex,
+                  startColumnIndex: selection.range.startColumnIndex,
+                  endColumnIndex: selection.range.startColumnIndex,
+                },
+              ],
+            },
+          ],
+          series: [
+            {
+              sources: [
+                {
+                  sheetId,
+                  startRowIndex: selection.range.startRowIndex,
+                  endRowIndex: selection.range.endRowIndex,
+                  startColumnIndex: selection.range.startColumnIndex + 1,
+                  endColumnIndex: selection.range.endColumnIndex,
+                },
+              ],
+            },
+          ],
+        };
+
+        const activeCell = {
+          rowIndex: selection.range.startRowIndex,
+          columnIndex: selection.range.startColumnIndex,
+        };
+        const selections = [{ range: selection.range }];
+
+        // Build embedded chart with position
+        const embeddedChart: Partial<EmbeddedChart> = {
+          chartId,
+          spec: chartSpec as ChartSpec,
+          position: {
+            sheetId,
+            overlayPosition: {
+              anchorCell: anchorCellParsed,
+              widthPixels: width,
+              heightPixels: height,
+              offsetXPixels: 0,
+              offsetYPixels: 0,
+            },
+          },
+        };
+
+        spreadsheet.createChart(
+          sheetId,
+          activeCell,
+          selections,
+          embeddedChart as EmbeddedChart,
+        );
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_createChart] Completed:", {
+          docId,
+          chartType,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully created ${chartType} chart from ${dataRange}`,
+          chartType,
+          dataRange,
+          chartId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_createChart] Error:", error);
+      return failTool(
+        "CREATE_CHART_FAILED",
+        error instanceof Error ? error.message : "Failed to create chart",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_createChart tool for LangChain
+ */
+export const spreadsheetCreateChartTool = tool(handleSpreadsheetCreateChart, {
+  name: "spreadsheet_createChart",
+  description: `Create a chart from spreadsheet data.
+
+OVERVIEW:
+This tool creates a chart visualization from a data range. The first column is used as categories (X-axis) and remaining columns as data series (Y-axis).
+
+WHEN TO USE THIS TOOL:
+- Creating bar, column, line, pie, or area charts
+- Visualizing tabular data
+- Adding charts next to data tables
+
+CHART TYPES:
+- 'bar': Horizontal bars
+- 'column': Vertical bars (most common)
+- 'line': Line chart with points
+- 'pie': Circular pie chart
+- 'area': Filled area chart
+- 'scatter': XY scatter plot
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- dataRange: A1 notation range with data (e.g., 'A1:D10') (required)
+- chartType: Type of chart (required)
+- title: Chart title
+- subtitle: Chart subtitle
+- anchorCell: Where to place chart (e.g., 'F1')
+- width: Chart width in pixels (default: 400)
+- height: Chart height in pixels (default: 300)
+- stackedType: 'stacked', 'percentStacked', or 'unstacked' (for bar/column/area)
+- xAxisTitle: Horizontal axis title
+- yAxisTitle: Vertical axis title
+
+EXAMPLES:
+
+Example 1 — Simple column chart:
+  docId: "abc123"
+  sheetId: 1
+  dataRange: "A1:C10"
+  chartType: "column"
+  title: "Monthly Sales"
+
+Example 2 — Stacked bar chart with axis titles:
+  docId: "abc123"
+  sheetId: 1
+  dataRange: "A1:D20"
+  chartType: "bar"
+  title: "Revenue by Region"
+  stackedType: "stacked"
+  xAxisTitle: "Region"
+  yAxisTitle: "Revenue ($)"
+  anchorCell: "F1"`,
+  schema: SpreadsheetCreateChartSchema,
+});
+
+/**
+ * Handler for the spreadsheet_updateChart tool
+ */
+const handleSpreadsheetUpdateChart = async (
+  input: SpreadsheetUpdateChartInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId,
+    chartId,
+    title,
+    subtitle,
+    dataRange,
+    chartType,
+    stackedType,
+    xAxisTitle,
+    yAxisTitle,
+    anchorCell,
+    width,
+    height,
+  } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to update a chart", {
+      field: "docId",
+    });
+  }
+
+  if (!chartId) {
+    return failTool(
+      "MISSING_CHART_ID",
+      "chartId is required to update a chart",
+      {
+        field: "chartId",
+      },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_updateChart] Starting:", {
+      docId,
+      sheetId,
+      chartId,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Find the chart by ID
+        const charts = spreadsheet.charts || [];
+        const chart = charts.find((c) => String(c.chartId) === chartId);
+
+        if (!chart) {
+          return failTool("CHART_NOT_FOUND", `Chart "${chartId}" not found`, {
+            chartId,
+          });
+        }
+
+        // Build updated chart
+        const updatedChart: EmbeddedChart = { ...chart };
+
+        // Update spec properties
+        if (title !== undefined) updatedChart.spec.title = title;
+        if (subtitle !== undefined) updatedChart.spec.subtitle = subtitle;
+        if (chartType !== undefined) {
+          (updatedChart.spec as { chartType: string }).chartType = chartType;
+        }
+        if (stackedType !== undefined) {
+          (updatedChart.spec as { stackedType?: string }).stackedType =
+            mapStackedType(stackedType);
+        }
+        if (xAxisTitle !== undefined)
+          updatedChart.spec.horizontalAxisTitle = xAxisTitle;
+        if (yAxisTitle !== undefined)
+          updatedChart.spec.verticalAxisTitle = yAxisTitle;
+
+        // Update data range if provided
+        if (dataRange) {
+          const selection = addressToSelection(dataRange);
+          if (selection?.range) {
+            (updatedChart.spec as { domains: unknown[] }).domains = [
+              {
+                sources: [
+                  {
+                    sheetId,
+                    startRowIndex: selection.range.startRowIndex,
+                    endRowIndex: selection.range.endRowIndex,
+                    startColumnIndex: selection.range.startColumnIndex,
+                    endColumnIndex: selection.range.startColumnIndex,
+                  },
+                ],
+              },
+            ];
+            (updatedChart.spec as { series: unknown[] }).series = [
+              {
+                sources: [
+                  {
+                    sheetId,
+                    startRowIndex: selection.range.startRowIndex,
+                    endRowIndex: selection.range.endRowIndex,
+                    startColumnIndex: selection.range.startColumnIndex + 1,
+                    endColumnIndex: selection.range.endColumnIndex,
+                  },
+                ],
+              },
+            ];
+          }
+        }
+
+        // Update position if provided
+        if (anchorCell) {
+          const anchorSelection = addressToSelection(anchorCell);
+          if (anchorSelection?.range) {
+            updatedChart.position.overlayPosition.anchorCell = {
+              rowIndex: anchorSelection.range.startRowIndex,
+              columnIndex: anchorSelection.range.startColumnIndex,
+            };
+          }
+        }
+        if (width !== undefined) {
+          updatedChart.position.overlayPosition.widthPixels = width;
+        }
+        if (height !== undefined) {
+          updatedChart.position.overlayPosition.heightPixels = height;
+        }
+
+        spreadsheet.updateChart(updatedChart);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_updateChart] Completed:", {
+          docId,
+          chartId: chart.chartId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully updated chart "${chartId}"`,
+          chartId: chart.chartId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_updateChart] Error:", error);
+      return failTool(
+        "UPDATE_CHART_FAILED",
+        error instanceof Error ? error.message : "Failed to update chart",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_updateChart tool for LangChain
+ */
+export const spreadsheetUpdateChartTool = tool(handleSpreadsheetUpdateChart, {
+  name: "spreadsheet_updateChart",
+  description: `Update properties of an existing chart.
+
+OVERVIEW:
+This tool modifies an existing chart's properties such as title, type, data range, and position.
+
+WHEN TO USE THIS TOOL:
+- Changing chart title or subtitle
+- Switching chart type (e.g., bar to line)
+- Updating data range
+- Moving or resizing the chart
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- chartId: The chart ID to update (required)
+- title: New chart title (set to null to clear)
+- subtitle: New chart subtitle (set to null to clear)
+- dataRange: New data range in A1 notation
+- chartType: Change to different chart type
+- stackedType: 'stacked', 'percentStacked', or 'unstacked'
+- xAxisTitle: New horizontal axis title
+- yAxisTitle: New vertical axis title
+- anchorCell: Move chart to this cell
+- width: New width in pixels
+- height: New height in pixels
+
+EXAMPLES:
+
+Example 1 — Change chart title:
+  docId: "abc123"
+  sheetId: 1
+  chartId: "chart_1"
+  title: "Q1 Sales Report"
+
+Example 2 — Convert to line chart and resize:
+  docId: "abc123"
+  sheetId: 1
+  chartId: "chart_2"
+  chartType: "line"
+  width: 600
+  height: 400
+
+Example 3 — Update data range:
+  docId: "abc123"
+  sheetId: 1
+  chartId: "chart_1"
+  dataRange: "A1:D50"`,
+  schema: SpreadsheetUpdateChartSchema,
+});
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
@@ -3365,4 +4229,8 @@ export const spreadsheetTools = [
   spreadsheetInsertNoteTool,
   spreadsheetDeleteRowsTool,
   spreadsheetDeleteColumnsTool,
+  spreadsheetCreateTableTool,
+  spreadsheetUpdateTableTool,
+  spreadsheetCreateChartTool,
+  spreadsheetUpdateChartTool,
 ];

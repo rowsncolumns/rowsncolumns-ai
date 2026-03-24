@@ -33,6 +33,7 @@ import * as Collapsible from "@radix-ui/react-collapsible";
 import {
   colorKeys,
   defaultSpreadsheetTheme,
+  EmbeddedChart,
   Sheet,
   SpreadsheetTheme,
   TableView,
@@ -57,6 +58,7 @@ import {
   Copy,
   Cpu,
   Loader2,
+  History,
   Navigation,
   Pencil,
   Plus,
@@ -111,7 +113,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { buildSkillsInstruction } from "@/lib/chat/instructions";
-import type { SpreadsheetAssistantContext } from "@/lib/chat/context";
+import type {
+  SpreadsheetAssistantContext,
+  ChartSummary,
+  TableSummary,
+} from "@/lib/chat/context";
 import { parseChatStream } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
 import { authClient } from "@/lib/auth/client";
@@ -135,7 +141,9 @@ export type WorkspaceAssistantUIProps = {
   prompts: string[];
   docId?: string;
   isAdmin?: boolean;
+  threadId?: string;
   onNewSession?: () => void;
+  onSelectSession?: (threadId: string) => void;
   isHydratingSession: boolean;
   selectedModel: string;
   selectedModelLabel: string;
@@ -306,6 +314,20 @@ type AssistantSkill = {
   updatedAt: string;
 };
 
+type AssistantSessionSummary = {
+  threadId: string;
+  updatedAt: string;
+  docId?: string;
+  title?: string;
+};
+
+const SESSION_LIST_CACHE_TTL_MS = 60_000;
+type SessionListCacheEntry = {
+  sessions: AssistantSessionSummary[];
+  fetchedAt: number;
+};
+let sessionListCache: SessionListCacheEntry | null = null;
+
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
 
 const buildExternalChatApiUrl = () => {
@@ -462,11 +484,30 @@ const useThreadIdFromUrl = () => {
     setPersistInUrl(false);
   }, [pushSessionIdToHistory]);
 
+  const selectThread = React.useCallback(
+    (nextThreadId: string) => {
+      const normalizedThreadId = nextThreadId.trim();
+      if (!normalizedThreadId) {
+        return;
+      }
+
+      pushSessionIdToHistory(normalizedThreadId);
+      setThreadId((previousThreadId) =>
+        previousThreadId === normalizedThreadId
+          ? previousThreadId
+          : normalizedThreadId,
+      );
+      setPersistInUrl(true);
+    },
+    [pushSessionIdToHistory],
+  );
+
   return {
     threadId,
     persistInUrl,
     markThreadStarted,
     startNewThread,
+    selectThread,
   };
 };
 
@@ -1057,6 +1098,130 @@ const parsePersistedThreadHistoryPayload = (
     .filter((message): message is ThreadMessageLike => message !== null);
 };
 
+const parseAssistantSessionSummary = (
+  value: unknown,
+): AssistantSessionSummary | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const maybeSession = value as {
+    threadId?: unknown;
+    updatedAt?: unknown;
+    docId?: unknown;
+    title?: unknown;
+  };
+  if (
+    typeof maybeSession.threadId !== "string" ||
+    maybeSession.threadId.trim().length === 0
+  ) {
+    return null;
+  }
+
+  const updatedAt =
+    typeof maybeSession.updatedAt === "string" ? maybeSession.updatedAt : "";
+  const docId =
+    typeof maybeSession.docId === "string" &&
+    maybeSession.docId.trim().length > 0
+      ? maybeSession.docId
+      : undefined;
+  const title =
+    typeof maybeSession.title === "string" &&
+    maybeSession.title.trim().length > 0
+      ? maybeSession.title
+      : undefined;
+
+  return {
+    threadId: maybeSession.threadId,
+    updatedAt,
+    ...(docId ? { docId } : {}),
+    ...(title ? { title } : {}),
+  };
+};
+
+const parseRecentAssistantSessionsPayload = (
+  value: unknown,
+): AssistantSessionSummary[] => {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const sessions = (value as { sessions?: unknown }).sessions;
+  if (!Array.isArray(sessions)) {
+    return [];
+  }
+
+  return sessions
+    .map(parseAssistantSessionSummary)
+    .filter((session): session is AssistantSessionSummary => session !== null);
+};
+
+const fetchRecentAssistantSessions = async (input: {
+  signal: AbortSignal;
+  limit?: number;
+  currentThreadId?: string;
+}) => {
+  const params = new URLSearchParams();
+  params.set("list", "sessions");
+  params.set("limit", String(input.limit ?? 10));
+  if (input.currentThreadId?.trim()) {
+    params.set("currentThreadId", input.currentThreadId.trim());
+  }
+
+  const response = await fetch(`${CHAT_HISTORY_API_ENDPOINT}?${params}`, {
+    method: "GET",
+    cache: "no-store",
+    signal: input.signal,
+  });
+  if (!response.ok) {
+    return [] as AssistantSessionSummary[];
+  }
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  return parseRecentAssistantSessionsPayload(payload);
+};
+
+const deleteAssistantSessionByThreadId = async (input: {
+  threadId: string;
+}) => {
+  const normalizedThreadId = input.threadId.trim();
+  if (!normalizedThreadId) {
+    return false;
+  }
+
+  const params = new URLSearchParams();
+  params.set("list", "sessions");
+  params.set("threadId", normalizedThreadId);
+
+  const response = await fetch(`${CHAT_HISTORY_API_ENDPOINT}?${params}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete session.");
+  }
+
+  const payload = (await response.json().catch(() => null)) as {
+    deleted?: unknown;
+  } | null;
+  return payload?.deleted === true;
+};
+
+const formatSessionTimestamp = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown time";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+};
+
 const fetchPersistedThreadHistory = async (
   threadId: string,
   signal: AbortSignal,
@@ -1107,15 +1272,7 @@ const useHydratePersistedThreadHistory = ({
       return;
     }
 
-    hydratedThreadIdRef.current = normalizedThreadId;
-
     const controller = new AbortController();
-    const currentThreadState = runtime.thread.getState();
-    if (currentThreadState.messages.length > 0) {
-      setIsHydratingSession(false);
-      return;
-    }
-
     setIsHydratingSession(true);
 
     const hydrate = async () => {
@@ -1128,12 +1285,8 @@ const useHydratePersistedThreadHistory = ({
           return;
         }
 
-        const threadState = runtime.thread.getState();
-        if (threadState.messages.length > 0) {
-          return;
-        }
-
         runtime.thread.reset(history);
+        hydratedThreadIdRef.current = normalizedThreadId;
       } catch (error) {
         if (isAbortError(error)) {
           return;
@@ -1162,8 +1315,13 @@ const useHydratePersistedThreadHistory = ({
  * This can be used at a higher level to wrap multiple components with AssistantRuntimeProvider.
  */
 export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
-  const { threadId, persistInUrl, markThreadStarted, startNewThread } =
-    useThreadIdFromUrl();
+  const {
+    threadId,
+    persistInUrl,
+    markThreadStarted,
+    startNewThread,
+    selectThread,
+  } = useThreadIdFromUrl();
 
   const [selectedModel, setSelectedModel] =
     React.useState<string>(DEFAULT_MODEL);
@@ -1323,6 +1481,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     threadId,
     isHydratingSession,
     startNewThread,
+    selectThread,
     selectedModel,
     setSelectedModel: handleSelectModel,
     isModelPickerOpen,
@@ -1566,6 +1725,26 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     running: "Deleting columns",
     success: "Deleted columns",
     failed: "Failed to delete columns",
+  },
+  spreadsheet_createTable: {
+    running: "Creating table",
+    success: "Created table",
+    failed: "Failed to create table",
+  },
+  spreadsheet_updateTable: {
+    running: "Updating table",
+    success: "Updated table",
+    failed: "Failed to update table",
+  },
+  spreadsheet_createChart: {
+    running: "Creating chart",
+    success: "Created chart",
+    failed: "Failed to create chart",
+  },
+  spreadsheet_updateChart: {
+    running: "Updating chart",
+    success: "Updated chart",
+    failed: "Failed to update chart",
   },
 };
 
@@ -1905,7 +2084,7 @@ function ToolCallDisplay({
               </button>
               <pre
                 className={cn(
-                  "max-h-64 overflow-y-auto overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-md p-2 pr-8 font-mono text-[11px] leading-relaxed",
+                  "max-h-64 overflow-y-auto  whitespace-pre-wrap wrap-break-word rounded-md p-2 pr-8 font-mono text-[11px] leading-relaxed",
                   isRunning
                     ? "bg-blue-50/70 text-blue-900"
                     : isError
@@ -2012,6 +2191,10 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_insertNote",
   "spreadsheet_deleteRows",
   "spreadsheet_deleteColumns",
+  "spreadsheet_createTable",
+  "spreadsheet_updateTable",
+  "spreadsheet_createChart",
+  "spreadsheet_updateChart",
 ] as const;
 
 function SpreadsheetToolUIRegistration({
@@ -2056,7 +2239,7 @@ function SpreadsheetToolUIRegistry() {
   ));
 }
 
-function AssistantMessage() {
+function AssistantMessageBody() {
   const { isAdmin } = React.useContext(AssistantDebugAccessContext);
   const role = useMessage((message) => message.role);
   const userMessageText = useMessage((message) =>
@@ -2136,15 +2319,16 @@ function AssistantMessage() {
   }, [userMessageText]);
 
   return (
-    <MessagePrimitive.Root
-      className={
-        role === "user" ? "ml-8 flex justify-end" : "mr-8 flex justify-start"
-      }
+    <div
+      className={cn(
+        "flex w-full",
+        role === "user" ? "justify-end" : "justify-start",
+      )}
     >
       <div
         className={cn(
           "flex w-full flex-col gap-2",
-          role === "user" ? "items-end" : "",
+          role === "user" && "items-end",
         )}
       >
         {role === "assistant" &&
@@ -2230,6 +2414,14 @@ function AssistantMessage() {
           </a>
         )}
       </div>
+    </div>
+  );
+}
+
+function AssistantMessage() {
+  return (
+    <MessagePrimitive.Root>
+      <AssistantMessageBody />
     </MessagePrimitive.Root>
   );
 }
@@ -2249,6 +2441,7 @@ export function SheetsInstructions({
   cellXfs,
   tables,
   theme,
+  charts,
   getSheetName,
   getSheetProperties,
 }: {
@@ -2259,6 +2452,7 @@ export function SheetsInstructions({
   cellXfs?: CellXfs | null;
   tables?: TableView[] | null;
   theme?: SpreadsheetTheme;
+  charts?: EmbeddedChart[];
   getSheetName?: ReturnType<typeof useSpreadsheetState>["getSheetName"];
   getSheetProperties?: ReturnType<
     typeof useSpreadsheetState
@@ -2285,22 +2479,49 @@ export function SheetsInstructions({
     [activeCell],
   );
 
-  // Tables
-  const tableValue = tables?.map(({ bandedRange, ...table }) => {
-    const sheetProps = getSheetProperties?.(table.sheetId);
-    const address = selectionToAddress(
-      { range: table.range },
-      getSheetName?.(table.sheetId),
-      undefined,
-      sheetProps?.rowCount ?? MAX_ROW_COUNT,
-      sheetProps?.columnCount ?? MAX_COLUMN_COUNT,
-    );
+  // Transform tables to simplified summary for LLM context
+  const tableSummaries = React.useMemo<TableSummary[]>(() => {
+    if (!tables) return [];
+    return tables.map((table) => {
+      const sheetProps = getSheetProperties?.(table.sheetId);
+      const ref = selectionToAddress(
+        { range: table.range },
+        getSheetName?.(table.sheetId),
+        undefined,
+        sheetProps?.rowCount ?? MAX_ROW_COUNT,
+        sheetProps?.columnCount ?? MAX_COLUMN_COUNT,
+      );
+      return {
+        tableId: table.id,
+        title: table.title,
+        sheetId: table.sheetId,
+        ref: ref ?? "",
+        columns: table.columns?.map((c) => c.name) ?? [],
+      };
+    });
+  }, [tables, getSheetName, getSheetProperties]);
 
-    return {
-      ...table,
-      ref: address,
-    };
-  });
+  // Transform charts to simplified summary for LLM context
+  const chartSummaries = React.useMemo<ChartSummary[]>(() => {
+    if (!charts) return [];
+    return charts.map((chart) => {
+      const { dataRange } = chart.spec;
+      let dataRangeA1: string | null = null;
+      if (dataRange) {
+        const sheetName = getSheetName?.(chart.position.sheetId);
+        dataRangeA1 =
+          selectionToAddress({ range: dataRange }, sheetName) ?? null;
+      }
+      return {
+        chartId: chart.chartId,
+        sheetId: chart.position.sheetId,
+        title: chart.spec.title ?? null,
+        subtitle: chart.spec.subtitle ?? null,
+        chartType: chart.spec.chartType,
+        dataRange: dataRangeA1,
+      };
+    });
+  }, [charts, getSheetName]);
 
   // Map theme colors for Agent to comprehend
   const themeColorMapping = React.useMemo(() => {
@@ -2333,7 +2554,8 @@ export function SheetsInstructions({
         a1Address: activeCellA1Address,
       },
       cellXfs: cellXfs ? Object.fromEntries([...cellXfs]) : {},
-      tables: tableValue ?? [],
+      tables: tableSummaries,
+      charts: chartSummaries,
       theme: themeColorMapping,
     }),
     [
@@ -2344,7 +2566,8 @@ export function SheetsInstructions({
       activeCell.columnIndex,
       activeCellA1Address,
       cellXfs,
-      tableValue,
+      tableSummaries,
+      chartSummaries,
       themeColorMapping,
     ],
   );
@@ -3058,6 +3281,262 @@ function NewSessionButton({
   );
 }
 
+function SessionPickerButton({
+  iconOnly = false,
+  currentThreadId,
+  onSelectSession,
+  onSessionRestoreStart,
+  onStartNewSession,
+}: {
+  iconOnly?: boolean;
+  currentThreadId?: string;
+  onSelectSession?: (threadId: string) => void;
+  onSessionRestoreStart?: () => void;
+  onStartNewSession?: () => void;
+}) {
+  const runtime = useAssistantRuntime();
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [sessions, setSessions] = React.useState<AssistantSessionSummary[]>(
+    () => sessionListCache?.sessions ?? [],
+  );
+  const [lastFetchedAt, setLastFetchedAt] = React.useState<number>(
+    () => sessionListCache?.fetchedAt ?? 0,
+  );
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [isSwitchingSession, setIsSwitchingSession] = React.useState(false);
+  const [deletingSessionThreadId, setDeletingSessionThreadId] = React.useState<
+    string | null
+  >(null);
+  const [loadError, setLoadError] = React.useState("");
+
+  const loadSessions = React.useCallback(
+    async (signal: AbortSignal) => {
+      setIsLoading(true);
+      setLoadError("");
+      try {
+        const result = await fetchRecentAssistantSessions({
+          signal,
+          limit: 10,
+          currentThreadId,
+        });
+        if (signal.aborted) {
+          return;
+        }
+        setSessions(result);
+        const now = Date.now();
+        setLastFetchedAt(now);
+        sessionListCache = {
+          sessions: result,
+          fetchedAt: now,
+        };
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        setSessions([]);
+        setLoadError("Unable to load sessions.");
+      } finally {
+        if (!signal.aborted) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [currentThreadId],
+  );
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const cacheIsFresh =
+      sessions.length > 0 &&
+      Date.now() - lastFetchedAt < SESSION_LIST_CACHE_TTL_MS;
+    if (cacheIsFresh) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadSessions(controller.signal);
+    return () => {
+      controller.abort();
+    };
+  }, [isOpen, loadSessions, lastFetchedAt, sessions.length]);
+
+  const handleSelectSession = React.useCallback(
+    (sessionThreadId: string) => {
+      const normalizedThreadId = sessionThreadId.trim();
+      if (!normalizedThreadId) {
+        return;
+      }
+      if (normalizedThreadId === currentThreadId) {
+        setIsOpen(false);
+        return;
+      }
+
+      setIsSwitchingSession(true);
+      try {
+        onSessionRestoreStart?.();
+        onSelectSession?.(normalizedThreadId);
+        setIsOpen(false);
+      } finally {
+        setIsSwitchingSession(false);
+      }
+    },
+    [currentThreadId, onSelectSession, onSessionRestoreStart],
+  );
+
+  const handleDeleteSession = React.useCallback(
+    async (sessionThreadId: string) => {
+      const normalizedThreadId = sessionThreadId.trim();
+      if (!normalizedThreadId) {
+        return;
+      }
+
+      setLoadError("");
+      setDeletingSessionThreadId(normalizedThreadId);
+      try {
+        await deleteAssistantSessionByThreadId({
+          threadId: normalizedThreadId,
+        });
+        const now = Date.now();
+        setSessions((previousSessions) => {
+          const nextSessions = previousSessions.filter(
+            (session) => session.threadId !== normalizedThreadId,
+          );
+          sessionListCache = {
+            sessions: nextSessions,
+            fetchedAt: now,
+          };
+          return nextSessions;
+        });
+        setLastFetchedAt(now);
+
+        if (normalizedThreadId === currentThreadId) {
+          onStartNewSession?.();
+          runtime.switchToNewThread();
+        }
+      } catch {
+        setLoadError("Unable to delete session.");
+      } finally {
+        setDeletingSessionThreadId((previousThreadId) =>
+          previousThreadId === normalizedThreadId ? null : previousThreadId,
+        );
+      }
+    },
+    [currentThreadId, onStartNewSession, runtime],
+  );
+
+  return (
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className={cn(
+            "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
+            iconOnly ? "" : "gap-1.5 px-2.5 whitespace-nowrap",
+          )}
+          aria-label="Session history"
+          title="Load a previous session"
+          disabled={!onSelectSession || isSwitchingSession}
+        >
+          <History className="h-3.5 w-3.5" />
+          {!iconOnly && <span>Sessions</span>}
+          {!iconOnly && <ChevronsUpDown className="h-3 w-3 opacity-70" />}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[320px] p-0 border border-(--card-border) bg-[#fffaf5] text-foreground shadow-xl"
+      >
+        <Command className="bg-[#fffaf5]">
+          <CommandInput placeholder="Search sessions..." />
+          <CommandList className="bg-[#fffaf5]">
+            {isLoading && sessions.length === 0 && (
+              <div className="px-3 py-4 text-xs text-(--muted-foreground)">
+                Loading sessions...
+              </div>
+            )}
+            {!isLoading && loadError && (
+              <div className="px-3 py-4 text-xs text-red-600">{loadError}</div>
+            )}
+            {!isLoading && !loadError && sessions.length === 0 && (
+              <CommandEmpty>No saved sessions yet.</CommandEmpty>
+            )}
+            {!isLoading && !loadError && sessions.length > 0 && (
+              <CommandGroup heading="Recent Sessions">
+                {sessions.map((session) => {
+                  const isCurrent = session.threadId === currentThreadId;
+                  const isDeletingSession =
+                    deletingSessionThreadId === session.threadId;
+                  return (
+                    <CommandItem
+                      key={session.threadId}
+                      value={session.threadId}
+                      keywords={
+                        session.title
+                          ? [session.title, session.title.toLowerCase()]
+                          : undefined
+                      }
+                      onSelect={handleSelectSession}
+                      className="items-start gap-2 py-2"
+                    >
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-xs font-medium">
+                            {session.title || session.threadId}
+                          </span>
+                          {isCurrent && (
+                            <span className="rounded bg-[#ece8df] px-1.5 py-0.5 text-[9px] text-(--muted-foreground)">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        {session.title && (
+                          <span className="truncate text-[10px] text-(--muted-foreground)">
+                            {session.threadId}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-(--muted-foreground)">
+                          {formatSessionTimestamp(session.updatedAt)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--muted-foreground) transition hover:bg-[#ece8df] hover:text-[#c23f2c] disabled:opacity-50"
+                        aria-label={`Delete session ${session.title || session.threadId}`}
+                        title="Delete session"
+                        disabled={isDeletingSession || isSwitchingSession}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void handleDeleteSession(session.threadId);
+                        }}
+                      >
+                        {isDeletingSession ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /**
  * Shared props for assistant panel rendering.
  */
@@ -3065,7 +3544,9 @@ type WorkspaceAssistantPanelProps = {
   prompts: string[];
   docId?: string;
   isAdmin?: boolean;
+  threadId?: string;
   onNewSession?: () => void;
+  onSelectSession?: (threadId: string) => void;
   isHydratingSession?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
@@ -3502,7 +3983,9 @@ function WorkspaceAssistantPanel({
   prompts,
   docId,
   isAdmin = false,
+  threadId,
   onNewSession,
+  onSelectSession,
   isHydratingSession = false,
   selectedModel,
   selectedModelLabel,
@@ -3524,6 +4007,8 @@ function WorkspaceAssistantPanel({
   );
   const [isUnlimitedCredits, setIsUnlimitedCredits] = React.useState(false);
   const [isCreditsLoading, setIsCreditsLoading] = React.useState(true);
+  const [isRestoringSessionFromPicker, setIsRestoringSessionFromPicker] =
+    React.useState(false);
 
   const loadCredits = React.useCallback(async () => {
     try {
@@ -3600,6 +4085,27 @@ function WorkspaceAssistantPanel({
     };
   }, [forceCompactHeader]);
 
+  const handleSessionRestoreStart = React.useCallback(() => {
+    setIsRestoringSessionFromPicker(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isRestoringSessionFromPicker) {
+      return;
+    }
+    if (isHydratingSession) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setIsRestoringSessionFromPicker(false);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [isHydratingSession, isRestoringSessionFromPicker]);
+
   return (
     <Card className="rnc-assistant-panel flex h-full min-h-128 flex-col overflow-hidden border-(--card-border) bg-(--assistant-panel-bg) rounded-none">
       <div
@@ -3613,6 +4119,15 @@ function WorkspaceAssistantPanel({
             </h2>
           </div>
           <div className="flex items-center gap-2">
+            {onSelectSession && (
+              <SessionPickerButton
+                iconOnly={isAssistantHeaderCompact}
+                currentThreadId={threadId}
+                onSelectSession={onSelectSession}
+                onSessionRestoreStart={handleSessionRestoreStart}
+                onStartNewSession={onNewSession}
+              />
+            )}
             <NewSessionButton
               iconOnly={isAssistantHeaderCompact}
               onNewSession={onNewSession}
@@ -3626,7 +4141,10 @@ function WorkspaceAssistantPanel({
       </div>
 
       <AssistantDebugAccessContext.Provider value={{ isAdmin }}>
-        <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
+        <ThreadPrimitive.Root
+          key={threadId || "active-thread"}
+          className="relative flex min-h-0 flex-1 flex-col"
+        >
           <SpreadsheetToolUIRegistry />
           <ThreadPrimitive.Viewport
             className={cn(
@@ -3699,7 +4217,7 @@ function WorkspaceAssistantPanel({
               </ThreadPrimitive.If>
             </div>
           </div>
-          {isHydratingSession && (
+          {(isHydratingSession || isRestoringSessionFromPicker) && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
               <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -3722,7 +4240,9 @@ export function WorkspaceAssistantUI({
   prompts,
   docId,
   isAdmin,
+  threadId,
   onNewSession,
+  onSelectSession,
   isHydratingSession,
   selectedModel,
   selectedModelLabel,
@@ -3739,7 +4259,9 @@ export function WorkspaceAssistantUI({
       prompts={prompts}
       docId={docId}
       isAdmin={isAdmin}
+      threadId={threadId}
       onNewSession={onNewSession}
+      onSelectSession={onSelectSession}
       isHydratingSession={isHydratingSession}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
@@ -3767,7 +4289,9 @@ export function WorkspaceAssistant({
         prompts={prompts}
         docId={docId}
         isAdmin={isAdmin}
+        threadId={assistantRuntime.threadId}
         onNewSession={assistantRuntime.startNewThread}
+        onSelectSession={assistantRuntime.selectThread}
         isHydratingSession={assistantRuntime.isHydratingSession}
         selectedModel={assistantRuntime.selectedModel}
         selectedModelLabel={assistantRuntime.selectedModelLabel}

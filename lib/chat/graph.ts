@@ -17,6 +17,11 @@ import { ChatOpenAI } from "@langchain/openai";
 
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import type { ChatStreamEvent } from "@/lib/chat/protocol";
+import {
+  getAssistantSessionByThreadId,
+  listAssistantSessions,
+  upsertAssistantSession,
+} from "@/lib/chat/sessions-repository";
 import { spreadsheetTools } from "@/lib/chat/tools";
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.2-chat-latest";
@@ -28,6 +33,15 @@ const DEFAULT_GRAPH_RECURSION_LIMIT = 75;
 const DEFAULT_LANGGRAPH_CHECKPOINT_SCHEMA = "public";
 const CLAUDE_MODEL_PATTERN = /^claude/i;
 const REASONING_MODEL_PATTERN = /^(o\d|gpt-5|codex)/i;
+const SESSION_TITLE_SYSTEM_PROMPT = `You generate concise session titles for spreadsheet assistant conversations.
+
+Rules:
+- Return only the title text, no quotes, markdown, prefixes, or explanations.
+- Keep it under 7 words.
+- Make it specific and useful.
+- Use title case.
+`;
+const MAX_SESSION_TITLE_LENGTH = 80;
 
 const isReasoningModel = (model: string) =>
   REASONING_MODEL_PATTERN.test(model.trim());
@@ -623,6 +637,7 @@ const getThreadConfig = (
     docId?: string;
     systemInstructions?: string;
     userId?: string;
+    sessionTitle?: string;
   },
 ) => ({
   configurable: {
@@ -649,6 +664,7 @@ const getThreadConfig = (
       ? { reasoningEnabled: override.reasoningEnabled }
       : {}),
     ...(override?.docId ? { docId: override.docId } : {}),
+    ...(override?.sessionTitle ? { sessionTitle: override.sessionTitle } : {}),
   },
 });
 
@@ -784,6 +800,44 @@ const stringifyUnknown = (value: unknown) => {
   } catch {
     return String(value);
   }
+};
+
+const normalizeSessionTitle = (value: string): string | null => {
+  const collapsed = value
+    .replace(/^title:\s*/i, "")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!collapsed) {
+    return null;
+  }
+
+  if (collapsed.length <= MAX_SESSION_TITLE_LENGTH) {
+    return collapsed;
+  }
+
+  return `${collapsed.slice(0, MAX_SESSION_TITLE_LENGTH - 1).trimEnd()}…`;
+};
+
+const deriveFallbackSessionTitleFromMessage = (message: string) => {
+  const firstLine = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (!firstLine) {
+    return "Untitled Session";
+  }
+
+  const normalizedLine = firstLine
+    .replace(/[*_`#>[\]()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalizedLine) {
+    return "Untitled Session";
+  }
+
+  const words = normalizedLine.split(" ").slice(0, 7).join(" ");
+  return normalizeSessionTitle(words) ?? "Untitled Session";
 };
 
 const getToolMessageContent = (value: unknown): string | null => {
@@ -1590,6 +1644,183 @@ export async function getSpreadsheetAssistantThreadMessages(input: {
   return buildPersistedThreadMessages(messages);
 }
 
+const getLatestSessionTitleForThread = async (input: {
+  threadId: string;
+  userId?: string;
+}) => {
+  const userId = input.userId?.trim();
+  if (!userId) {
+    return null;
+  }
+
+  let session: Awaited<ReturnType<typeof getAssistantSessionByThreadId>> = null;
+  try {
+    session = await getAssistantSessionByThreadId({
+      threadId: input.threadId,
+      userId,
+    });
+  } catch (error) {
+    console.error("[graph] Failed to resolve indexed session title", {
+      threadId: input.threadId,
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+  if (!session?.title) {
+    return null;
+  }
+
+  return normalizeSessionTitle(session.title);
+};
+
+export async function resolveSpreadsheetAssistantSessionTitle(input: {
+  threadId: string;
+  userId?: string;
+  message: string;
+  model?: string;
+  provider?: Provider;
+  reasoningEnabled?: boolean;
+}): Promise<string> {
+  const existingTitle = await getLatestSessionTitleForThread({
+    threadId: input.threadId,
+    userId: input.userId,
+  });
+  if (existingTitle) {
+    return existingTitle;
+  }
+
+  try {
+    const titleModel = getModel({
+      model: input.model,
+      provider: input.provider,
+      reasoningEnabled: false,
+    });
+    const titleResponse = await titleModel.invoke([
+      new SystemMessage(SESSION_TITLE_SYSTEM_PROMPT),
+      new HumanMessage(input.message),
+    ]);
+    const rawTitle = contentToText(titleResponse.content).split(/\r?\n/)[0] ?? "";
+    const normalizedTitle = normalizeSessionTitle(rawTitle);
+    if (normalizedTitle) {
+      return normalizedTitle;
+    }
+  } catch (error) {
+    console.error("[graph] Failed to generate session title", {
+      threadId: input.threadId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return deriveFallbackSessionTitleFromMessage(input.message);
+}
+
+export type SpreadsheetAssistantSessionSummary = {
+  threadId: string;
+  updatedAt: string;
+  docId?: string;
+  title?: string;
+};
+
+export async function getSpreadsheetAssistantRecentSessions(input: {
+  userId: string;
+  limit?: number;
+  docId?: string;
+}): Promise<SpreadsheetAssistantSessionSummary[]> {
+  const normalizedLimit = Math.max(
+    1,
+    Math.min(
+      typeof input.limit === "number" && Number.isFinite(input.limit)
+        ? Math.floor(input.limit)
+        : 10,
+      50,
+    ),
+  );
+  const normalizedUserId = input.userId.trim();
+  if (!normalizedUserId) {
+    return [];
+  }
+
+  try {
+    const sessions = await listAssistantSessions({
+      userId: normalizedUserId,
+      limit: normalizedLimit,
+      docId: input.docId,
+    });
+    if (sessions.length > 0) {
+      return sessions.map((session) => ({
+        threadId: session.threadId,
+        updatedAt: session.updatedAt,
+        ...(session.docId ? { docId: session.docId } : {}),
+        ...(session.title ? { title: session.title } : {}),
+      }));
+    }
+  } catch (error) {
+    console.error("[graph] Failed to list indexed assistant sessions", {
+      userId: normalizedUserId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Legacy bootstrap: older checkpoints may use scoped thread IDs of the form
+  // "user:<userId>:thread:<threadId>" without corresponding session index rows.
+  const scopedPrefix = `user:${normalizedUserId}:thread:`;
+  const scanLimit = Math.max(normalizedLimit * 30, 300);
+  const checkpointer = await getCheckpointer();
+  const listConfig = { configurable: {} } as Parameters<
+    typeof checkpointer.list
+  >[0];
+  const fallbackSessions: SpreadsheetAssistantSessionSummary[] = [];
+  const seenThreadIds = new Set<string>();
+
+  for await (const checkpointTuple of checkpointer.list(listConfig, {
+    limit: scanLimit,
+  })) {
+    const configurable = checkpointTuple.config?.configurable;
+    const checkpointThreadId =
+      configurable &&
+      typeof configurable === "object" &&
+      "thread_id" in configurable &&
+      typeof (configurable as { thread_id?: unknown }).thread_id === "string"
+        ? (configurable as { thread_id: string }).thread_id
+        : null;
+    if (!checkpointThreadId || !checkpointThreadId.startsWith(scopedPrefix)) {
+      continue;
+    }
+
+    const threadId = checkpointThreadId.slice(scopedPrefix.length).trim();
+    if (!threadId || seenThreadIds.has(threadId)) {
+      continue;
+    }
+
+    fallbackSessions.push({
+      threadId,
+      updatedAt:
+        typeof checkpointTuple.checkpoint?.ts === "string"
+          ? checkpointTuple.checkpoint.ts
+          : "",
+    });
+    seenThreadIds.add(threadId);
+
+    if (fallbackSessions.length >= normalizedLimit) {
+      break;
+    }
+  }
+
+  if (fallbackSessions.length > 0) {
+    await Promise.all(
+      fallbackSessions.map((session) =>
+        upsertAssistantSession({
+          threadId: session.threadId,
+          userId: normalizedUserId,
+        }).catch(() => undefined),
+      ),
+    );
+  }
+
+  return fallbackSessions;
+}
+
 const persistAssistantMessageToCheckpoint = async (input: {
   threadId: string;
   message: string;
@@ -1656,6 +1887,7 @@ export async function* streamSpreadsheetAssistant(input: {
   threadId: string;
   userId?: string;
   docId?: string;
+  sessionTitle?: string;
   message: string;
   model?: string;
   provider?: Provider;
@@ -1673,6 +1905,7 @@ export async function* streamSpreadsheetAssistant(input: {
     provider: input.provider,
     reasoningEnabled: input.reasoningEnabled,
     docId: input.docId,
+    sessionTitle: input.sessionTitle,
     systemInstructions: input.systemInstructions,
     userId: input.userId,
   });

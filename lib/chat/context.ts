@@ -1,3 +1,20 @@
+export type TableSummary = {
+  tableId: string | number;
+  title: string;
+  sheetId: number;
+  ref: string;
+  columns: string[];
+};
+
+export type ChartSummary = {
+  chartId: string | number;
+  sheetId?: number;
+  title?: string | null;
+  subtitle?: string | null;
+  chartType?: string;
+  dataRange?: string | null;
+};
+
 export type SpreadsheetAssistantContext = {
   documentId?: string;
   sheets?: Array<{ title: string; sheetId: number }>;
@@ -8,7 +25,8 @@ export type SpreadsheetAssistantContext = {
     a1Address?: string | null;
   };
   cellXfs?: Record<string, unknown>;
-  tables?: unknown[];
+  tables?: TableSummary[];
+  charts?: ChartSummary[];
   theme?: {
     name?: string;
     primaryFontFamily?: string;
@@ -105,6 +123,18 @@ List of tables:
     );
   }
 
+  if (context.charts && context.charts.length > 0) {
+    lines.push(
+      instructionLine(
+        `The spreadsheet has the following charts. Each chart has a unique chartId that must be used when updating charts.
+
+List of charts:
+`,
+        context.charts,
+      ),
+    );
+  }
+
   if (lines.length === 0) {
     return undefined;
   }
@@ -167,7 +197,51 @@ export const sanitizeSpreadsheetAssistantContext = (
       : undefined;
 
   const cellXfs = asRecord(record.cellXfs) ?? undefined;
-  const tables = Array.isArray(record.tables) ? record.tables : undefined;
+
+  const tablesRaw = Array.isArray(record.tables) ? record.tables : undefined;
+  const tables =
+    tablesRaw?.flatMap((entry) => {
+      const item = asRecord(entry);
+      if (!item) return [];
+      const tableId = item.tableId;
+      const title = asString(item.title);
+      const sheetId = asNumber(item.sheetId);
+      const ref = asString(item.ref);
+      if (tableId === undefined || tableId === null) return [];
+      if (!title || sheetId === undefined || !ref) return [];
+      const columnsRaw = Array.isArray(item.columns) ? item.columns : [];
+      const columns = columnsRaw.filter(
+        (c): c is string => typeof c === "string",
+      );
+      return [
+        {
+          tableId: tableId as string | number,
+          title,
+          sheetId,
+          ref,
+          columns,
+        },
+      ];
+    }) ?? undefined;
+
+  const chartsRaw = Array.isArray(record.charts) ? record.charts : undefined;
+  const charts =
+    chartsRaw?.flatMap((entry) => {
+      const item = asRecord(entry);
+      if (!item) return [];
+      const chartId = item.chartId;
+      if (chartId === undefined || chartId === null) return [];
+      return [
+        {
+          chartId: chartId as string | number,
+          sheetId: asNumber(item.sheetId),
+          title: item.title as string | null | undefined,
+          subtitle: item.subtitle as string | null | undefined,
+          chartType: asString(item.chartType),
+          dataRange: item.dataRange as string | null | undefined,
+        },
+      ];
+    }) ?? undefined;
 
   const themeRaw = asRecord(record.theme);
   const theme = themeRaw
@@ -187,6 +261,7 @@ export const sanitizeSpreadsheetAssistantContext = (
     activeCell,
     cellXfs,
     tables,
+    charts: charts && charts.length > 0 ? charts : undefined,
     theme,
   };
 
@@ -197,6 +272,7 @@ export const sanitizeSpreadsheetAssistantContext = (
     !context.activeCell &&
     !context.cellXfs &&
     !context.tables &&
+    !context.charts &&
     !context.theme
   ) {
     return undefined;

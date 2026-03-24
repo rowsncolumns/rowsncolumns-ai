@@ -1,6 +1,7 @@
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import {
   persistAssistantFailureToCheckpoint,
+  resolveSpreadsheetAssistantSessionTitle,
   streamSpreadsheetAssistant,
 } from "@/lib/chat/graph";
 import type { ChatStreamEvent } from "@/lib/chat/protocol";
@@ -23,6 +24,7 @@ import {
   calculateChatRunCredits,
   MIN_CREDITS_PER_RUN,
 } from "@/lib/credits/pricing";
+import { upsertAssistantSession } from "@/lib/chat/sessions-repository";
 
 export type ChatProvider = "openai" | "anthropic";
 
@@ -320,12 +322,59 @@ export const executeChatRunStream = async (input: {
   let messageCompleteChars = 0;
   let isCompleted = false;
   const runId = crypto.randomUUID();
+  let sessionTitle: string | undefined;
+
+  try {
+    await upsertAssistantSession({
+      threadId: input.request.threadId,
+      userId: input.userId,
+      docId: input.request.docId,
+    });
+  } catch (error) {
+    console.error("[chat] Failed to upsert assistant session", {
+      threadId: input.request.threadId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  try {
+    sessionTitle = await resolveSpreadsheetAssistantSessionTitle({
+      threadId: input.request.threadId,
+      userId: input.userId,
+      message: input.request.message,
+      model: input.request.model,
+      provider: input.request.provider,
+      reasoningEnabled: input.request.reasoningEnabled,
+    });
+  } catch (error) {
+    console.error("[chat] Failed to resolve session title", {
+      threadId: input.request.threadId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (sessionTitle) {
+    try {
+      await upsertAssistantSession({
+        threadId: input.request.threadId,
+        userId: input.userId,
+        docId: input.request.docId,
+        title: sessionTitle,
+      });
+    } catch (error) {
+      console.error("[chat] Failed to persist session title", {
+        threadId: input.request.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   try {
     for await (const event of streamSpreadsheetAssistant({
       threadId: input.request.threadId,
       userId: input.userId,
       docId: input.request.docId,
+      sessionTitle,
       message: input.request.message,
       model: input.request.model,
       provider: input.request.provider,

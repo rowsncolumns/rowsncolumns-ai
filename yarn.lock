@@ -2046,10 +2046,10 @@
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.16/f8d473c83464e4bc435dea3903eb2777e8c50884#f8d473c83464e4bc435dea3903eb2777e8c50884"
   integrity sha512-+wQ9mVg1vYMT8Yuxs674HSz7D7f9OFlb4NKWbcY7hZMqA3ptciG6qkWvSSMub9y1EVjChtC021iqm4jHiZlhdA==
 
-"@rowsncolumns/spreadsheet-state@^21.0.32":
-  version "21.0.32"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.32/bbc0943e94c9a41a199667e4d8030450f4f960bd#bbc0943e94c9a41a199667e4d8030450f4f960bd"
-  integrity sha512-9kY2LZNy0K6UqSUm4QpWRBstw2TqGExKqmIExxcHuQCBt2Hg68bmRGE5CPevlvp8wOs3AUP9weEejHqq+82S9A==
+"@rowsncolumns/spreadsheet-state@^21.0.35":
+  version "21.0.35"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.35/29ae7266e502b65188b2cdca8dc193322cf5f7f9#29ae7266e502b65188b2cdca8dc193322cf5f7f9"
+  integrity sha512-HkTNVNYA6GO+cNVglmL0Hu/Xw8qDcQW5HTtVua4nJlHTlKycElJyrwX0sVvgi+p+eHCwtIVKbl0mF2JsUjSsBg==
   dependencies:
     "@rowsncolumns/calculation-worker" "^2.0.13"
     "@rowsncolumns/date-parser" "^5.0.12"

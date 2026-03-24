@@ -104,8 +104,12 @@ import {
   useSearch,
   useSpreadsheetState,
 } from "@rowsncolumns/spreadsheet-state";
-import { IconButton, Separator as UiSeparator } from "@rowsncolumns/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  CircularLoader,
+  IconButton,
+  Separator as UiSeparator,
+} from "@rowsncolumns/ui";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Group,
   Panel,
@@ -132,6 +136,7 @@ import { MagnifyingGlassIcon } from "@rowsncolumns/icons";
 import { Citation } from "@rowsncolumns/common-types";
 import { addressToSelection, uuid } from "@rowsncolumns/utils";
 import {
+  ChartComponent,
   ChartEditor,
   ChartEditorDialog,
   useCharts,
@@ -904,7 +909,6 @@ function SpreadsheetPane({
     },
     [importCSVFile, activeSheetId, activeCell],
   );
-
   return (
     <div
       className="flex h-full min-h-0 flex-1 flex-col"
@@ -922,6 +926,7 @@ function SpreadsheetPane({
         tables={tables}
         getSheetProperties={getSheetProperties}
         getSheetName={getSheetName}
+        charts={charts}
       />
       <Toolbar enableFloating>
         <FileMenu
@@ -1485,6 +1490,18 @@ function SpreadsheetPane({
             />
           }
           arrowComponents={arrows}
+          getChartComponent={(props) => (
+            <Suspense fallback={<CircularLoader />}>
+              <ChartComponent
+                {...props}
+                isDarkMode={isDarkMode}
+                getSeriesValuesFromRange={getSeriesValuesFromRange}
+                getDomainValuesFromRange={getDomainValuesFromRange}
+                onRequestEdit={onRequestEditChart}
+                onRequestCalculate={onRequestCalculate}
+              />
+            </Suspense>
+          )}
         />
       </div>
 
@@ -1721,7 +1738,9 @@ export function NewWorkspace({
       prompts={starterPrompts}
       docId={documentId}
       isAdmin={isAdmin}
+      threadId={assistantRuntime.threadId}
       onNewSession={assistantRuntime.startNewThread}
+      onSelectSession={assistantRuntime.selectThread}
       isHydratingSession={assistantRuntime.isHydratingSession}
       selectedModel={assistantRuntime.selectedModel}
       selectedModelLabel={assistantRuntime.selectedModelLabel}
