@@ -5,7 +5,6 @@ import {
   type CreateMcpExpressAppOptions,
 } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { Request, Response } from "express";
 import { createSpreadsheetMcpServer } from "./create-server";
 import { loadEnvironment } from "./env";
 
@@ -31,6 +30,20 @@ const MCP_PATH = process.env.MCP_PATH?.trim() || DEFAULT_MCP_PATH;
 const MCP_HOST = process.env.MCP_HOST?.trim() || DEFAULT_MCP_HOST;
 const MCP_ALLOWED_HOSTS = splitCsv(process.env.MCP_ALLOWED_HOSTS);
 
+type HttpRequestLike = {
+  protocol?: string;
+  get?: (headerName: string) => string | undefined;
+  originalUrl?: string;
+  headers?: Record<string, string | string[] | undefined>;
+  body?: unknown;
+};
+
+type HttpResponseLike = {
+  status: (code: number) => HttpResponseLike;
+  json: (payload: unknown) => void;
+  headersSent?: boolean;
+};
+
 const detectUiHost = (
   userAgent: string | string[] | undefined,
 ): "claude" | "openai" | null => {
@@ -53,7 +66,7 @@ const mcpAppOptions: CreateMcpExpressAppOptions = {
 
 const app = createMcpExpressApp(mcpAppOptions);
 
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", (_req: HttpRequestLike, res: HttpResponseLike) => {
   res.status(200).json({
     status: "ok",
     timestamp: new Date().toISOString(),
@@ -62,7 +75,7 @@ app.get("/health", (_req: Request, res: Response) => {
   });
 });
 
-app.post(MCP_PATH, async (req: Request, res: Response) => {
+app.post(MCP_PATH, async (req: HttpRequestLike, res: HttpResponseLike) => {
   const requestOrigin =
     typeof req.protocol === "string" && typeof req.get === "function"
       ? `${req.protocol}://${req.get("host")}`
@@ -101,7 +114,7 @@ app.post(MCP_PATH, async (req: Request, res: Response) => {
   }
 });
 
-const methodNotAllowed = (_req: Request, res: Response) => {
+const methodNotAllowed = (_req: HttpRequestLike, res: HttpResponseLike) => {
   res.status(405).json({
     jsonrpc: "2.0",
     error: {
