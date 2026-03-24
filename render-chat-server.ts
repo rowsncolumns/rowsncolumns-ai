@@ -441,6 +441,22 @@ const buildSkillsInstruction = (
     active: boolean;
   }>,
 ) => {
+  const isBrandingSkill = (skill: {
+    name: string;
+    description: string;
+    instructions: string;
+  }) => {
+    const text = `${skill.name}\n${skill.description}\n${skill.instructions}`.toLowerCase();
+    return (
+      text.includes("brand") ||
+      text.includes("branding") ||
+      text.includes("brand guideline") ||
+      text.includes("style guide") ||
+      text.includes("tone of voice") ||
+      text.includes("visual identity")
+    );
+  };
+
   const activeSkills = skills.filter((skill) => {
     if (!skill.active) return false;
     if (!skill.name.trim()) return false;
@@ -464,12 +480,24 @@ const buildSkillsInstruction = (
       .filter(Boolean)
       .join("\n");
   });
+  const brandingSkills = activeSkills.filter(isBrandingSkill);
+  const brandingRule =
+    brandingSkills.length > 0
+      ? [
+          "Branding guidelines are mandatory constraints for this conversation.",
+          "Always follow branding skills when generating copy, structure, naming, colors, and style-related output.",
+          "Only deviate if the user explicitly asks to override a branding rule.",
+          `Branding skills in scope: ${brandingSkills.map((skill) => skill.name.trim()).join(", ")}`,
+          "",
+        ].join("\n")
+      : "";
 
   return [
     "User-defined custom skills are available for this conversation.",
     "Apply any relevant active skills when planning or executing responses.",
     "If multiple skills conflict, prefer the most specific skill and continue; ask only if conflict blocks safe execution.",
     "",
+    brandingRule,
     ...blocks,
   ].join("\n");
 };

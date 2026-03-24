@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { db } from "@/lib/db/postgres";
 
 export type AssistantSkillRecord = {
@@ -48,6 +51,48 @@ type DeleteAssistantSkillInput = AssistantSkillScope & {
   skillId: string;
 };
 
+const DEFAULT_BRANDING_SKILL_NAME = "Brand Guidelines";
+const DEFAULT_BRANDING_SKILL_DESCRIPTION =
+  "Default branding constraints applied to generated spreadsheet content.";
+const DEFAULT_BRANDING_SKILL_FALLBACK_INSTRUCTIONS = `Always follow the user's brand consistently when generating spreadsheet content.
+
+Priority rules:
+1. If the user provided explicit brand guidance in this conversation, treat it as highest priority.
+2. Keep tone, wording, naming, and visual choices aligned with brand guidance.
+3. For colors, prefer a cohesive palette and maintain readability/contrast.
+4. For headings, labels, and copy, stay concise, clear, and consistent.
+5. If brand guidance is missing or ambiguous, use neutral professional defaults and ask one clarifying question when needed.
+
+Never ignore brand constraints unless the user explicitly asks to override them.`;
+
+const loadDefaultBrandingSkillInstructions = () => {
+  try {
+    const filePath = path.resolve(process.cwd(), "BRAND_GUIDELINES.md");
+    const fileContents = readFileSync(filePath, "utf8").trim();
+    if (fileContents.length > 0) {
+      return fileContents;
+    }
+  } catch {
+    // Fall back to inline default instructions if file is unavailable.
+  }
+
+  return DEFAULT_BRANDING_SKILL_FALLBACK_INSTRUCTIONS;
+};
+
+const DEFAULT_BRANDING_SKILL_INSTRUCTIONS =
+  loadDefaultBrandingSkillInstructions();
+
+const shouldBootstrapDefaultBrandingSkill = () => {
+  const value = process.env.AUTO_CREATE_BRANDING_SKILL?.trim().toLowerCase();
+  if (value === "false" || value === "0") {
+    return false;
+  }
+  return true;
+};
+
+const getDefaultBrandingSkillId = (userId: string) =>
+  `default-brand-guidelines:${userId}`;
+
 const normalizeWorkspaceId = (workspaceId?: string | null) => {
   const trimmed = workspaceId?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
@@ -92,9 +137,52 @@ async function getSkillById({
   return rows[0] ?? null;
 }
 
+async function ensureDefaultBrandingSkillForUser(userId: string) {
+  if (!shouldBootstrapDefaultBrandingSkill()) {
+    return;
+  }
+
+  const existingSkills = await db<{ id: string }[]>`
+    SELECT id
+    FROM assistant_skills
+    WHERE user_id = ${userId}
+    LIMIT 1
+  `;
+
+  if (existingSkills.length > 0) {
+    return;
+  }
+
+  const defaultSkillId = getDefaultBrandingSkillId(userId);
+
+  await db`
+    INSERT INTO assistant_skills (
+      id,
+      user_id,
+      workspace_id,
+      name,
+      description,
+      instructions,
+      active
+    )
+    VALUES (
+      ${defaultSkillId},
+      ${userId},
+      ${null},
+      ${DEFAULT_BRANDING_SKILL_NAME},
+      ${DEFAULT_BRANDING_SKILL_DESCRIPTION},
+      ${DEFAULT_BRANDING_SKILL_INSTRUCTIONS},
+      ${true}
+    )
+    ON CONFLICT (id) DO NOTHING
+  `;
+}
+
 export async function listAssistantSkills({
   userId,
 }: AssistantSkillScope): Promise<AssistantSkillRecord[]> {
+  await ensureDefaultBrandingSkillForUser(userId);
+
   const rows = await db<AssistantSkillRow[]>`
     SELECT
       id,
