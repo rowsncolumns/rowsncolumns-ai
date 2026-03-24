@@ -352,6 +352,34 @@ export const registerSpreadsheetTools = (server: McpServer) => {
     (value): value is string => Boolean(value),
   );
 
+  const buildSpreadsheetResourceResult = async () => ({
+    contents: [
+      {
+        uri: SPREADSHEET_APP_RESOURCE_URI,
+        mimeType: RESOURCE_MIME_TYPE,
+        text: await buildSpreadsheetAppHtml({
+          appBaseUrl,
+          shareDbUrl,
+          shareDbPort,
+        }),
+        _meta: {
+          ui: {
+            prefersBorder: false,
+            ...(connectDomains.length > 0 || resourceDomains.length > 0
+              ? {
+                  csp: {
+                    ...(connectDomains.length > 0 ? { connectDomains } : {}),
+                    ...(resourceDomains.length > 0 ? { resourceDomains } : {}),
+                  },
+                }
+              : {}),
+            ...(uiDomain ? { domain: uiDomain } : {}),
+          },
+        },
+      },
+    ],
+  });
+
   registerAppResource(
     server,
     "RowsnColumns Spreadsheet View",
@@ -378,37 +406,7 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         },
       },
     },
-    async () => ({
-      contents: [
-        {
-          uri: SPREADSHEET_APP_RESOURCE_URI,
-          mimeType: RESOURCE_MIME_TYPE,
-          text: await buildSpreadsheetAppHtml({
-            appBaseUrl,
-            shareDbUrl,
-            shareDbPort,
-          }),
-          _meta: {
-            ui: {
-              prefersBorder: false,
-              ...(connectDomains.length > 0 || resourceDomains.length > 0
-                ? {
-                    csp: {
-                      ...(connectDomains.length > 0
-                        ? { connectDomains }
-                        : {}),
-                      ...(resourceDomains.length > 0
-                        ? { resourceDomains }
-                        : {}),
-                    },
-                  }
-                : {}),
-              ...(uiDomain ? { domain: uiDomain } : {}),
-            },
-          },
-        },
-      ],
-    }),
+    buildSpreadsheetResourceResult,
   );
 
   registerAppTool(
