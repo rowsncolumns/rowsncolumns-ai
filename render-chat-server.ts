@@ -5,34 +5,16 @@ import {
 } from "node:http";
 
 import {
-  persistAssistantFailureToCheckpoint,
-  streamSpreadsheetAssistant,
-} from "@/lib/chat/graph";
+  type ChatAbortReason,
+  type ChatProvider,
+  type ChatRequestBody,
+  ensureChatRunCredits,
+  executeChatRunStream,
+  resolveRunSystemInstructions,
+  resolveChatRequest,
+} from "@/lib/chat/server-core";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
-import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { isAdminUser } from "@/lib/auth/admin";
-import {
-  calculateChatRunCredits,
-  MIN_CREDITS_PER_RUN,
-} from "@/lib/credits/pricing";
-import {
-  chargeUserCreditsForRun,
-  getUserCredits,
-} from "@/lib/credits/repository";
-import { listAssistantSkills } from "@/lib/skills/repository";
-
-type ChatRequestBody = {
-  threadId?: string;
-  docId?: string;
-  message?: string;
-  reasoningEnabled?: boolean;
-};
-
-type ChatAbortReason = {
-  code: "SERVER_TIMEOUT" | "CLIENT_ABORT";
-  message: string;
-  timeoutMs?: number;
-};
 
 type AuthIdentity = {
   userId: string;
@@ -61,7 +43,7 @@ const CHAT_MODEL = process.env.CHAT_MODEL?.trim() || undefined;
 const CHAT_PROVIDER = (() => {
   const value = process.env.CHAT_PROVIDER?.trim().toLowerCase();
   if (value === "openai" || value === "anthropic") {
-    return value;
+    return value as ChatProvider;
   }
   return undefined;
 })();
@@ -426,96 +408,6 @@ const startSseHeartbeat = (res: ServerResponse) => {
   };
 };
 
-const toProvider = (provider: string | undefined) => {
-  const normalized = provider?.trim().toLowerCase();
-  if (normalized === "anthropic") return "anthropic" as const;
-  if (normalized === "openai") return "openai" as const;
-  return undefined;
-};
-
-const buildSkillsInstruction = (
-  skills: Array<{
-    name: string;
-    description: string;
-    instructions: string;
-    active: boolean;
-  }>,
-) => {
-  const activeSkills = skills.filter((skill) => {
-    if (!skill.active) return false;
-    if (!skill.name.trim()) return false;
-    if (!skill.instructions.trim()) return false;
-    return true;
-  });
-
-  const blocks = activeSkills.map((skill, index) => {
-    const description = skill.description.trim();
-    const instructions = skill.instructions.trim();
-
-    return [
-      `Skill ${index + 1}: ${skill.name.trim()}`,
-      description ? `Description: ${description}` : null,
-      `Instructions:\n${instructions}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
-  });
-
-  const brandingRule = [
-    "Branding guidelines are mandatory constraints for this conversation.",
-    "Always apply branding rules when generating copy, structure, naming, colors, and style-related output.",
-    "When producing spreadsheet models/reports/tables (for example DCF, LBO, budget, dashboards), apply a branding pass before completion.",
-    "Branding pass means: align labels and wording with brand voice, and apply brand-aligned formatting/colors where formatting tools are available.",
-    "Do not treat branding as optional unless the user explicitly asks for raw/unformatted output.",
-    "Only deviate if the user explicitly asks to override a branding rule.",
-    "",
-  ].join("\n");
-
-  return [
-    "Branding and style consistency rules are always in effect.",
-    brandingRule,
-    ...(activeSkills.length > 0
-      ? [
-          "User-defined custom skills are available for this conversation.",
-          "Apply any relevant active skills when planning or executing responses.",
-          "If multiple skills conflict, prefer the most specific skill and continue; ask only if conflict blocks safe execution.",
-          "",
-        ]
-      : []),
-    ...blocks,
-  ].join("\n");
-};
-
-const resolveSystemInstructions = async (
-  userId: string,
-  baseInstructions: string | undefined,
-) => {
-  let skillsInstruction = "";
-  try {
-    const skills = await listAssistantSkills({ userId });
-    skillsInstruction = buildSkillsInstruction(skills);
-  } catch (error) {
-    console.error("[render-chat-server] Failed to load skills for user", {
-      userId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  const base = baseInstructions?.trim() || "";
-  const skills = skillsInstruction.trim();
-
-  if (base && skills) {
-    return `${base}\n\n${skills}`;
-  }
-  if (base) {
-    return base;
-  }
-  if (skills) {
-    return skills;
-  }
-  return undefined;
-};
-
 const writeSseEvent = (res: ServerResponse, event: unknown) => {
   if (res.writableEnded || res.destroyed) {
     return;
@@ -551,58 +443,41 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
-  const threadId = body.threadId?.trim();
-  const docId = body.docId?.trim();
-  const message = body.message?.trim();
-  const model = CHAT_MODEL;
-  const provider = CHAT_PROVIDER;
-  const reasoningEnabled =
-    typeof body.reasoningEnabled === "boolean"
-      ? body.reasoningEnabled
-      : CHAT_REASONING_ENABLED;
-  const systemInstructions = await resolveSystemInstructions(
-    identity.userId,
-    CHAT_SYSTEM_INSTRUCTIONS,
-  );
-
-  if (!threadId) {
-    sendJson(req, res, 400, { error: "threadId is required." });
+  const resolved = resolveChatRequest(body, {
+    model: CHAT_MODEL,
+    provider: CHAT_PROVIDER,
+    reasoningEnabled: CHAT_REASONING_ENABLED,
+  });
+  if (!resolved.ok) {
+    sendJson(req, res, resolved.error.status, resolved.error.payload);
     return;
   }
-
-  if (!message) {
-    sendJson(req, res, 400, { error: "message is required." });
-    return;
-  }
+  const chatRequest = resolved.value;
 
   const isAdmin = isAdminUser({ id: identity.userId, email: identity.email });
-  if (!isAdmin) {
-    const credits = await getUserCredits(identity.userId);
-    if (credits.balance < MIN_CREDITS_PER_RUN) {
-      const outOfCreditsErrorMessage =
-        "Insufficient credits for today. Credits reset to 30 at the next daily reset.";
-      await persistAssistantFailureToCheckpoint({
-        threadId,
-        userId: identity.userId,
-        userMessage: message,
-        errorMessage: outOfCreditsErrorMessage,
-      });
-
-      sendJson(req, res, 402, {
-        error: outOfCreditsErrorMessage,
-        code: "INSUFFICIENT_CREDITS",
-        remainingCredits: credits.balance,
-      });
-      return;
-    }
+  const creditCheck = await ensureChatRunCredits({
+    isAdmin,
+    userId: identity.userId,
+    threadId: chatRequest.threadId,
+    message: chatRequest.message,
+  });
+  if (!creditCheck.ok) {
+    sendJson(req, res, creditCheck.error.status, creditCheck.error.payload);
+    return;
   }
+
+  const systemInstructions = await resolveRunSystemInstructions({
+    userId: identity.userId,
+    request: chatRequest,
+    defaultSystemInstructions: CHAT_SYSTEM_INSTRUCTIONS,
+  });
+  const runRequest = { ...chatRequest, systemInstructions };
 
   if (!startSse(req, res)) {
     return;
   }
   const stopHeartbeat = startSseHeartbeat(res);
 
-  const runId = crypto.randomUUID();
   const runAbortController = new AbortController();
   const timeoutHandle = setTimeout(() => {
     if (!runAbortController.signal.aborted) {
@@ -626,95 +501,20 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
   req.on("close", abortFromClientClose);
 
-  let toolCallCount = 0;
-  let messageDeltaChars = 0;
-  let messageCompleteChars = 0;
-  let isCompleted = false;
-
   try {
-    for await (const event of streamSpreadsheetAssistant({
-      threadId,
+    await executeChatRunStream({
+      request: runRequest,
       userId: identity.userId,
-      docId,
-      message,
-      model,
-      provider: toProvider(provider),
-      reasoningEnabled,
-      systemInstructions,
+      isAdmin,
       abortSignal: runAbortController.signal,
-    })) {
-      if (event.type === "tool.call") {
-        toolCallCount += 1;
-      }
-
-      if (event.type === "message.delta") {
-        messageDeltaChars += event.delta.length;
-      }
-
-      if (event.type === "message.complete") {
-        isCompleted = true;
-        messageCompleteChars = Math.max(
-          messageCompleteChars,
-          event.message.length,
-        );
-      }
-
-      const outgoingEvent =
-        event.type === "message.complete" ? { ...event, runId } : event;
-      writeSseEvent(res, outgoingEvent);
-    }
-  } catch (error) {
-    if (!res.writableEnded && !res.destroyed) {
-      const errorMessage = normalizeAssistantErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to process chat request.",
-        "Failed to process chat request.",
-      );
-      writeSseEvent(res, {
-        type: "error",
-        error: errorMessage,
-      });
-    }
+      emitEvent: (event) => {
+        writeSseEvent(res, event);
+      },
+    });
   } finally {
     stopHeartbeat();
     clearTimeout(timeoutHandle);
     req.off("close", abortFromClientClose);
-
-    if (isCompleted && !isAdmin) {
-      const outputChars = Math.max(messageDeltaChars, messageCompleteChars);
-      const pricing = calculateChatRunCredits({
-        model,
-        outputChars,
-        toolCallCount,
-      });
-
-      try {
-        await chargeUserCreditsForRun({
-          userId: identity.userId,
-          runId,
-          requestedCredits: pricing.credits,
-          metadata: {
-            threadId,
-            docId,
-            model,
-            provider,
-            outputChars,
-            toolCallCount,
-            pricing,
-          },
-        });
-      } catch (chargeError) {
-        console.error("[credits] Failed to charge user credits", {
-          userId: identity.userId,
-          runId,
-          error:
-            chargeError instanceof Error
-              ? chargeError.message
-              : String(chargeError),
-        });
-      }
-    }
 
     if (!res.writableEnded && !res.destroyed) {
       res.end();

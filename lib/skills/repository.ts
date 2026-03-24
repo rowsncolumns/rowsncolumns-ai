@@ -6,7 +6,6 @@ import { db } from "@/lib/db/postgres";
 export type AssistantSkillRecord = {
   id: string;
   userId: string;
-  workspaceId: string | null;
   name: string;
   description: string;
   instructions: string;
@@ -29,7 +28,6 @@ type AssistantSkillRow = {
 
 type AssistantSkillScope = {
   userId: string;
-  workspaceId?: string | null;
 };
 
 type CreateAssistantSkillInput = AssistantSkillScope & {
@@ -93,15 +91,9 @@ const shouldBootstrapDefaultBrandingSkill = () => {
 const getDefaultBrandingSkillId = (userId: string) =>
   `default-brand-guidelines:${userId}`;
 
-const normalizeWorkspaceId = (workspaceId?: string | null) => {
-  const trimmed = workspaceId?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
-};
-
 const mapRowToSkill = (row: AssistantSkillRow): AssistantSkillRecord => ({
   id: row.id,
   userId: row.user_id,
-  workspaceId: row.workspace_id,
   name: row.name,
   description: row.description,
   instructions: row.instructions,
@@ -204,14 +196,12 @@ export async function listAssistantSkills({
 
 export async function createAssistantSkill({
   userId,
-  workspaceId,
   name,
   description,
   instructions,
   active,
 }: CreateAssistantSkillInput): Promise<AssistantSkillRecord> {
   const id = crypto.randomUUID();
-  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
 
   const rows = await db<AssistantSkillRow[]>`
     INSERT INTO assistant_skills (
@@ -226,7 +216,7 @@ export async function createAssistantSkill({
     VALUES (
       ${id},
       ${userId},
-      ${normalizedWorkspaceId},
+      ${null},
       ${name},
       ${description},
       ${instructions},

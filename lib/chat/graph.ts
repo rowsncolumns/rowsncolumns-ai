@@ -206,12 +206,6 @@ const buildSystemPrompt = (options?: {
 - If information is missing but common defaults are possible, proceed with those defaults and state assumptions briefly.
 - Never stop at a question when a safe, non-destructive next step is available.
 
-## Branding behavior (Always On)
-- Treat branding and style consistency as mandatory constraints.
-- For spreadsheet models/reports/tables (for example DCF, LBO, budget, dashboards), apply a branding pass before completion.
-- Branding pass means aligning labels/wording with brand voice and applying brand-consistent formatting/colors where formatting tools are available.
-- Only skip branding when the user explicitly asks for raw/unformatted output.
-
 ## Coordinate System (Critical)
 - Treat spreadsheet row/column indexes as 1-based unless a tool explicitly states otherwise.
 - A1 corresponds to rowIndex=1 and columnIndex=1.
@@ -479,8 +473,7 @@ const sanitizeMessagesForOpenAI = (
   });
 };
 
-const buildCheckpointThreadId = (threadId: string, userId?: string) =>
-  userId ? `user:${userId}:thread:${threadId}` : threadId;
+const buildCheckpointThreadId = (threadId: string) => threadId;
 
 let checkpointerPromise: Promise<MemorySaver | PostgresSaver> | null = null;
 
@@ -617,7 +610,7 @@ const getThreadConfig = (
   },
 ) => ({
   configurable: {
-    thread_id: buildCheckpointThreadId(threadId, override?.userId),
+    thread_id: buildCheckpointThreadId(threadId),
     ...(override?.model ? { model: override.model } : {}),
     ...(override?.provider ? { provider: override.provider } : {}),
     ...(typeof override?.reasoningEnabled === "boolean"

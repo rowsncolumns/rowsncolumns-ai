@@ -110,6 +110,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
+import { buildSkillsInstruction } from "@/lib/chat/instructions";
+import type { SpreadsheetAssistantContext } from "@/lib/chat/context";
 import { parseChatStream } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
 import { authClient } from "@/lib/auth/client";
@@ -265,6 +267,10 @@ const CHAT_EXTERNAL_API_PATH = (
   process.env.NEXT_PUBLIC_CHAT_API_PATH ?? "/chat"
 ).trim();
 const CHAT_EXTERNAL_API_ENABLED = CHAT_EXTERNAL_API_BASE_URL.length > 0;
+const ASSISTANT_CONTEXT_BY_DOCUMENT_ID = new Map<
+  string,
+  SpreadsheetAssistantContext
+>();
 
 type PersistedThreadHistoryMessage = {
   role: "user" | "assistant" | "system";
@@ -328,11 +334,39 @@ const getAuthBearerToken = async () => {
   return null;
 };
 
+const setAssistantContextSnapshot = (
+  documentId: string,
+  context: SpreadsheetAssistantContext,
+) => {
+  ASSISTANT_CONTEXT_BY_DOCUMENT_ID.set(documentId, context);
+};
+
+const clearAssistantContextSnapshot = (documentId: string) => {
+  ASSISTANT_CONTEXT_BY_DOCUMENT_ID.delete(documentId);
+};
+
+const getAssistantContextSnapshot = (documentId?: string) => {
+  if (!documentId) {
+    return undefined;
+  }
+  return ASSISTANT_CONTEXT_BY_DOCUMENT_ID.get(documentId);
+};
+
+const getProviderForModel = (model: string | undefined) => {
+  if (!model) {
+    return "openai" as const;
+  }
+  return /^claude/i.test(model) ? ("anthropic" as const) : ("openai" as const);
+};
+
 const requestAssistantChat = async (input: {
   threadId: string;
   docId?: string;
   message: string;
+  model?: string;
+  provider?: "openai" | "anthropic";
   reasoningEnabled?: boolean;
+  context?: SpreadsheetAssistantContext;
   signal: AbortSignal;
 }) => {
   const headers: Record<string, string> = {
@@ -354,9 +388,12 @@ const requestAssistantChat = async (input: {
       threadId: input.threadId,
       docId: input.docId,
       message: input.message,
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.provider ? { provider: input.provider } : {}),
       ...(typeof input.reasoningEnabled === "boolean"
         ? { reasoningEnabled: input.reasoningEnabled }
         : {}),
+      ...(input.context ? { context: input.context } : {}),
     }),
     signal: input.signal,
     cache: "no-store",
@@ -487,17 +524,6 @@ const upsertSkillPreservingOrder = (
   );
 };
 
-const buildSkillsApiPath = (workspaceId?: string) => {
-  const trimmedWorkspaceId = workspaceId?.trim();
-  if (!trimmedWorkspaceId) {
-    return SKILLS_API_ENDPOINT;
-  }
-
-  return `${SKILLS_API_ENDPOINT}?${new URLSearchParams({
-    workspaceId: trimmedWorkspaceId,
-  }).toString()}`;
-};
-
 const parseSkillsFromPayload = (payload: unknown): AssistantSkill[] => {
   try {
     if (typeof payload !== "object" || payload === null) return [];
@@ -510,44 +536,6 @@ const parseSkillsFromPayload = (payload: unknown): AssistantSkill[] => {
   } catch {
     return [];
   }
-};
-
-const buildSkillsInstruction = (skills: AssistantSkill[]) => {
-  const blocks = skills.map((skill, index) => {
-    const description = skill.description.trim();
-    const instructions = skill.instructions.trim();
-
-    return [
-      `Skill ${index + 1}: ${skill.name}`,
-      description ? `Description: ${description}` : null,
-      instructions ? `Instructions:\n${instructions}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-  });
-  const brandingRule = [
-    "Branding guidelines are mandatory constraints for this conversation.",
-    "Always apply branding rules when generating copy, structure, naming, colors, and style-related output.",
-    "When producing spreadsheet models/reports/tables (for example DCF, LBO, budget, dashboards), apply a branding pass before completion.",
-    "Branding pass means: align labels and wording with brand voice, and apply brand-aligned formatting/colors where formatting tools are available.",
-    "Do not treat branding as optional unless the user explicitly asks for raw/unformatted output.",
-    "Only deviate if the user explicitly asks to override a branding rule.",
-    "",
-  ].join("\n");
-
-  return [
-    "Branding and style consistency rules are always in effect.",
-    brandingRule,
-    ...(skills.length > 0
-      ? [
-          "User-defined custom skills are available for this conversation.",
-          "Apply any relevant active skills when planning or executing responses.",
-          "If multiple skills conflict, prefer the most specific skill and continue; ask only if conflict blocks safe execution.",
-          "",
-        ]
-      : []),
-    ...blocks,
-  ].join("\n");
 };
 
 type StreamingTextPart = {
@@ -890,7 +878,10 @@ const getAssistantRequestErrorMessage = (
   }
 
   if (typeof payload?.error === "string" && payload.error.trim().length > 0) {
-    return normalizeAssistantErrorMessage(payload.error, "Assistant request failed.");
+    return normalizeAssistantErrorMessage(
+      payload.error,
+      "Assistant request failed.",
+    );
   }
 
   return "Assistant request failed.";
@@ -942,7 +933,10 @@ const parsePersistedThreadHistoryContentPart = (
   }
 
   if (part.type === "tool-call") {
-    if (typeof part.toolName !== "string" || part.toolName.trim().length === 0) {
+    if (
+      typeof part.toolName !== "string" ||
+      part.toolName.trim().length === 0
+    ) {
       return null;
     }
 
@@ -1276,11 +1270,16 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
         try {
           markThreadStarted();
+          const model = selectedModelRef.current;
+          const contextSnapshot = getAssistantContextSnapshot(docIdRef.current);
           const response = await requestAssistantChat({
             threadId,
             docId: docIdRef.current,
             message,
+            model,
+            provider: getProviderForModel(model),
             reasoningEnabled: reasoningEnabledRef.current,
+            context: contextSnapshot,
             signal: abortSignal,
           });
 
@@ -2238,30 +2237,8 @@ function AssistantMessage() {
 // Re-export for convenience
 export { AssistantRuntimeProvider };
 
-type UseFrontendReadableOptions = {
-  description: string;
-  value: unknown;
-  disabled?: boolean;
-};
-
-function convertToJSON(description: string, value: any): string {
-  return `${description}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
-}
-export function useFrontendReadable({
-  description,
-  value,
-  disabled,
-}: UseFrontendReadableOptions) {
-  const instruction = React.useMemo(
-    () => convertToJSON(description, value),
-    [description, value],
-  );
-
-  useAssistantInstructions({ instruction, disabled });
-}
-
 /**
- * Injects sheets context into the assistant using useAssistantInstructions.
+ * Captures spreadsheet context for chat request payloads.
  * Must be used inside an AssistantRuntimeProvider.
  */
 export function SheetsInstructions({
@@ -2308,44 +2285,6 @@ export function SheetsInstructions({
     [activeCell],
   );
 
-  useFrontendReadable({
-    description: `You are helping the user edit a spreadsheet. \nDocument ID
-`,
-    value: documentId,
-  });
-
-  useFrontendReadable({
-    description: `Available sheets in the current workbook
-`,
-    value: sheetSummary,
-  });
-
-  useFrontendReadable({
-    description: "The user is focused on sheetId: ",
-    value: activeSheetId,
-  });
-
-  useFrontendReadable({
-    description: `The user's currently focussed / active cell in the spreadsheet.
-IMPORTANT INDEXING RULE:
-- rowIndex and columnIndex are 1-based (NOT zero-based)
-- A1 is rowIndex=1, columnIndex=1
-- Never interpret rowIndex=1,columnIndex=1 as B2
-`,
-    value: {
-      ...activeCell,
-      a1Address: activeCellA1Address,
-    },
-  });
-
-  useFrontendReadable({
-    description: `This object represents the cell formatting applied in the spreadsheet.
-Each cell format is identified by a "sid" in the styles.
-The formats are stored in a cellXfs registry map, where the key is the format ID and the value describes the formatting details
-`,
-    value: cellXfs ? Object.fromEntries([...cellXfs]) : {},
-  });
-
   // Tables
   const tableValue = tables?.map(({ bandedRange, ...table }) => {
     const sheetProps = getSheetProperties?.(table.sheetId);
@@ -2361,14 +2300,6 @@ The formats are stored in a cellXfs registry map, where the key is the format ID
       ...table,
       ref: address,
     };
-  });
-
-  useFrontendReadable({
-    description: `The Spreadsheet has the following tables. Tables have a title and and array of columns. Tables ranges do not overlap. Tables are always referenced using table name and ID. User cannot change the ID, but they can change the columns, table name and range.
-
-List of tables:
-`,
-    value: tableValue,
   });
 
   // Map theme colors for Agent to comprehend
@@ -2391,24 +2322,50 @@ List of tables:
     };
   }, [theme]);
 
-  useFrontendReadable({
-    description: `The current active theme of the spreadsheet has the following colors. Theme colors are mapped by this dictionary.
-`,
-    value: themeColorMapping,
-  });
+  const contextSnapshot = React.useMemo<SpreadsheetAssistantContext>(
+    () => ({
+      documentId,
+      sheets: sheetSummary,
+      activeSheetId,
+      activeCell: {
+        rowIndex: activeCell.rowIndex,
+        columnIndex: activeCell.columnIndex,
+        a1Address: activeCellA1Address,
+      },
+      cellXfs: cellXfs ? Object.fromEntries([...cellXfs]) : {},
+      tables: tableValue ?? [],
+      theme: themeColorMapping,
+    }),
+    [
+      documentId,
+      sheetSummary,
+      activeSheetId,
+      activeCell.rowIndex,
+      activeCell.columnIndex,
+      activeCellA1Address,
+      cellXfs,
+      tableValue,
+      themeColorMapping,
+    ],
+  );
+
+  React.useEffect(() => {
+    setAssistantContextSnapshot(documentId, contextSnapshot);
+  }, [contextSnapshot, documentId]);
+
+  React.useEffect(
+    () => () => {
+      clearAssistantContextSnapshot(documentId);
+    },
+    [documentId],
+  );
 
   return null;
 }
 
 const NEW_SKILL_EDITOR_ID = "__new__";
 
-function SkillsManagerButton({
-  workspaceId,
-  iconOnly = false,
-}: {
-  workspaceId?: string;
-  iconOnly?: boolean;
-}) {
+function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [skills, setSkills] = React.useState<AssistantSkill[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = React.useState(false);
@@ -2434,7 +2391,7 @@ function SkillsManagerButton({
     setIsLoadingSkills(true);
     setSkillsError("");
     try {
-      const response = await fetch(buildSkillsApiPath(workspaceId), {
+      const response = await fetch(SKILLS_API_ENDPOINT, {
         method: "GET",
         cache: "no-store",
       });
@@ -2455,7 +2412,7 @@ function SkillsManagerButton({
     } finally {
       setIsLoadingSkills(false);
     }
-  }, [workspaceId]);
+  }, []);
 
   React.useEffect(() => {
     void loadSkills();
@@ -2550,14 +2507,12 @@ function SkillsManagerButton({
         body: JSON.stringify(
           isCreating
             ? {
-                workspaceId,
                 name,
                 description,
                 instructions,
                 active: draftIsActive,
               }
             : {
-                workspaceId,
                 skillId: editorSkillId,
                 name,
                 description,
@@ -2593,50 +2548,41 @@ function SkillsManagerButton({
     draftName,
     editorSkillId,
     resetEditor,
-    workspaceId,
   ]);
 
-  const deleteSkill = React.useCallback(
-    async (skillId: string) => {
-      setSkillsError("");
-      setDeletingSkillId(skillId);
-      try {
-        const response = await fetch(SKILLS_API_ENDPOINT, {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            workspaceId,
-            skillId,
-          }),
-        });
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        if (!response.ok) {
-          throw new Error(payload?.error || "Failed to delete skill.");
-        }
-
-        setSkills((previous) =>
-          previous.filter((skill) => skill.id !== skillId),
-        );
-        setEditorSkillId((previous) =>
-          previous === skillId ? null : previous,
-        );
-        setPendingDeleteSkill((current) =>
-          current?.id === skillId ? null : current,
-        );
-      } catch (error) {
-        setSkillsError(
-          error instanceof Error ? error.message : "Failed to delete skill.",
-        );
-      } finally {
-        setDeletingSkillId((current) => (current === skillId ? null : current));
+  const deleteSkill = React.useCallback(async (skillId: string) => {
+    setSkillsError("");
+    setDeletingSkillId(skillId);
+    try {
+      const response = await fetch(SKILLS_API_ENDPOINT, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          skillId,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to delete skill.");
       }
-    },
-    [workspaceId],
-  );
+
+      setSkills((previous) => previous.filter((skill) => skill.id !== skillId));
+      setEditorSkillId((previous) => (previous === skillId ? null : previous));
+      setPendingDeleteSkill((current) =>
+        current?.id === skillId ? null : current,
+      );
+    } catch (error) {
+      setSkillsError(
+        error instanceof Error ? error.message : "Failed to delete skill.",
+      );
+    } finally {
+      setDeletingSkillId((current) => (current === skillId ? null : current));
+    }
+  }, []);
 
   const toggleSkillActive = React.useCallback(
     async (skillId: string, nextActive: boolean) => {
@@ -2649,7 +2595,6 @@ function SkillsManagerButton({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            workspaceId,
             skillId,
             active: nextActive,
           }),
@@ -2683,7 +2628,7 @@ function SkillsManagerButton({
         setUpdatingSkillId((current) => (current === skillId ? null : current));
       }
     },
-    [workspaceId],
+    [],
   );
 
   return (
@@ -2707,316 +2652,330 @@ function SkillsManagerButton({
       {typeof document !== "undefined"
         ? createPortal(
             isOpen ? (
-        <div
-          className="fixed inset-0 z-[110] overflow-y-auto bg-black/35 px-4 backdrop-blur-[1px]"
-          style={{
-            paddingTop: "max(1.5rem, env(safe-area-inset-top))",
-            paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
-          }}
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              setIsOpen(false);
-            }
-          }}
-        >
-          <div className="mx-auto flex h-full max-h-[900px] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-(--card-border) bg-(--card-bg-solid) shadow-xl">
-            <div className="flex items-start justify-between border-b border-(--card-border) px-5 py-4">
-              <div>
-                <h3 className="text-xl font-semibold">Skills</h3>
-                <p className="mt-1 text-sm text-(--muted-foreground)">
-                  Create reusable custom skills for your account. Active skills
-                  are automatically applied to agent instructions.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
-                onClick={() => setIsOpen(false)}
-                aria-label="Close skills manager"
-                title="Close"
+              <div
+                className="fixed inset-0 z-[110] overflow-y-auto bg-black/35 px-4 backdrop-blur-[1px]"
+                style={{
+                  paddingTop: "max(1.5rem, env(safe-area-inset-top))",
+                  paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+                }}
+                onClick={(event) => {
+                  if (event.target === event.currentTarget) {
+                    setIsOpen(false);
+                  }
+                }}
               >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {!isEditingView ? (
-              <>
-                <div className="flex items-center gap-2 border-b border-(--card-border) px-5 py-3">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={beginCreateSkill}
-                    className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>New Skill</span>
-                  </Button>
-                  <div className="min-w-0 flex-1">
-                    <input
-                      value={searchTerm}
-                      onChange={(event) => setSearchTerm(event.target.value)}
-                      placeholder="Search skills..."
-                      className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    />
+                <div className="mx-auto flex h-full max-h-[900px] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-(--card-border) bg-(--card-bg-solid) shadow-xl">
+                  <div className="flex items-start justify-between border-b border-(--card-border) px-5 py-4">
+                    <div>
+                      <h3 className="text-xl font-semibold">Skills</h3>
+                      <p className="mt-1 text-sm text-(--muted-foreground)">
+                        Create reusable custom skills for your account. Active
+                        skills are automatically applied to agent instructions.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
+                      onClick={() => setIsOpen(false)}
+                      aria-label="Close skills manager"
+                      title="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
-                </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
-                  {skillsError && (
-                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                      {skillsError}
-                    </div>
-                  )}
-                  {isLoadingSkills && (
-                    <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-subtle) p-4 text-sm text-(--muted-foreground)">
-                      Loading skills...
-                    </div>
-                  )}
-                  {!isLoadingSkills && filteredSkills.length === 0 && (
-                    <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-subtle) p-4 text-sm text-(--muted-foreground)">
-                      {skills.length === 0
-                        ? "No skills yet. Create one to guide the assistant."
-                        : "No matching skills found."}
-                    </div>
-                  )}
-                  {filteredSkills.map((skill) => {
-                    const isUpdatingThisSkill = updatingSkillId === skill.id;
-                    const isDeletingThisSkill = deletingSkillId === skill.id;
-                    return (
-                      <Card
-                        key={skill.id}
-                        className="border-(--card-border) bg-(--card-bg-solid) shadow-none"
-                      >
-                        <CardContent className="space-y-3 px-4 py-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-base font-semibold text-foreground">
-                                {skill.name}
-                              </div>
-                              <div className="mt-2 flex items-center gap-2">
-                                <Badge
-                                  variant={skill.active ? "default" : "muted"}
-                                  className="px-2 py-0.5 text-[10px] tracking-[0.12em]"
-                                >
-                                  {skill.active ? "Active" : "Inactive"}
-                                </Badge>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => beginEditSkill(skill)}
-                                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
-                                title="Edit skill"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                                <span>Edit</span>
-                              </button>
-                              <div className="flex items-center gap-2 rounded-md px-2 py-1">
-                                {isUpdatingThisSkill ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                                ) : null}
-                                <span
-                                  className={cn(
-                                    "text-xs",
-                                    skill.active
-                                      ? "text-green-700"
-                                      : "text-(--muted-foreground)",
-                                  )}
-                                >
-                                  {isUpdatingThisSkill
-                                    ? "Updating..."
-                                    : skill.active
-                                      ? "Active"
-                                      : "Inactive"}
-                                </span>
-                                <Switch
-                                  checked={skill.active}
-                                  onCheckedChange={(checked) => {
-                                    void toggleSkillActive(skill.id, checked);
-                                  }}
-                                  disabled={
-                                    isUpdatingThisSkill || isDeletingThisSkill
-                                  }
-                                  aria-label={`Toggle ${skill.name} skill`}
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setPendingDeleteSkill(skill)}
-                                disabled={isDeletingThisSkill}
-                                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-red-500 transition hover:bg-red-500/15"
-                                title="Delete skill"
-                              >
-                                {isDeletingThisSkill ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                )}
-                                <span>
-                                  {isDeletingThisSkill
-                                    ? "Deleting..."
-                                    : "Delete"}
-                                </span>
-                              </button>
-                            </div>
-                          </div>
-                          <p className="text-sm leading-6 text-(--muted-foreground) whitespace-pre-wrap break-words">
-                            {skill.description || "No description provided."}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between border-b border-(--card-border) px-5 py-3">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={resetEditor}
-                    className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
-                  >
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                    <span>Back to Skills</span>
-                  </Button>
-                  <span className="text-xs text-(--muted-foreground)">
-                    {editorSkillId === NEW_SKILL_EDITOR_ID
-                      ? "Creating skill"
-                      : "Editing skill"}
-                  </span>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-hidden p-4">
-                  <Card className="mx-auto flex h-full w-full max-w-3xl flex-col border-(--card-border) bg-(--card-bg-solid) shadow-none">
-                    <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-                        <div>
-                          <h4 className="text-base font-semibold text-foreground">
-                            {editorSkillId === NEW_SKILL_EDITOR_ID
-                              ? "Create Skill"
-                              : "Edit Skill"}
-                          </h4>
-                          <p className="text-xs text-(--muted-foreground)">
-                            Skills are stored in Postgres for your account.
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-(--muted-foreground)">
-                            Name
-                          </label>
+                  {!isEditingView ? (
+                    <>
+                      <div className="flex items-center gap-2 border-b border-(--card-border) px-5 py-3">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={beginCreateSkill}
+                          className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>New Skill</span>
+                        </Button>
+                        <div className="min-w-0 flex-1">
                           <input
-                            value={draftName}
+                            value={searchTerm}
                             onChange={(event) =>
-                              setDraftName(event.target.value)
+                              setSearchTerm(event.target.value)
                             }
-                            placeholder="my-skill"
-                            className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
+                            placeholder="Search skills..."
+                            className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                           />
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-(--muted-foreground)">
-                            Description
-                          </label>
-                          <Textarea
-                            value={draftDescription}
-                            onChange={(event) =>
-                              setDraftDescription(event.target.value)
-                            }
-                            placeholder="What this skill is for"
-                            className="min-h-20"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-(--muted-foreground)">
-                            Instructions
-                          </label>
-                          <Textarea
-                            value={draftInstructions}
-                            onChange={(event) =>
-                              setDraftInstructions(event.target.value)
-                            }
-                            placeholder="Detailed reusable instructions for the assistant"
-                            className="min-h-64"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between rounded-lg border border-(--card-border) bg-(--card-bg-subtle) px-3 py-2">
-                          <label
-                            htmlFor="skill-enabled-switch"
-                            className="text-xs text-(--muted-foreground)"
-                          >
-                            Enabled
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={cn(
-                                "text-xs",
-                                draftIsActive
-                                  ? "text-green-700"
-                                  : "text-(--muted-foreground)",
-                              )}
-                            >
-                              {draftIsActive ? "Active" : "Inactive"}
-                            </span>
-                            <Switch
-                              id="skill-enabled-switch"
-                              checked={draftIsActive}
-                              onCheckedChange={setDraftIsActive}
-                              disabled={isSavingSkill}
-                              aria-label="Toggle skill enabled state"
-                            />
-                          </div>
-                        </div>
-                        {formError && (
-                          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                            {formError}
-                          </div>
-                        )}
-                        {!formError && skillsError && (
+                      </div>
+
+                      <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
+                        {skillsError && (
                           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                             {skillsError}
                           </div>
                         )}
+                        {isLoadingSkills && (
+                          <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-subtle) p-4 text-sm text-(--muted-foreground)">
+                            Loading skills...
+                          </div>
+                        )}
+                        {!isLoadingSkills && filteredSkills.length === 0 && (
+                          <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-subtle) p-4 text-sm text-(--muted-foreground)">
+                            {skills.length === 0
+                              ? "No skills yet. Create one to guide the assistant."
+                              : "No matching skills found."}
+                          </div>
+                        )}
+                        {filteredSkills.map((skill) => {
+                          const isUpdatingThisSkill =
+                            updatingSkillId === skill.id;
+                          const isDeletingThisSkill =
+                            deletingSkillId === skill.id;
+                          return (
+                            <Card
+                              key={skill.id}
+                              className="border-(--card-border) bg-(--card-bg-solid) shadow-none"
+                            >
+                              <CardContent className="space-y-3 px-4 py-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-base font-semibold text-foreground">
+                                      {skill.name}
+                                    </div>
+                                    <div className="mt-2 flex items-center gap-2">
+                                      <Badge
+                                        variant={
+                                          skill.active ? "default" : "muted"
+                                        }
+                                        className="px-2 py-0.5 text-[10px] tracking-[0.12em]"
+                                      >
+                                        {skill.active ? "Active" : "Inactive"}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => beginEditSkill(skill)}
+                                      className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
+                                      title="Edit skill"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                      <span>Edit</span>
+                                    </button>
+                                    <div className="flex items-center gap-2 rounded-md px-2 py-1">
+                                      {isUpdatingThisSkill ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                      ) : null}
+                                      <span
+                                        className={cn(
+                                          "text-xs",
+                                          skill.active
+                                            ? "text-green-700"
+                                            : "text-(--muted-foreground)",
+                                        )}
+                                      >
+                                        {isUpdatingThisSkill
+                                          ? "Updating..."
+                                          : skill.active
+                                            ? "Active"
+                                            : "Inactive"}
+                                      </span>
+                                      <Switch
+                                        checked={skill.active}
+                                        onCheckedChange={(checked) => {
+                                          void toggleSkillActive(
+                                            skill.id,
+                                            checked,
+                                          );
+                                        }}
+                                        disabled={
+                                          isUpdatingThisSkill ||
+                                          isDeletingThisSkill
+                                        }
+                                        aria-label={`Toggle ${skill.name} skill`}
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPendingDeleteSkill(skill)
+                                      }
+                                      disabled={isDeletingThisSkill}
+                                      className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-red-500 transition hover:bg-red-500/15"
+                                      title="Delete skill"
+                                    >
+                                      {isDeletingThisSkill ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      )}
+                                      <span>
+                                        {isDeletingThisSkill
+                                          ? "Deleting..."
+                                          : "Delete"}
+                                      </span>
+                                    </button>
+                                  </div>
+                                </div>
+                                <p className="text-sm leading-6 text-(--muted-foreground) whitespace-pre-wrap break-words">
+                                  {skill.description ||
+                                    "No description provided."}
+                                </p>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between border-b border-(--card-border) px-5 py-3">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={resetEditor}
+                          className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                          <span>Back to Skills</span>
+                        </Button>
+                        <span className="text-xs text-(--muted-foreground)">
+                          {editorSkillId === NEW_SKILL_EDITOR_ID
+                            ? "Creating skill"
+                            : "Editing skill"}
+                        </span>
                       </div>
 
-                      <div className="shrink-0 border-t border-(--card-border) px-4 py-3">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={resetEditor}
-                            disabled={isSavingSkill}
-                            className="rnc-assistant-chip h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={saveSkill}
-                            disabled={isSavingSkill}
-                            className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"
-                          >
-                            {isSavingSkill
-                              ? "Saving..."
-                              : editorSkillId === NEW_SKILL_EDITOR_ID
-                                ? "Create"
-                                : "Save"}
-                          </Button>
-                        </div>
+                      <div className="min-h-0 flex-1 overflow-hidden p-4">
+                        <Card className="mx-auto flex h-full w-full max-w-3xl flex-col border-(--card-border) bg-(--card-bg-solid) shadow-none">
+                          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+                            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+                              <div>
+                                <h4 className="text-base font-semibold text-foreground">
+                                  {editorSkillId === NEW_SKILL_EDITOR_ID
+                                    ? "Create Skill"
+                                    : "Edit Skill"}
+                                </h4>
+                                <p className="text-xs text-(--muted-foreground)">
+                                  Skills are stored in Postgres for your
+                                  account.
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-(--muted-foreground)">
+                                  Name
+                                </label>
+                                <input
+                                  value={draftName}
+                                  onChange={(event) =>
+                                    setDraftName(event.target.value)
+                                  }
+                                  placeholder="my-skill"
+                                  className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-(--muted-foreground)">
+                                  Description
+                                </label>
+                                <Textarea
+                                  value={draftDescription}
+                                  onChange={(event) =>
+                                    setDraftDescription(event.target.value)
+                                  }
+                                  placeholder="What this skill is for"
+                                  className="min-h-20"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-(--muted-foreground)">
+                                  Instructions
+                                </label>
+                                <Textarea
+                                  value={draftInstructions}
+                                  onChange={(event) =>
+                                    setDraftInstructions(event.target.value)
+                                  }
+                                  placeholder="Detailed reusable instructions for the assistant"
+                                  className="min-h-64"
+                                />
+                              </div>
+                              <div className="flex items-center justify-between rounded-lg border border-(--card-border) bg-(--card-bg-subtle) px-3 py-2">
+                                <label
+                                  htmlFor="skill-enabled-switch"
+                                  className="text-xs text-(--muted-foreground)"
+                                >
+                                  Enabled
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={cn(
+                                      "text-xs",
+                                      draftIsActive
+                                        ? "text-green-700"
+                                        : "text-(--muted-foreground)",
+                                    )}
+                                  >
+                                    {draftIsActive ? "Active" : "Inactive"}
+                                  </span>
+                                  <Switch
+                                    id="skill-enabled-switch"
+                                    checked={draftIsActive}
+                                    onCheckedChange={setDraftIsActive}
+                                    disabled={isSavingSkill}
+                                    aria-label="Toggle skill enabled state"
+                                  />
+                                </div>
+                              </div>
+                              {formError && (
+                                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                  {formError}
+                                </div>
+                              )}
+                              {!formError && skillsError && (
+                                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                  {skillsError}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="shrink-0 border-t border-(--card-border) px-4 py-3">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={resetEditor}
+                                  disabled={isSavingSkill}
+                                  className="rnc-assistant-chip h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={saveSkill}
+                                  disabled={isSavingSkill}
+                                  className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"
+                                >
+                                  {isSavingSkill
+                                    ? "Saving..."
+                                    : editorSkillId === NEW_SKILL_EDITOR_ID
+                                      ? "Create"
+                                      : "Save"}
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </>
+                  )}
                 </div>
-              </>
-            )}
-          </div>
-        </div>
+              </div>
             ) : null,
             document.body,
           )
@@ -3658,10 +3617,7 @@ function WorkspaceAssistantPanel({
               iconOnly={isAssistantHeaderCompact}
               onNewSession={onNewSession}
             />
-            <SkillsManagerButton
-              workspaceId={docId}
-              iconOnly={isAssistantHeaderCompact}
-            />
+            <SkillsManagerButton iconOnly={isAssistantHeaderCompact} />
           </div>
         </div>
         <p className="mt-1 text-sm leading-6 text-(--muted-foreground)">
@@ -3801,181 +3757,26 @@ export function WorkspaceAssistantUI({
 export function WorkspaceAssistant({
   prompts,
   docId,
-  sheets,
-  activeSheetId,
   isAdmin,
 }: WorkspaceAssistantProps) {
-  const { threadId, persistInUrl, markThreadStarted, startNewThread } =
-    useThreadIdFromUrl();
-  const [selectedModel, setSelectedModel] =
-    React.useState<string>(DEFAULT_MODEL);
-  const [isModelPickerOpen, setIsModelPickerOpen] = React.useState(false);
-  const [reasoningEnabled, setReasoningEnabled] = React.useState(true);
-  const selectedModelRef = React.useRef(selectedModel);
-  const reasoningEnabledRef = React.useRef(reasoningEnabled);
-  const docIdRef = React.useRef(docId);
-  React.useEffect(() => {
-    docIdRef.current = docId;
-  }, [docId]);
-
-  React.useEffect(() => {
-    try {
-      const storedModel = window.localStorage
-        .getItem(MODEL_STORAGE_KEY)
-        ?.trim();
-      if (storedModel && MODEL_OPTION_VALUES.has(storedModel)) {
-        setSelectedModel(storedModel);
-        selectedModelRef.current = storedModel;
-      }
-    } catch {
-      // Ignore localStorage read failures (private mode / blocked storage)
-    }
-  }, []);
-
-  React.useEffect(() => {
-    try {
-      const storedReasoningEnabled = window.localStorage
-        .getItem(REASONING_STORAGE_KEY)
-        ?.trim()
-        .toLowerCase();
-
-      if (storedReasoningEnabled === "true" || storedReasoningEnabled === "1") {
-        setReasoningEnabled(true);
-        reasoningEnabledRef.current = true;
-      }
-
-      if (
-        storedReasoningEnabled === "false" ||
-        storedReasoningEnabled === "0"
-      ) {
-        setReasoningEnabled(false);
-        reasoningEnabledRef.current = false;
-      }
-    } catch {
-      // Ignore localStorage read failures (private mode / blocked storage)
-    }
-  }, []);
-
-  React.useEffect(() => {
-    selectedModelRef.current = selectedModel;
-  }, [selectedModel]);
-
-  React.useEffect(() => {
-    reasoningEnabledRef.current = reasoningEnabled;
-  }, [reasoningEnabled]);
-
-  React.useEffect(() => {
-    try {
-      window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
-    } catch {
-      // Ignore localStorage write failures (private mode / blocked storage)
-    }
-  }, [selectedModel]);
-
-  React.useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        REASONING_STORAGE_KEY,
-        String(reasoningEnabled),
-      );
-    } catch {
-      // Ignore localStorage write failures (private mode / blocked storage)
-    }
-  }, [reasoningEnabled]);
-
-  const selectedModelLabel =
-    MODEL_OPTIONS.find((option) => option.value === selectedModel)?.label ??
-    selectedModel;
-
-  const runtime = useLocalRuntime(
-    React.useMemo<ChatModelAdapter>(
-      () => ({
-        async *run({ messages, abortSignal }) {
-          const latestUserMessage = [...messages]
-            .reverse()
-            .find((message) => message.role === "user");
-          const message = getMessageText(latestUserMessage);
-
-          if (!message) {
-            yield {
-              content: [
-                {
-                  type: "text",
-                  text: "I need a prompt before I can help.",
-                },
-              ],
-              status: {
-                type: "complete",
-                reason: "stop",
-              },
-            };
-            return;
-          }
-
-          try {
-            markThreadStarted();
-            const response = await requestAssistantChat({
-              threadId,
-              docId: docIdRef.current,
-              message,
-              reasoningEnabled: reasoningEnabledRef.current,
-              signal: abortSignal,
-            });
-
-            if (!response.ok) {
-              const payload = (await response
-                .json()
-                .catch(() => null)) as AssistantChatErrorPayload | null;
-
-              throw new Error(
-                getAssistantRequestErrorMessage(response.status, payload),
-              );
-            }
-
-            if (!response.body) {
-              throw new Error("Assistant stream is unavailable.");
-            }
-
-            yield* streamAssistantResponse(response.body, threadId);
-          } catch (error) {
-            if (isAbortError(error)) {
-              return;
-            }
-
-            yield buildTerminalAssistantMessage(
-              normalizeAssistantClientError(error),
-            );
-          }
-        },
-      }),
-      [markThreadStarted, threadId],
-    ),
-    {
-      maxSteps: 1,
-    },
-  );
-  const isHydratingSession = useHydratePersistedThreadHistory({
-    runtime,
-    threadId,
-    enabled: persistInUrl,
-  });
+  const assistantRuntime = useSpreadsheetAssistantRuntime({ docId });
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <AssistantRuntimeProvider runtime={assistantRuntime.runtime}>
       <WorkspaceAssistantPanel
         prompts={prompts}
         docId={docId}
         isAdmin={isAdmin}
-        onNewSession={startNewThread}
-        isHydratingSession={isHydratingSession}
-        selectedModel={selectedModel}
-        selectedModelLabel={selectedModelLabel}
-        isModelPickerOpen={isModelPickerOpen}
-        setIsModelPickerOpen={setIsModelPickerOpen}
-        setSelectedModel={setSelectedModel}
-        reasoningEnabled={reasoningEnabled}
-        setReasoningEnabled={setReasoningEnabled}
-        reasoningEnabledRef={reasoningEnabledRef}
+        onNewSession={assistantRuntime.startNewThread}
+        isHydratingSession={assistantRuntime.isHydratingSession}
+        selectedModel={assistantRuntime.selectedModel}
+        selectedModelLabel={assistantRuntime.selectedModelLabel}
+        isModelPickerOpen={assistantRuntime.isModelPickerOpen}
+        setIsModelPickerOpen={assistantRuntime.setIsModelPickerOpen}
+        setSelectedModel={assistantRuntime.setSelectedModel}
+        reasoningEnabled={assistantRuntime.reasoningEnabled}
+        setReasoningEnabled={assistantRuntime.setReasoningEnabled}
+        reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
       />
     </AssistantRuntimeProvider>
   );
