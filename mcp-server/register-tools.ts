@@ -61,7 +61,8 @@ const normalizeToolResult = (value: unknown) => {
   };
 };
 
-const SPREADSHEET_APP_RESOURCE_URI = "ui://rowsncolumns/spreadsheet-view-v3.html";
+const SPREADSHEET_APP_RESOURCE_URI =
+  "ui://rowsncolumns/spreadsheet-view-v3.html";
 const MCP_PUBLIC_DOC_BASE_PATH = "/mcp/doc";
 const MCP_WIDGET_BUNDLE_JS_PATH = path.join(
   process.cwd(),
@@ -260,7 +261,9 @@ const buildSpreadsheetAppHtml = async ({
       color: #f3f6fb;
     }
     #app {
-      min-height: 680px;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
     }
     .rnc-widget-sheet {
       min-height: 680px;
@@ -372,8 +375,8 @@ export const registerSpreadsheetTools = (server: McpServer) => {
   const connectDomains = [appOrigin, shareDbOrigin].filter(
     (value): value is string => Boolean(value),
   );
-  const resourceDomains = [appOrigin].filter(
-    (value): value is string => Boolean(value),
+  const resourceDomains = [appOrigin].filter((value): value is string =>
+    Boolean(value),
   );
 
   const buildSpreadsheetResourceResult = async () => ({
@@ -417,12 +420,8 @@ export const registerSpreadsheetTools = (server: McpServer) => {
           ...(connectDomains.length > 0 || resourceDomains.length > 0
             ? {
                 csp: {
-                  ...(connectDomains.length > 0
-                    ? { connectDomains }
-                    : {}),
-                  ...(resourceDomains.length > 0
-                    ? { resourceDomains }
-                    : {}),
+                  ...(connectDomains.length > 0 ? { connectDomains } : {}),
+                  ...(resourceDomains.length > 0 ? { resourceDomains } : {}),
                 },
               }
             : {}),
@@ -476,7 +475,9 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       }
 
       return {
-        content: [{ type: "text", text: `Opening spreadsheet: ${url.toString()}` }],
+        content: [
+          { type: "text", text: `Opening spreadsheet: ${url.toString()}` },
+        ],
         structuredContent: {
           docId: parsed.docId,
           ...(parsed.sheetId !== undefined ? { sheetId: parsed.sheetId } : {}),
