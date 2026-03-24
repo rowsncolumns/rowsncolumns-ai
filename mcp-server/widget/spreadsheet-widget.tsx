@@ -128,12 +128,16 @@ type WidgetConfig = {
   shareDbUrl?: string | null;
   shareDbPort?: string | null;
   appBaseUrl?: string | null;
+  locale?: string | null;
+  currency?: string | null;
 };
 
 type ToolPayload = {
   docId?: string;
   sheetId?: number;
   url?: string;
+  locale?: string;
+  currency?: string;
 };
 
 type InitialDocState = {
@@ -141,6 +145,8 @@ type InitialDocState = {
   docUrl: string | null;
   openUrl: string | null;
   meta: string;
+  locale: string;
+  currency: string;
 };
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
@@ -178,6 +184,8 @@ const parseToolPayload = (value: unknown): ToolPayload | null => {
         ? undefined
         : (readInteger(asRecord.sheetId) ?? undefined),
     url: readString(asRecord.url) ?? undefined,
+    locale: readString(asRecord.locale) ?? undefined,
+    currency: readString(asRecord.currency) ?? undefined,
   };
 };
 
@@ -214,12 +222,17 @@ const resolveDocOpenUrl = ({
 };
 
 const getInitialDocState = (config: WidgetConfig): InitialDocState => {
+  const defaultLocale = readString(config.locale ?? null) ?? "en-US";
+  const defaultCurrency = readString(config.currency ?? null) ?? "USD";
+
   if (typeof window === "undefined") {
     return {
       docId: null,
       docUrl: null,
       openUrl: null,
       meta: "Run open_spreadsheet to load a spreadsheet.",
+      locale: defaultLocale,
+      currency: defaultCurrency,
     };
   }
 
@@ -228,12 +241,16 @@ const getInitialDocState = (config: WidgetConfig): InitialDocState => {
   const docUrl = readString(params.get("url"));
   const sheetParam = readString(params.get("sheetId"));
   const sheetId = sheetParam === null ? null : readInteger(Number(sheetParam));
+  const locale = readString(params.get("locale")) ?? defaultLocale;
+  const currency = readString(params.get("currency")) ?? defaultCurrency;
   if (!docId) {
     return {
       docId: null,
       docUrl: null,
       openUrl: null,
       meta: "Run open_spreadsheet to load a spreadsheet.",
+      locale,
+      currency,
     };
   }
 
@@ -247,6 +264,8 @@ const getInitialDocState = (config: WidgetConfig): InitialDocState => {
       appBaseUrl: config.appBaseUrl ?? null,
     }),
     meta: `Document ${docId}`,
+    locale,
+    currency,
   };
 };
 
@@ -311,9 +330,13 @@ const createShareDbSocket = (url: string): ShareDBSocket => {
 function SpreadsheetDocumentView({
   docId,
   docUrl,
+  locale,
+  currency,
 }: {
   docId: string;
   docUrl: string | null;
+  locale: string;
+  currency: string;
 }) {
   const config = window.__RNC_MCP_WIDGET_CONFIG__ ?? {};
   const shareDbUrl = resolveShareDbUrl(docUrl, config);
@@ -321,8 +344,6 @@ function SpreadsheetDocumentView({
     () => new ShareDBClient.Connection(createShareDbSocket(shareDbUrl)),
     [shareDbUrl],
   );
-  const locale = "en-US";
-  const currency = "USD";
   const [sheets, onChangeSheets] = useState<Sheet[]>(initialSheets);
   const [sheetData, onChangeSheetData] = useState<SheetData<CellData>>({});
   const [tables, onChangeTables] = useState<TableView[]>([]);
@@ -705,7 +726,11 @@ function SpreadsheetDocumentView({
   }, [connection]);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-1 flex-col"
+      data-locale={locale}
+      data-currency={currency}
+    >
       <LoadingIndicator />
       <Toolbar enableFloating className="rounded-tl-xl rounded-tr-xl">
         <ButtonUndo onClick={onUndo} disabled={!canUndo} />
@@ -1420,6 +1445,8 @@ function App() {
   const [docUrl, setDocUrl] = useState<string | null>(initialState.docUrl);
   const [meta, setMeta] = useState(initialState.meta);
   const [openUrl, setOpenUrl] = useState<string | null>(initialState.openUrl);
+  const [locale, setLocale] = useState(initialState.locale);
+  const [currency, setCurrency] = useState(initialState.currency);
   const requestIdRef = useRef(0);
   const pendingRequestsRef = useRef(
     new Map<
@@ -1509,6 +1536,12 @@ function App() {
         if (payload?.docId) {
           setDocId(payload.docId);
           setDocUrl(payload.url ?? null);
+          if (payload.locale) {
+            setLocale(payload.locale);
+          }
+          if (payload.currency) {
+            setCurrency(payload.currency);
+          }
           setOpenUrl(
             resolveDocOpenUrl({
               docId: payload.docId,
@@ -1526,6 +1559,12 @@ function App() {
         if (payload?.docId) {
           setDocId(payload.docId);
           setDocUrl(payload.url ?? null);
+          if (payload.locale) {
+            setLocale(payload.locale);
+          }
+          if (payload.currency) {
+            setCurrency(payload.currency);
+          }
           setOpenUrl(
             resolveDocOpenUrl({
               docId: payload.docId,
@@ -1591,7 +1630,13 @@ function App() {
 
   return (
     <SpreadsheetProvider>
-      <SpreadsheetDocumentView key={docId} docId={docId} docUrl={docUrl} />
+      <SpreadsheetDocumentView
+        key={`${docId}-${locale}-${currency}`}
+        docId={docId}
+        docUrl={docUrl}
+        locale={locale}
+        currency={currency}
+      />
     </SpreadsheetProvider>
   );
 }

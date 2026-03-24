@@ -137,6 +137,16 @@ const resolveShareDbPort = () =>
   process.env.NEXT_PUBLIC_SHAREDB_PORT?.trim() ||
   null;
 
+const resolveWidgetLocale = () =>
+  process.env.MCP_WIDGET_LOCALE?.trim() ||
+  process.env.NEXT_PUBLIC_LOCALE?.trim() ||
+  "en-US";
+
+const resolveWidgetCurrency = () =>
+  process.env.MCP_WIDGET_CURRENCY?.trim() ||
+  process.env.NEXT_PUBLIC_CURRENCY?.trim() ||
+  "USD";
+
 const safeOrigin = (raw: string | null) => {
   if (!raw) {
     return null;
@@ -231,10 +241,14 @@ const buildSpreadsheetAppHtml = async ({
   appBaseUrl,
   shareDbUrl,
   shareDbPort,
+  locale,
+  currency,
 }: {
   appBaseUrl: string;
   shareDbUrl: string | null;
   shareDbPort: string | null;
+  locale: string;
+  currency: string;
 }) => {
   const bundle = await readWidgetBundle();
   const safeBundle = bundle.js.replace(/<\/script/gi, "<\\/script");
@@ -243,6 +257,8 @@ const buildSpreadsheetAppHtml = async ({
     appBaseUrl,
     shareDbUrl,
     shareDbPort,
+    locale,
+    currency,
   });
 
   return `<!doctype html>
@@ -262,6 +278,7 @@ const buildSpreadsheetAppHtml = async ({
     }
     #app {
       min-height: 100dvh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
     }
@@ -371,6 +388,8 @@ export const registerSpreadsheetTools = (server: McpServer) => {
   const uiDomain = resolveUiDomain();
   const shareDbUrl = resolveShareDbUrl();
   const shareDbPort = resolveShareDbPort();
+  const locale = resolveWidgetLocale();
+  const currency = resolveWidgetCurrency();
   const shareDbOrigin = safeOrigin(shareDbUrl);
   const connectDomains = [appOrigin, shareDbOrigin].filter(
     (value): value is string => Boolean(value),
@@ -388,6 +407,8 @@ export const registerSpreadsheetTools = (server: McpServer) => {
           appBaseUrl,
           shareDbUrl,
           shareDbPort,
+          locale,
+          currency,
         }),
         _meta: {
           ui: {
@@ -447,6 +468,17 @@ export const registerSpreadsheetTools = (server: McpServer) => {
           .positive()
           .optional()
           .describe("Optional sheet ID to focus on"),
+        locale: z
+          .string()
+          .min(2)
+          .optional()
+          .describe("Optional locale (e.g. en-US)"),
+        currency: z
+          .string()
+          .min(3)
+          .max(3)
+          .optional()
+          .describe("Optional ISO currency code (e.g. USD)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -463,6 +495,8 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         .object({
           docId: z.string().min(1),
           sheetId: z.number().int().positive().optional(),
+          locale: z.string().min(2).optional(),
+          currency: z.string().min(3).max(3).optional(),
         })
         .parse(args);
 
@@ -473,6 +507,10 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       if (parsed.sheetId !== undefined) {
         url.searchParams.set("sheetId", String(parsed.sheetId));
       }
+      const resolvedLocale = parsed.locale ?? locale;
+      const resolvedCurrency = (parsed.currency ?? currency).toUpperCase();
+      url.searchParams.set("locale", resolvedLocale);
+      url.searchParams.set("currency", resolvedCurrency);
 
       return {
         content: [
@@ -481,6 +519,8 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         structuredContent: {
           docId: parsed.docId,
           ...(parsed.sheetId !== undefined ? { sheetId: parsed.sheetId } : {}),
+          locale: resolvedLocale,
+          currency: resolvedCurrency,
           url: url.toString(),
         },
       };

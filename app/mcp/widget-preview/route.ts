@@ -76,6 +76,16 @@ export async function GET(request: NextRequest) {
     process.env.MCP_SHAREDB_PORT?.trim() ||
     process.env.NEXT_PUBLIC_SHAREDB_PORT?.trim() ||
     null;
+  const locale =
+    request.nextUrl.searchParams.get("locale")?.trim() ||
+    process.env.MCP_WIDGET_LOCALE?.trim() ||
+    process.env.NEXT_PUBLIC_LOCALE?.trim() ||
+    "en-US";
+  const currency =
+    request.nextUrl.searchParams.get("currency")?.trim() ||
+    process.env.MCP_WIDGET_CURRENCY?.trim() ||
+    process.env.NEXT_PUBLIC_CURRENCY?.trim() ||
+    "USD";
 
   const [js, css] = await Promise.all([
     readFile(WIDGET_JS_PATH, "utf8").catch(
@@ -87,7 +97,13 @@ export async function GET(request: NextRequest) {
 
   const safeJs = js.replace(/<\/script/gi, "<\\/script");
   const safeCss = css.replace(/<\/style/gi, "<\\/style");
-  const configJson = JSON.stringify({ appBaseUrl, shareDbUrl, shareDbPort });
+  const configJson = JSON.stringify({
+    appBaseUrl,
+    shareDbUrl,
+    shareDbPort,
+    locale,
+    currency,
+  });
 
   const html = `<!doctype html>
 <html lang="en">
@@ -106,6 +122,7 @@ export async function GET(request: NextRequest) {
     }
     #app {
       min-height: 100dvh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
     }
