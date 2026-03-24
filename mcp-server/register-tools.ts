@@ -63,14 +63,20 @@ const normalizeToolResult = (value: unknown) => {
 
 const SPREADSHEET_APP_RESOURCE_URI = "ui://rowsncolumns/spreadsheet-view-v3.html";
 const MCP_PUBLIC_DOC_BASE_PATH = "/mcp/doc";
-const MCP_WIDGET_BUNDLE_PATH = path.join(
+const MCP_WIDGET_BUNDLE_JS_PATH = path.join(
   process.cwd(),
   "public",
   "mcp",
   "spreadsheet-widget.bundle.js",
 );
+const MCP_WIDGET_BUNDLE_CSS_PATH = path.join(
+  process.cwd(),
+  "public",
+  "mcp",
+  "spreadsheet-widget.bundle.css",
+);
 
-let widgetBundleCache: string | null = null;
+let widgetBundleCache: { js: string; css: string } | null = null;
 
 const resolveUiDomain = () => {
   const value = process.env.MCP_UI_DOMAIN?.trim();
@@ -146,14 +152,19 @@ const readWidgetBundle = async () => {
     return widgetBundleCache;
   }
 
+  const jsFallback = `console.error("RowsnColumns MCP widget bundle not found. Run: npm run mcp:build-widget");`;
+  const cssFallback = "";
+
   try {
-    const text = await readFile(MCP_WIDGET_BUNDLE_PATH, "utf8");
-    widgetBundleCache = text;
-    return text;
+    const js = await readFile(MCP_WIDGET_BUNDLE_JS_PATH, "utf8");
+    const css = await readFile(MCP_WIDGET_BUNDLE_CSS_PATH, "utf8").catch(
+      () => cssFallback,
+    );
+    widgetBundleCache = { js, css };
+    return widgetBundleCache;
   } catch {
-    const fallback = `console.error("RowsnColumns MCP widget bundle not found. Run: npm run mcp:build-widget");`;
-    widgetBundleCache = fallback;
-    return fallback;
+    widgetBundleCache = { js: jsFallback, css: cssFallback };
+    return widgetBundleCache;
   }
 };
 
@@ -225,7 +236,8 @@ const buildSpreadsheetAppHtml = async ({
   shareDbPort: string | null;
 }) => {
   const bundle = await readWidgetBundle();
-  const safeBundle = bundle.replace(/<\/script/gi, "<\\/script");
+  const safeBundle = bundle.js.replace(/<\/script/gi, "<\\/script");
+  const safeBundleCss = bundle.css.replace(/<\/style/gi, "<\\/style");
   const configJson = JSON.stringify({
     appBaseUrl,
     shareDbUrl,
@@ -238,6 +250,7 @@ const buildSpreadsheetAppHtml = async ({
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>RowsnColumns Spreadsheet</title>
+  <style>${safeBundleCss}</style>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -248,6 +261,17 @@ const buildSpreadsheetAppHtml = async ({
     }
     #app {
       min-height: 680px;
+    }
+    .rnc-widget-sheet {
+      min-height: 680px;
+      display: flex;
+      flex-direction: column;
+    }
+    .rnc-canvas-wrapper {
+      min-height: 0;
+      flex: 1;
+      display: flex;
+      overflow: hidden;
     }
     .rnc-widget-placeholder {
       margin: 8px;

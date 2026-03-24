@@ -16,7 +16,7 @@ const eventsPolyfill = path.join(
   "events-polyfill.ts",
 );
 const outDir = path.join(projectRoot, "public", "mcp");
-const outFile = path.join(outDir, "spreadsheet-widget.bundle.js");
+const outBaseName = "spreadsheet-widget.bundle";
 
 const run = async () => {
   await mkdir(outDir, { recursive: true });
@@ -30,25 +30,39 @@ const run = async () => {
     format: "iife",
     target: ["es2020"],
     write: false,
+    outdir: outDir,
+    entryNames: outBaseName,
+    assetNames: "assets/[name]-[hash]",
     jsx: "automatic",
     mainFields: ["browser", "module", "main"],
     alias: {
       events: eventsPolyfill,
     },
     define: {
-      "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV ?? "production"),
+      "process.env.NODE_ENV": JSON.stringify(
+        process.env.NODE_ENV ?? "production",
+      ),
       global: "globalThis",
     },
     logLevel: "info",
   });
 
-  const output = result.outputFiles?.[0];
-  if (!output) {
+  const outputs = result.outputFiles ?? [];
+  if (outputs.length === 0) {
     throw new Error("Failed to generate MCP spreadsheet widget bundle.");
   }
 
-  await writeFile(outFile, output.text, "utf8");
-  console.error(`[mcp-widget] wrote bundle: ${outFile}`);
+  for (const output of outputs) {
+    await mkdir(path.dirname(output.path), { recursive: true });
+    await writeFile(output.path, output.contents);
+  }
+
+  console.error(
+    `[mcp-widget] wrote bundle assets to: ${path.join(
+      outDir,
+      `${outBaseName}.js`,
+    )}`,
+  );
 };
 
 run().catch((error) => {
