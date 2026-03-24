@@ -122,6 +122,39 @@ const createShareDBDocument = async (docId: string) => {
   }
 };
 
+const createSpreadsheetDocumentInputSchema = {
+  docId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Optional document ID. If omitted, a UUID is generated."),
+};
+
+const createSpreadsheetDocumentHandler = async (args: unknown) => {
+  const parsed = z.object(createSpreadsheetDocumentInputSchema).parse(args);
+
+  const docId = parsed.docId ?? uuidString();
+  const result = await createShareDBDocument(docId);
+  const url = new URL(`/doc/${encodeURIComponent(docId)}`, resolveAppBaseUrl());
+
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          result.reason === "created"
+            ? `Created spreadsheet document ${docId}. Open: ${url.toString()}`
+            : `Document ${docId} already exists. Open: ${url.toString()}`,
+      },
+    ],
+    structuredContent: {
+      docId,
+      url: url.toString(),
+      created: result.created,
+    },
+  };
+};
+
 export const registerSpreadsheetTools = (server: McpServer) => {
   const registerTool = server.registerTool.bind(server) as (
     name: string,
@@ -207,54 +240,20 @@ export const registerSpreadsheetTools = (server: McpServer) => {
     },
   );
 
+  const createDocumentConfig = {
+    title: "Create Spreadsheet Document",
+    description:
+      "Creates a new spreadsheet document in ShareDB and returns its document ID and URL.",
+    inputSchema: createSpreadsheetDocumentInputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+    },
+  };
+
   registerTool(
-    "create_spreadsheet_document",
-    {
-      title: "Create Spreadsheet Document",
-      description:
-        "Creates a new spreadsheet document in ShareDB and returns its document ID and URL.",
-      inputSchema: {
-        docId: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Optional document ID. If omitted, a UUID is generated."),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-      },
-    },
-    async (args: unknown) => {
-      const parsed = z
-        .object({
-          docId: z.string().min(1).optional(),
-        })
-        .parse(args);
-
-      const docId = parsed.docId ?? uuidString();
-      const result = await createShareDBDocument(docId);
-      const url = new URL(
-        `/doc/${encodeURIComponent(docId)}`,
-        resolveAppBaseUrl(),
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text:
-              result.reason === "created"
-                ? `Created spreadsheet document ${docId}. Open: ${url.toString()}`
-                : `Document ${docId} already exists. Open: ${url.toString()}`,
-          },
-        ],
-        structuredContent: {
-          docId,
-          url: url.toString(),
-          created: result.created,
-        },
-      };
-    },
+    "spreadsheet_createDocument",
+    createDocumentConfig,
+    createSpreadsheetDocumentHandler,
   );
 };
