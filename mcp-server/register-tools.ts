@@ -1,11 +1,14 @@
 import { inspect } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { createNewSheet } from "@rowsncolumns/spreadsheet";
+import { uuidString } from "@rowsncolumns/utils";
 import {
   isReadOnlyTool,
   spreadsheetMcpTools,
   toolNameToTitle,
 } from "./tool-catalog";
+import { getShareDBDocument } from "../lib/chat/utils";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" &&
@@ -51,10 +54,71 @@ const normalizeToolResult = (value: unknown) => {
   };
 };
 
+const normalizeBaseUrl = (value: string | undefined) => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+};
+
 const resolveAppBaseUrl = () =>
-  process.env.MCP_APP_BASE_URL?.trim() ||
-  process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+  normalizeBaseUrl(process.env.MCP_APP_BASE_URL) ||
+  normalizeBaseUrl(process.env.NEXT_PUBLIC_APP_URL) ||
+  normalizeBaseUrl(process.env.APP_URL) ||
+  normalizeBaseUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL) ||
+  normalizeBaseUrl(process.env.VERCEL_URL) ||
   "http://localhost:3000";
+
+const createShareDBDocument = async (docId: string) => {
+  const { doc, close } = await getShareDBDocument(docId);
+
+  try {
+    if (doc.type !== null && doc.data) {
+      return { created: false, reason: "already_exists" as const };
+    }
+
+    const initialDoc = {
+      sheetData: {},
+      sheets: [createNewSheet(1, "Sheet1"), createNewSheet(2, "Sheet2")],
+      tables: [],
+      charts: [],
+      embeds: [],
+      namedRanges: [],
+      protectedRanges: [],
+      conditionalFormats: [],
+      dataValidations: [],
+      pivotTables: [],
+      cellXfs: {},
+      sharedStrings: {},
+      iterativeCalculation: { enabled: false },
+      recalcCells: [],
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      doc.create(initialDoc, (error?: { message?: string } | null) => {
+        if (!error) {
+          resolve();
+          return;
+        }
+
+        if (error.message?.includes("already created")) {
+          resolve();
+          return;
+        }
+
+        reject(error);
+      });
+    });
+
+    return { created: true, reason: "created" as const };
+  } finally {
+    close();
+  }
+};
 
 export const registerSpreadsheetTools = (server: McpServer) => {
   const registerTool = server.registerTool.bind(server) as (
@@ -129,11 +193,64 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       }
 
       return {
-        content: [{ type: "text", text: `Open spreadsheet: ${url.toString()}` }],
+        content: [
+          { type: "text", text: `Open spreadsheet: ${url.toString()}` },
+        ],
         structuredContent: {
           docId: parsed.docId,
           ...(parsed.sheetId !== undefined ? { sheetId: parsed.sheetId } : {}),
           url: url.toString(),
+        },
+      };
+    },
+  );
+
+  registerTool(
+    "create_spreadsheet_document",
+    {
+      title: "Create Spreadsheet Document",
+      description:
+        "Creates a new spreadsheet document in ShareDB and returns its document ID and URL.",
+      inputSchema: {
+        docId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Optional document ID. If omitted, a UUID is generated."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+      },
+    },
+    async (args: unknown) => {
+      const parsed = z
+        .object({
+          docId: z.string().min(1).optional(),
+        })
+        .parse(args);
+
+      const docId = parsed.docId ?? uuidString();
+      const result = await createShareDBDocument(docId);
+      const url = new URL(
+        `/doc/${encodeURIComponent(docId)}`,
+        resolveAppBaseUrl(),
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              result.reason === "created"
+                ? `Created spreadsheet document ${docId}. Open: ${url.toString()}`
+                : `Document ${docId} already exists. Open: ${url.toString()}`,
+          },
+        ],
+        structuredContent: {
+          docId,
+          url: url.toString(),
+          created: result.created,
         },
       };
     },

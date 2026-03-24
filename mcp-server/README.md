@@ -41,6 +41,9 @@ The MCP server reuses existing spreadsheet tooling and ShareDB access from `lib/
 ## Exposed capabilities
 
 - 30 spreadsheet tools (reused from `lib/chat/tools.ts`)
+- Custom MCP tools:
+  - `open_spreadsheet`
+  - `create_spreadsheet_document`
 - Resource templates:
   - `spreadsheet://{docId}`
   - `spreadsheet://{docId}/sheet/{sheetId}`
