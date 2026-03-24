@@ -493,17 +493,20 @@ const createSpreadsheetDocument = async ({
     }
 
     const initialDoc: ShareDBSpreadsheetDoc = {
-      sheets: [{ sheetId: 1, title: normalizedSheetTitle }],
       sheetData: {},
+      sheets: [{ sheetId: 1, title: normalizedSheetTitle }],
       tables: [],
       charts: [],
       embeds: [],
       namedRanges: [],
+      protectedRanges: [],
       pivotTables: [],
       dataValidations: [],
       conditionalFormats: [],
       cellXfs: {},
       sharedStrings: {},
+      iterativeCalculation: { enabled: false },
+      recalcCells: [],
     };
 
     await new Promise<void>((resolve, reject) => {
@@ -659,7 +662,9 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         verbose: z
           .boolean()
           .optional()
-          .describe("When true, include full context metadata in structuredContent"),
+          .describe(
+            "When true, include full context metadata in structuredContent",
+          ),
       },
       annotations: {
         readOnlyHint: true,

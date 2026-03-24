@@ -62,11 +62,14 @@ export type ShareDBSpreadsheetDoc<
   charts?: unknown[];
   embeds?: unknown[];
   namedRanges?: unknown[];
+  protectedRanges?: unknown[];
   pivotTables?: unknown[];
   dataValidations?: unknown[];
   conditionalFormats?: unknown[];
   cellXfs?: Record<string, unknown>;
   sharedStrings?: Record<string, string>;
+  iterativeCalculation?: { enabled: boolean };
+  recalcCells?: unknown[];
 };
 
 export type ToolCellData = {
@@ -388,6 +391,84 @@ export const evaluateFormulas = async (
 };
 
 /**
+ * Ensure the ShareDB document has the required structure for spreadsheet operations.
+ * This must be called before applying patches to a potentially empty/new document.
+ */
+export const ensureDocumentStructure = async (
+  doc: ShareDBClient.Doc,
+): Promise<void> => {
+  const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+  if (!data) {
+    return;
+  }
+
+  const ops: Array<Record<string, unknown>> = [];
+
+  // Ensure sheetData exists
+  if (data.sheetData === undefined) {
+    ops.push({ p: ["sheetData"], oi: {} });
+  }
+
+  // Ensure sheets array exists with at least one sheet
+  if (data.sheets === undefined) {
+    ops.push({ p: ["sheets"], oi: [{ sheetId: 1, title: "Sheet1" }] });
+  }
+
+  // Ensure other required arrays/objects exist
+  if (data.tables === undefined) {
+    ops.push({ p: ["tables"], oi: [] });
+  }
+  if (data.charts === undefined) {
+    ops.push({ p: ["charts"], oi: [] });
+  }
+  if (data.embeds === undefined) {
+    ops.push({ p: ["embeds"], oi: [] });
+  }
+  if (data.namedRanges === undefined) {
+    ops.push({ p: ["namedRanges"], oi: [] });
+  }
+  if (data.protectedRanges === undefined) {
+    ops.push({ p: ["protectedRanges"], oi: [] });
+  }
+  if (data.pivotTables === undefined) {
+    ops.push({ p: ["pivotTables"], oi: [] });
+  }
+  if (data.dataValidations === undefined) {
+    ops.push({ p: ["dataValidations"], oi: [] });
+  }
+  if (data.conditionalFormats === undefined) {
+    ops.push({ p: ["conditionalFormats"], oi: [] });
+  }
+  if (data.cellXfs === undefined) {
+    ops.push({ p: ["cellXfs"], oi: {} });
+  }
+  if (data.sharedStrings === undefined) {
+    ops.push({ p: ["sharedStrings"], oi: {} });
+  }
+  if (data.iterativeCalculation === undefined) {
+    ops.push({ p: ["iterativeCalculation"], oi: { enabled: false } });
+  }
+  if (data.recalcCells === undefined) {
+    ops.push({ p: ["recalcCells"], oi: [] });
+  }
+
+  if (ops.length === 0) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    doc.submitOp(ops, {}, (err?: unknown) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+};
+
+/**
  * Persist already-generated patch tuples to ShareDB and wait until write queue drains.
  */
 export const persistPatchTuples = async (
@@ -401,11 +482,15 @@ export const persistPatchTuples = async (
 
 /**
  * Persist spreadsheet patches back to ShareDB.
+ * Automatically ensures document structure exists before applying patches.
  */
 export const persistSpreadsheetPatches = async (
   doc: ShareDBClient.Doc,
   spreadsheet: InstanceType<typeof Spreadsheet>,
 ) => {
+  // Ensure document has required structure before applying patches
+  await ensureDocumentStructure(doc);
+
   const patchTuples = spreadsheet.getPatchTuples();
   await persistPatchTuples(doc, patchTuples, "agent");
   return patchTuples;
