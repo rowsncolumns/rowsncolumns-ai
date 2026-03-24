@@ -441,32 +441,12 @@ const buildSkillsInstruction = (
     active: boolean;
   }>,
 ) => {
-  const isBrandingSkill = (skill: {
-    name: string;
-    description: string;
-    instructions: string;
-  }) => {
-    const text = `${skill.name}\n${skill.description}\n${skill.instructions}`.toLowerCase();
-    return (
-      text.includes("brand") ||
-      text.includes("branding") ||
-      text.includes("brand guideline") ||
-      text.includes("style guide") ||
-      text.includes("tone of voice") ||
-      text.includes("visual identity")
-    );
-  };
-
   const activeSkills = skills.filter((skill) => {
     if (!skill.active) return false;
     if (!skill.name.trim()) return false;
     if (!skill.instructions.trim()) return false;
     return true;
   });
-
-  if (activeSkills.length === 0) {
-    return "";
-  }
 
   const blocks = activeSkills.map((skill, index) => {
     const description = skill.description.trim();
@@ -480,27 +460,28 @@ const buildSkillsInstruction = (
       .filter(Boolean)
       .join("\n");
   });
-  const brandingSkills = activeSkills.filter(isBrandingSkill);
-  const brandingRule =
-    brandingSkills.length > 0
-      ? [
-          "Branding guidelines are mandatory constraints for this conversation.",
-          "Always follow branding skills when generating copy, structure, naming, colors, and style-related output.",
-          "When producing spreadsheet models/reports/tables (for example DCF, LBO, budget, dashboards), apply a branding pass before completion.",
-          "Branding pass means: align labels and wording with brand voice, and apply brand-aligned formatting/colors where formatting tools are available.",
-          "Do not treat branding as optional unless the user explicitly asks for raw/unformatted output.",
-          "Only deviate if the user explicitly asks to override a branding rule.",
-          `Branding skills in scope: ${brandingSkills.map((skill) => skill.name.trim()).join(", ")}`,
-          "",
-        ].join("\n")
-      : "";
+
+  const brandingRule = [
+    "Branding guidelines are mandatory constraints for this conversation.",
+    "Always apply branding rules when generating copy, structure, naming, colors, and style-related output.",
+    "When producing spreadsheet models/reports/tables (for example DCF, LBO, budget, dashboards), apply a branding pass before completion.",
+    "Branding pass means: align labels and wording with brand voice, and apply brand-aligned formatting/colors where formatting tools are available.",
+    "Do not treat branding as optional unless the user explicitly asks for raw/unformatted output.",
+    "Only deviate if the user explicitly asks to override a branding rule.",
+    "",
+  ].join("\n");
 
   return [
-    "User-defined custom skills are available for this conversation.",
-    "Apply any relevant active skills when planning or executing responses.",
-    "If multiple skills conflict, prefer the most specific skill and continue; ask only if conflict blocks safe execution.",
-    "",
+    "Branding and style consistency rules are always in effect.",
     brandingRule,
+    ...(activeSkills.length > 0
+      ? [
+          "User-defined custom skills are available for this conversation.",
+          "Apply any relevant active skills when planning or executing responses.",
+          "If multiple skills conflict, prefer the most specific skill and continue; ask only if conflict blocks safe execution.",
+          "",
+        ]
+      : []),
     ...blocks,
   ].join("\n");
 };
