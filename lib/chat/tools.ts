@@ -80,7 +80,7 @@ import {
   type EmbeddedChart,
   type ChartSpec,
 } from "@rowsncolumns/spreadsheet";
-import type { SelectionArea } from "@rowsncolumns/common-types";
+import type { GridRange, SelectionArea } from "@rowsncolumns/common-types";
 
 const failTool = (
   errorCode: string,
@@ -3764,7 +3764,8 @@ const handleSpreadsheetCreateChart = async (
   const {
     docId,
     sheetId,
-    dataRange,
+    domain,
+    series,
     chartType,
     title,
     subtitle,
@@ -3784,11 +3785,19 @@ const handleSpreadsheetCreateChart = async (
     });
   }
 
-  if (!dataRange) {
+  if (!domain) {
     return failTool(
-      "MISSING_DATA_RANGE",
-      "dataRange is required for creating a chart",
-      { field: "dataRange" },
+      "MISSING_DOMAIN",
+      "domain is required for creating a chart (X-axis categories)",
+      { field: "domain" },
+    );
+  }
+
+  if (!series || series.length === 0) {
+    return failTool(
+      "MISSING_SERIES",
+      "series is required for creating a chart (at least one data series)",
+      { field: "series" },
     );
   }
 
@@ -3796,22 +3805,32 @@ const handleSpreadsheetCreateChart = async (
     console.log("[spreadsheet_createChart] Starting:", {
       docId,
       sheetId,
-      dataRange,
+      domain,
+      series,
       chartType,
     });
 
     try {
-      const selection = addressToSelection(dataRange);
-      if (!selection?.range) {
-        return failTool("INVALID_RANGE", `Invalid data range: ${dataRange}`, {
-          dataRange,
+      // Parse domain range
+      const domainSelection = addressToSelection(domain);
+      if (!domainSelection?.range) {
+        return failTool("INVALID_DOMAIN", `Invalid domain range: ${domain}`, {
+          domain,
         });
       }
 
+      // Parse series ranges
+      const seriesSelections = series
+        .map((s, i) => {
+          const sel = addressToSelection(s);
+          return sel?.range;
+        })
+        .filter((el) => !isNil(el));
+
       // Parse anchor cell if provided
       let anchorCellParsed = {
-        rowIndex: selection.range.startRowIndex,
-        columnIndex: selection.range.endColumnIndex + 2, // Default: 2 columns right of data
+        rowIndex: domainSelection.range.startRowIndex,
+        columnIndex: domainSelection.range.endColumnIndex + 2, // Default: 2 columns right of domain
       };
       if (anchorCell) {
         const anchorSelection = addressToSelection(anchorCell);
@@ -3834,7 +3853,7 @@ const handleSpreadsheetCreateChart = async (
 
         const spreadsheet = createSpreadsheetInterface(data);
 
-        // Build chart spec
+        // Build chart spec with explicit domain and series
         const chartSpec: Partial<ChartSpec> = {
           chartType,
           title,
@@ -3847,34 +3866,29 @@ const handleSpreadsheetCreateChart = async (
               sources: [
                 {
                   sheetId,
-                  startRowIndex: selection.range.startRowIndex,
-                  endRowIndex: selection.range.endRowIndex,
-                  startColumnIndex: selection.range.startColumnIndex,
-                  endColumnIndex: selection.range.startColumnIndex,
+                  startRowIndex: domainSelection.range.startRowIndex,
+                  endRowIndex: domainSelection.range.endRowIndex,
+                  startColumnIndex: domainSelection.range.startColumnIndex,
+                  endColumnIndex: domainSelection.range.endColumnIndex,
                 },
               ],
             },
           ],
-          series: [
-            {
-              sources: [
-                {
-                  sheetId,
-                  startRowIndex: selection.range.startRowIndex,
-                  endRowIndex: selection.range.endRowIndex,
-                  startColumnIndex: selection.range.startColumnIndex + 1,
-                  endColumnIndex: selection.range.endColumnIndex,
-                },
-              ],
-            },
-          ],
+          series: seriesSelections.map((s) => ({
+            sources: [
+              {
+                ...s,
+                sheetId,
+              },
+            ],
+          })),
         };
 
         const activeCell = {
-          rowIndex: selection.range.startRowIndex,
-          columnIndex: selection.range.startColumnIndex,
+          rowIndex: domainSelection.range.startRowIndex,
+          columnIndex: domainSelection.range.startColumnIndex,
         };
-        const selections = [{ range: selection.range }];
+        const selections = [{ range: domainSelection.range }];
 
         // Build embedded chart with position
         const embeddedChart: Partial<EmbeddedChart> = {
@@ -3909,9 +3923,10 @@ const handleSpreadsheetCreateChart = async (
 
         return JSON.stringify({
           success: true,
-          message: `Successfully created ${chartType} chart from ${dataRange}`,
+          message: `Successfully created ${chartType} chart with ${series.length} series`,
           chartType,
-          dataRange,
+          domain,
+          series,
           chartId,
         });
       } finally {
@@ -3934,10 +3949,14 @@ const handleSpreadsheetCreateChart = async (
  */
 export const spreadsheetCreateChartTool = tool(handleSpreadsheetCreateChart, {
   name: "spreadsheet_createChart",
-  description: `Create a chart from spreadsheet data.
+  description: `Create a chart from spreadsheet data with explicit domain and series.
 
 OVERVIEW:
-This tool creates a chart visualization from a data range. The first column is used as categories (X-axis) and remaining columns as data series (Y-axis).
+This tool creates a chart visualization. You specify the domain (X-axis categories) and series (Y-axis data) explicitly.
+
+IMPORTANT - DATA RANGES:
+- domain: Range for X-axis labels/categories (e.g., 'A2:A10'). Usually a single column. DO NOT include header row.
+- series: Array of ranges for data series (e.g., ['B2:B10', 'C2:C10']). Each range becomes a separate line/bar. DO NOT include header rows.
 
 WHEN TO USE THIS TOOL:
 - Creating bar, column, line, pie, or area charts
@@ -3955,7 +3974,8 @@ CHART TYPES:
 PARAMETERS:
 - docId: The document ID (required)
 - sheetId: The sheet ID (required)
-- dataRange: A1 notation range with data (e.g., 'A1:D10') (required)
+- domain: A1 notation range for X-axis categories, excluding header (e.g., 'A2:A10') (required)
+- series: Array of A1 notation ranges for data series, excluding headers (e.g., ['B2:B10', 'C2:C10']) (required)
 - chartType: Type of chart (required)
 - title: Chart title
 - subtitle: Chart subtitle
@@ -3968,23 +3988,29 @@ PARAMETERS:
 
 EXAMPLES:
 
-Example 1 — Simple column chart:
-  docId: "abc123"
-  sheetId: 1
-  dataRange: "A1:C10"
-  chartType: "column"
-  title: "Monthly Sales"
+Given data in A1:C5:
+  | Month | Sales | Profit |
+  | Jan   | 100   | 20     |
+  | Feb   | 150   | 35     |
+  | Mar   | 120   | 25     |
+  | Apr   | 180   | 45     |
 
-Example 2 — Stacked bar chart with axis titles:
+Example 1 — Column chart with two series:
   docId: "abc123"
   sheetId: 1
-  dataRange: "A1:D20"
-  chartType: "bar"
-  title: "Revenue by Region"
-  stackedType: "stacked"
-  xAxisTitle: "Region"
-  yAxisTitle: "Revenue ($)"
-  anchorCell: "F1"`,
+  domain: "A2:A5"
+  series: ["B2:B5", "C2:C5"]
+  chartType: "column"
+  title: "Monthly Performance"
+
+Example 2 — Line chart with single series:
+  docId: "abc123"
+  sheetId: 1
+  domain: "A2:A5"
+  series: ["B2:B5"]
+  chartType: "line"
+  title: "Sales Trend"
+  anchorCell: "E1"`,
   schema: SpreadsheetCreateChartSchema,
 });
 
@@ -4000,7 +4026,8 @@ const handleSpreadsheetUpdateChart = async (
     chartId,
     title,
     subtitle,
-    dataRange,
+    domain,
+    series,
     chartType,
     stackedType,
     xAxisTitle,
@@ -4073,36 +4100,47 @@ const handleSpreadsheetUpdateChart = async (
         if (yAxisTitle !== undefined)
           updatedChart.spec.verticalAxisTitle = yAxisTitle;
 
-        // Update data range if provided
-        if (dataRange) {
-          const selection = addressToSelection(dataRange);
-          if (selection?.range) {
+        // Update domain if provided
+        if (domain) {
+          const domainSelection = addressToSelection(domain);
+          if (domainSelection?.range) {
             (updatedChart.spec as { domains: unknown[] }).domains = [
               {
                 sources: [
                   {
                     sheetId,
-                    startRowIndex: selection.range.startRowIndex,
-                    endRowIndex: selection.range.endRowIndex,
-                    startColumnIndex: selection.range.startColumnIndex,
-                    endColumnIndex: selection.range.startColumnIndex,
+                    startRowIndex: domainSelection.range.startRowIndex,
+                    endRowIndex: domainSelection.range.endRowIndex,
+                    startColumnIndex: domainSelection.range.startColumnIndex,
+                    endColumnIndex: domainSelection.range.endColumnIndex,
                   },
                 ],
               },
             ];
-            (updatedChart.spec as { series: unknown[] }).series = [
-              {
+          }
+        }
+
+        // Update series if provided
+        if (series && series.length > 0) {
+          const seriesSelections = series
+            .map((s) => addressToSelection(s))
+            .filter(
+              (sel): sel is NonNullable<typeof sel> => sel?.range != null,
+            );
+
+          if (seriesSelections.length > 0) {
+            (updatedChart.spec as { series: unknown[] }).series =
+              seriesSelections.map((sel) => ({
                 sources: [
                   {
                     sheetId,
-                    startRowIndex: selection.range.startRowIndex,
-                    endRowIndex: selection.range.endRowIndex,
-                    startColumnIndex: selection.range.startColumnIndex + 1,
-                    endColumnIndex: selection.range.endColumnIndex,
+                    startRowIndex: sel.range.startRowIndex,
+                    endRowIndex: sel.range.endRowIndex,
+                    startColumnIndex: sel.range.startColumnIndex,
+                    endColumnIndex: sel.range.endColumnIndex,
                   },
                 ],
-              },
-            ];
+              }));
           }
         }
 
@@ -4135,7 +4173,7 @@ const handleSpreadsheetUpdateChart = async (
 
         return JSON.stringify({
           success: true,
-          message: `Successfully updated chart "${chartId}"`,
+          message: `Successfully updated chart "${chart.spec.title}"`,
           chartId: chart.chartId,
         });
       } finally {
@@ -4161,13 +4199,17 @@ export const spreadsheetUpdateChartTool = tool(handleSpreadsheetUpdateChart, {
   description: `Update properties of an existing chart.
 
 OVERVIEW:
-This tool modifies an existing chart's properties such as title, type, data range, and position.
+This tool modifies an existing chart's properties such as title, type, data sources, and position.
 
 WHEN TO USE THIS TOOL:
 - Changing chart title or subtitle
 - Switching chart type (e.g., bar to line)
-- Updating data range
+- Updating domain (X-axis categories) or series (Y-axis data)
 - Moving or resizing the chart
+
+IMPORTANT - DATA RANGES:
+- domain: Range for X-axis labels/categories (e.g., 'A2:A10'). DO NOT include header row.
+- series: Array of ranges for data series (e.g., ['B2:B10', 'C2:C10']). DO NOT include header rows.
 
 PARAMETERS:
 - docId: The document ID (required)
@@ -4175,7 +4217,8 @@ PARAMETERS:
 - chartId: The chart ID to update (required)
 - title: New chart title (set to null to clear)
 - subtitle: New chart subtitle (set to null to clear)
-- dataRange: New data range in A1 notation
+- domain: New A1 notation range for X-axis categories, excluding header (e.g., 'A2:A20')
+- series: New array of A1 notation ranges for data series, excluding headers (e.g., ['B2:B20', 'C2:C20'])
 - chartType: Change to different chart type
 - stackedType: 'stacked', 'percentStacked', or 'unstacked'
 - xAxisTitle: New horizontal axis title
@@ -4200,11 +4243,12 @@ Example 2 — Convert to line chart and resize:
   width: 600
   height: 400
 
-Example 3 — Update data range:
+Example 3 — Update data sources (extend range):
   docId: "abc123"
   sheetId: 1
   chartId: "chart_1"
-  dataRange: "A1:D50"`,
+  domain: "A2:A50"
+  series: ["B2:B50", "C2:C50"]`,
   schema: SpreadsheetUpdateChartSchema,
 });
 

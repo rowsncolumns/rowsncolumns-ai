@@ -826,10 +826,15 @@ const StackedTypeSchema = z
 export const SpreadsheetCreateChartSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
   sheetId: z.number().int().describe("The sheet ID"),
-  dataRange: z
+  domain: z
     .string()
     .describe(
-      "The A1 notation range containing chart data (e.g., 'A1:D10'). First row/column typically contains labels.",
+      "A1 notation range for X-axis categories/labels (e.g., 'A2:A10' for months). Usually a single column.",
+    ),
+  series: z
+    .array(z.string())
+    .describe(
+      "Array of A1 notation ranges for data series (e.g., ['B2:B10', 'C2:C10']). Each range becomes a separate series in the chart.",
     ),
   chartType: ChartTypeSchema,
   title: z.string().optional().describe("Chart title displayed at the top."),
@@ -881,11 +886,18 @@ export const SpreadsheetUpdateChartSchema = z.object({
     .nullable()
     .optional()
     .describe("New chart subtitle. Set to null to clear."),
-  dataRange: z
+  domain: z
     .string()
-    .nullable()
     .optional()
-    .describe("New data range in A1 notation (e.g., 'A1:D20')."),
+    .describe(
+      "New A1 notation range for X-axis categories (e.g., 'A2:A10'). DO NOT include header row.",
+    ),
+  series: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "New array of A1 notation ranges for data series (e.g., ['B2:B10', 'C2:C10']). DO NOT include header rows.",
+    ),
   chartType: ChartTypeSchema.optional().describe("Change chart type."),
   stackedType: StackedTypeSchema,
   xAxisTitle: z
