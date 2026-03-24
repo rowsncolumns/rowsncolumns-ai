@@ -68,6 +68,12 @@ import {
   SpreadsheetDeleteChartSchema,
   type SpreadsheetDeleteTableInput,
   SpreadsheetDeleteTableSchema,
+  type SpreadsheetCreateDataValidationInput,
+  SpreadsheetCreateDataValidationSchema,
+  type SpreadsheetUpdateDataValidationInput,
+  SpreadsheetUpdateDataValidationSchema,
+  type SpreadsheetDeleteDataValidationInput,
+  SpreadsheetDeleteDataValidationSchema,
 } from "./models";
 import {
   cellsToValues,
@@ -86,7 +92,11 @@ import {
   type EmbeddedChart,
   type ChartSpec,
 } from "@rowsncolumns/spreadsheet";
-import type { GridRange, SelectionArea } from "@rowsncolumns/common-types";
+import type {
+  SelectionArea,
+  ConditionType,
+  DataValidationRuleRecord,
+} from "@rowsncolumns/common-types";
 
 const failTool = (
   errorCode: string,
@@ -4592,6 +4602,637 @@ EXAMPLE:
 });
 
 /**
+ * Map simplified validation type + operator to ConditionType
+ */
+const mapValidationCondition = (
+  validationType: string,
+  operator?: string,
+): ConditionType => {
+  if (validationType === "list") {
+    return "ONE_OF_LIST";
+  }
+  if (validationType === "custom") {
+    return "CUSTOM_FORMULA";
+  }
+
+  // Number/wholeNumber validation
+  if (validationType === "number" || validationType === "wholeNumber") {
+    switch (operator) {
+      case "equal":
+        return "NUMBER_EQ";
+      case "notEqual":
+        return "NUMBER_NOT_EQ";
+      case "greaterThan":
+        return "NUMBER_GREATER";
+      case "greaterThanOrEqual":
+        return "NUMBER_GREATER_THAN_EQ";
+      case "lessThan":
+        return "NUMBER_LESS";
+      case "lessThanOrEqual":
+        return "NUMBER_LESS_THAN_EQ";
+      case "notBetween":
+        return "NUMBER_NOT_BETWEEN";
+      case "between":
+      default:
+        return "NUMBER_BETWEEN";
+    }
+  }
+
+  // Date validation
+  if (validationType === "date") {
+    switch (operator) {
+      case "equal":
+        return "DATE_EQ";
+      case "notEqual":
+        return "DATE_NOT_EQ";
+      case "before":
+        return "DATE_BEFORE";
+      case "onOrBefore":
+        return "DATE_ON_OR_BEFORE";
+      case "after":
+        return "DATE_AFTER";
+      case "onOrAfter":
+        return "DATE_ON_OR_AFTER";
+      case "notBetween":
+        return "DATE_NOT_BETWEEN";
+      case "between":
+      default:
+        return "DATE_BETWEEN";
+    }
+  }
+
+  return "CUSTOM_FORMULA";
+};
+
+/**
+ * Build condition values array from input
+ */
+const buildConditionValues = (
+  input:
+    | SpreadsheetCreateDataValidationInput
+    | SpreadsheetUpdateDataValidationInput,
+): Array<{ userEnteredValue: string }> | undefined => {
+  const { validationType, listValues, listRange, customFormula } = input;
+
+  if (validationType === "list") {
+    if (listRange) {
+      // Reference to a range
+      return [{ userEnteredValue: `=${listRange}` }];
+    }
+    if (listValues && listValues.length > 0) {
+      return [{ userEnteredValue: listValues.join(",") }];
+    }
+    return undefined;
+  }
+
+  if (validationType === "custom" && customFormula) {
+    return [{ userEnteredValue: customFormula }];
+  }
+
+  if (validationType === "number" || validationType === "wholeNumber") {
+    const values: Array<{ userEnteredValue: string }> = [];
+    if (input.minValue !== undefined) {
+      values.push({ userEnteredValue: String(input.minValue) });
+    }
+    if (input.maxValue !== undefined) {
+      values.push({ userEnteredValue: String(input.maxValue) });
+    }
+    return values.length > 0 ? values : undefined;
+  }
+
+  if (validationType === "date") {
+    const values: Array<{ userEnteredValue: string }> = [];
+    if (input.minDate !== undefined) {
+      values.push({ userEnteredValue: input.minDate });
+    }
+    if (input.maxDate !== undefined) {
+      values.push({ userEnteredValue: input.maxDate });
+    }
+    return values.length > 0 ? values : undefined;
+  }
+
+  return undefined;
+};
+
+/**
+ * Handler for the spreadsheet_createDataValidation tool
+ */
+const handleSpreadsheetCreateDataValidation = async (
+  input: SpreadsheetCreateDataValidationInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId,
+    range,
+    validationType,
+    allowBlank = true,
+    showDropdown = true,
+    inputTitle,
+    inputMessage,
+    errorStyle = "stop",
+    errorTitle,
+    errorMessage,
+  } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to create data validation",
+      { field: "docId" },
+    );
+  }
+
+  if (!range) {
+    return failTool("MISSING_RANGE", "range is required for data validation", {
+      field: "range",
+    });
+  }
+
+  if (!validationType) {
+    return failTool("MISSING_VALIDATION_TYPE", "validationType is required", {
+      field: "validationType",
+    });
+  }
+
+  // Validate list type has values
+  if (
+    validationType === "list" &&
+    !input.listValues?.length &&
+    !input.listRange
+  ) {
+    return failTool(
+      "MISSING_LIST_VALUES",
+      "listValues or listRange is required for list validation",
+      { field: "listValues" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_createDataValidation] Starting:", {
+      docId,
+      sheetId,
+      range,
+      validationType,
+    });
+
+    try {
+      const selection = addressToSelection(range);
+      if (!selection?.range) {
+        return failTool("INVALID_RANGE", `Invalid range: ${range}`, { range });
+      }
+
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        const validationId = uuidString();
+        const conditionType = mapValidationCondition(
+          validationType,
+          input.numberOperator || input.dateOperator,
+        );
+        const conditionValues = buildConditionValues(input);
+
+        const rule: DataValidationRuleRecord = {
+          id: validationId,
+          ranges: [
+            {
+              sheetId,
+              startRowIndex: selection.range.startRowIndex,
+              endRowIndex: selection.range.endRowIndex,
+              startColumnIndex: selection.range.startColumnIndex,
+              endColumnIndex: selection.range.endColumnIndex,
+            },
+          ],
+          condition: {
+            type: conditionType,
+            values: conditionValues,
+          },
+          allowBlank,
+          displayStyle: showDropdown ? "arrow" : "plain",
+          inputMessage:
+            inputTitle || inputMessage
+              ? { title: inputTitle, message: inputMessage }
+              : undefined,
+          alert:
+            errorTitle || errorMessage
+              ? {
+                  style: errorStyle,
+                  message: { title: errorTitle, message: errorMessage },
+                }
+              : { style: errorStyle },
+        };
+
+        spreadsheet.createDataValidationRule(rule);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_createDataValidation] Completed:", {
+          docId,
+          validationId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully created ${validationType} validation on ${range}`,
+          validationId,
+          range,
+          validationType,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_createDataValidation] Error:", error);
+      return failTool(
+        "CREATE_DATA_VALIDATION_FAILED",
+        error instanceof Error
+          ? error.message
+          : "Failed to create data validation",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_createDataValidation tool for LangChain
+ */
+export const spreadsheetCreateDataValidationTool = tool(
+  handleSpreadsheetCreateDataValidation,
+  {
+    name: "spreadsheet_createDataValidation",
+    description: `Create data validation rules for cells.
+
+OVERVIEW:
+This tool adds input validation to cells, such as dropdown lists, number ranges, or custom formulas.
+
+VALIDATION TYPES:
+
+1. LIST - Dropdown with predefined values:
+   validationType: "list"
+   listValues: ["Option1", "Option2", "Option3"]
+   OR
+   listRange: "Sheet2!A1:A10"  (reference another range)
+
+2. NUMBER - Numeric validation:
+   validationType: "number" (decimals allowed) or "wholeNumber" (integers only)
+   numberOperator: "between" | "greaterThan" | "lessThan" | etc.
+   minValue: 0
+   maxValue: 100
+
+3. DATE - Date validation:
+   validationType: "date"
+   dateOperator: "between" | "after" | "before" | etc.
+   minDate: "2024-01-01"
+   maxDate: "2024-12-31"
+
+4. CUSTOM - Formula-based validation:
+   validationType: "custom"
+   customFormula: "=A1>0"  (must return TRUE for valid values)
+
+COMMON OPTIONS:
+- allowBlank: Allow empty cells (default: true)
+- showDropdown: Show dropdown arrow for lists (default: true)
+- errorStyle: "stop" (reject) | "warning" | "information"
+- errorTitle/errorMessage: Custom error dialog
+- inputTitle/inputMessage: Help text when cell is selected
+
+IMPORTANT: Use EXACTLY the range the user specifies. If they say "E1", use "E1" - do NOT expand to "E1:E100".
+
+EXAMPLES:
+
+Example 1 — Dropdown for a single cell:
+  docId: "abc123"
+  sheetId: 1
+  range: "E1"
+  validationType: "list"
+  listValues: ["Option1", "Option2"]
+
+Example 2 — Dropdown for a column range:
+  docId: "abc123"
+  sheetId: 1
+  range: "B2:B50"
+  validationType: "list"
+  listValues: ["Pending", "In Progress", "Done"]
+
+Example 3 — Number validation:
+  docId: "abc123"
+  sheetId: 1
+  range: "C5"
+  validationType: "number"
+  numberOperator: "between"
+  minValue: 1
+  maxValue: 100`,
+    schema: SpreadsheetCreateDataValidationSchema,
+  },
+);
+
+/**
+ * Handler for the spreadsheet_updateDataValidation tool
+ */
+const handleSpreadsheetUpdateDataValidation = async (
+  input: SpreadsheetUpdateDataValidationInput,
+): Promise<string> => {
+  const { docId, sheetId, validationId } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to update data validation",
+      { field: "docId" },
+    );
+  }
+
+  if (!validationId) {
+    return failTool(
+      "MISSING_VALIDATION_ID",
+      "validationId is required to update data validation",
+      { field: "validationId" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_updateDataValidation] Starting:", {
+      docId,
+      sheetId,
+      validationId,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Find existing rule
+        const dataValidations =
+          (spreadsheet.dataValidations as DataValidationRuleRecord[]) || [];
+        const existingRule = dataValidations.find(
+          (r) => String(r.id) === validationId,
+        );
+
+        if (!existingRule) {
+          return failTool(
+            "VALIDATION_NOT_FOUND",
+            `Data validation rule "${validationId}" not found`,
+            { validationId },
+          );
+        }
+
+        // Build updated rule
+        const updatedRule: DataValidationRuleRecord = { ...existingRule };
+
+        // Update range if provided
+        if (input.range) {
+          const selection = addressToSelection(input.range);
+          if (selection?.range) {
+            updatedRule.ranges = [
+              {
+                sheetId,
+                startRowIndex: selection.range.startRowIndex,
+                endRowIndex: selection.range.endRowIndex,
+                startColumnIndex: selection.range.startColumnIndex,
+                endColumnIndex: selection.range.endColumnIndex,
+              },
+            ];
+          }
+        }
+
+        // Update condition if validation type changed
+        if (input.validationType) {
+          const conditionType = mapValidationCondition(
+            input.validationType,
+            input.numberOperator || input.dateOperator,
+          );
+          const conditionValues = buildConditionValues(input);
+          updatedRule.condition = {
+            type: conditionType,
+            values: conditionValues,
+          };
+        }
+
+        // Update other properties
+        if (input.allowBlank !== undefined) {
+          updatedRule.allowBlank = input.allowBlank;
+        }
+        if (input.showDropdown !== undefined) {
+          updatedRule.displayStyle = input.showDropdown ? "arrow" : "plain";
+        }
+        if (
+          input.inputTitle !== undefined ||
+          input.inputMessage !== undefined
+        ) {
+          updatedRule.inputMessage = {
+            title: input.inputTitle ?? existingRule.inputMessage?.title,
+            message: input.inputMessage ?? existingRule.inputMessage?.message,
+          };
+        }
+        if (
+          input.errorStyle !== undefined ||
+          input.errorTitle !== undefined ||
+          input.errorMessage !== undefined
+        ) {
+          updatedRule.alert = {
+            style: input.errorStyle ?? existingRule.alert?.style ?? "stop",
+            message: {
+              title: input.errorTitle ?? existingRule.alert?.message?.title,
+              message:
+                input.errorMessage ?? existingRule.alert?.message?.message,
+            },
+          };
+        }
+
+        spreadsheet.updateDataValidationRule(updatedRule, existingRule);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_updateDataValidation] Completed:", {
+          docId,
+          validationId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully updated data validation`,
+          validationId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_updateDataValidation] Error:", error);
+      return failTool(
+        "UPDATE_DATA_VALIDATION_FAILED",
+        error instanceof Error
+          ? error.message
+          : "Failed to update data validation",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_updateDataValidation tool for LangChain
+ */
+export const spreadsheetUpdateDataValidationTool = tool(
+  handleSpreadsheetUpdateDataValidation,
+  {
+    name: "spreadsheet_updateDataValidation",
+    description: `Update an existing data validation rule.
+
+OVERVIEW:
+This tool modifies an existing data validation rule's properties.
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- validationId: The validation rule ID to update (required)
+- All other parameters from createDataValidation are optional
+
+EXAMPLE:
+  docId: "abc123"
+  sheetId: 1
+  validationId: "validation_xyz"
+  listValues: ["New Option 1", "New Option 2"]
+  errorMessage: "Updated error message"`,
+    schema: SpreadsheetUpdateDataValidationSchema,
+  },
+);
+
+/**
+ * Handler for the spreadsheet_deleteDataValidation tool
+ */
+const handleSpreadsheetDeleteDataValidation = async (
+  input: SpreadsheetDeleteDataValidationInput,
+): Promise<string> => {
+  const { docId, sheetId, validationId } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to delete data validation",
+      { field: "docId" },
+    );
+  }
+
+  if (!validationId) {
+    return failTool(
+      "MISSING_VALIDATION_ID",
+      "validationId is required to delete data validation",
+      { field: "validationId" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteDataValidation] Starting:", {
+      docId,
+      sheetId,
+      validationId,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Find existing rule
+        const dataValidations =
+          (spreadsheet.dataValidations as DataValidationRuleRecord[]) || [];
+        const existingRule = dataValidations.find(
+          (r) => String(r.id) === validationId,
+        );
+
+        if (!existingRule) {
+          return failTool(
+            "VALIDATION_NOT_FOUND",
+            `Data validation rule "${validationId}" not found`,
+            { validationId },
+          );
+        }
+
+        spreadsheet.deleteDataValidationRule(existingRule);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteDataValidation] Completed:", {
+          docId,
+          validationId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted data validation`,
+          validationId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteDataValidation] Error:", error);
+      return failTool(
+        "DELETE_DATA_VALIDATION_FAILED",
+        error instanceof Error
+          ? error.message
+          : "Failed to delete data validation",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteDataValidation tool for LangChain
+ */
+export const spreadsheetDeleteDataValidationTool = tool(
+  handleSpreadsheetDeleteDataValidation,
+  {
+    name: "spreadsheet_deleteDataValidation",
+    description: `Delete a data validation rule.
+
+OVERVIEW:
+This tool removes a data validation rule from the spreadsheet.
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- validationId: The validation rule ID to delete (required)
+
+EXAMPLE:
+  docId: "abc123"
+  sheetId: 1
+  validationId: "validation_xyz"`,
+    schema: SpreadsheetDeleteDataValidationSchema,
+  },
+);
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
@@ -4619,4 +5260,7 @@ export const spreadsheetTools = [
   spreadsheetDeleteSheetTool,
   spreadsheetDeleteChartTool,
   spreadsheetDeleteTableTool,
+  spreadsheetCreateDataValidationTool,
+  spreadsheetUpdateDataValidationTool,
+  spreadsheetDeleteDataValidationTool,
 ];

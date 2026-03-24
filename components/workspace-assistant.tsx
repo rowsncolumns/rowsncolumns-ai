@@ -1761,6 +1761,21 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Deleted table",
     failed: "Failed to delete table",
   },
+  spreadsheet_createDataValidation: {
+    running: "Creating data validation",
+    success: "Created data validation",
+    failed: "Failed to create data validation",
+  },
+  spreadsheet_updateDataValidation: {
+    running: "Updating data validation",
+    success: "Updated data validation",
+    failed: "Failed to update data validation",
+  },
+  spreadsheet_deleteDataValidation: {
+    running: "Deleting data validation",
+    success: "Deleted data validation",
+    failed: "Failed to delete data validation",
+  },
 };
 
 const formatToolNameFallback = (toolName: string) =>
@@ -2213,6 +2228,9 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_deleteSheet",
   "spreadsheet_deleteChart",
   "spreadsheet_deleteTable",
+  "spreadsheet_createDataValidation",
+  "spreadsheet_updateDataValidation",
+  "spreadsheet_deleteDataValidation",
 ] as const;
 
 function SpreadsheetToolUIRegistration({

@@ -957,3 +957,178 @@ export const SpreadsheetDeleteTableSchema = z.object({
 export type SpreadsheetDeleteTableInput = z.infer<
   typeof SpreadsheetDeleteTableSchema
 >;
+
+// Data Validation Types
+const DataValidationTypeSchema = z
+  .enum(["list", "number", "wholeNumber", "date", "custom"])
+  .describe(
+    "Type of validation: 'list' for dropdown, 'number'/'wholeNumber' for numeric, 'date' for dates, 'custom' for formula",
+  );
+
+const NumberOperatorSchema = z
+  .enum([
+    "between",
+    "notBetween",
+    "equal",
+    "notEqual",
+    "greaterThan",
+    "greaterThanOrEqual",
+    "lessThan",
+    "lessThanOrEqual",
+  ])
+  .optional()
+  .describe(
+    "Comparison operator for number/date validation. Default: 'between'",
+  );
+
+const DateOperatorSchema = z
+  .enum([
+    "between",
+    "notBetween",
+    "equal",
+    "notEqual",
+    "before",
+    "onOrBefore",
+    "after",
+    "onOrAfter",
+  ])
+  .optional()
+  .describe("Comparison operator for date validation. Default: 'between'");
+
+// Spreadsheet CreateDataValidation
+export const SpreadsheetCreateDataValidationSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  range: z
+    .string()
+    .describe(
+      "A1 notation range to apply validation. Use EXACTLY what user specifies - can be single cell (e.g., 'E1') or range (e.g., 'B2:B50').",
+    ),
+  validationType: DataValidationTypeSchema,
+
+  // List validation
+  listValues: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "For 'list' type: array of allowed values (e.g., ['Yes', 'No', 'Maybe'])",
+    ),
+  listRange: z
+    .string()
+    .optional()
+    .describe(
+      "For 'list' type: A1 range reference for dropdown values (e.g., 'Sheet2!A1:A10'). Use instead of listValues.",
+    ),
+
+  // Number validation
+  numberOperator: NumberOperatorSchema,
+  minValue: z
+    .number()
+    .optional()
+    .describe(
+      "For number type: minimum value (used with 'between', 'greaterThan', etc.)",
+    ),
+  maxValue: z
+    .number()
+    .optional()
+    .describe(
+      "For number type: maximum value (used with 'between', 'lessThan', etc.)",
+    ),
+
+  // Date validation
+  dateOperator: DateOperatorSchema,
+  minDate: z
+    .string()
+    .optional()
+    .describe("For date type: minimum date as ISO string or cell reference"),
+  maxDate: z
+    .string()
+    .optional()
+    .describe("For date type: maximum date as ISO string or cell reference"),
+
+  // Custom formula
+  customFormula: z
+    .string()
+    .optional()
+    .describe(
+      "For 'custom' type: formula that returns TRUE for valid values (e.g., '=A1>0')",
+    ),
+
+  // Common options
+  allowBlank: z
+    .boolean()
+    .optional()
+    .describe("Allow empty cells. Default: true"),
+  showDropdown: z
+    .boolean()
+    .optional()
+    .describe("Show dropdown arrow for list validation. Default: true"),
+  inputTitle: z
+    .string()
+    .optional()
+    .describe("Title shown when cell is selected"),
+  inputMessage: z
+    .string()
+    .optional()
+    .describe("Help message shown when cell is selected"),
+  errorStyle: z
+    .enum(["stop", "warning", "information"])
+    .optional()
+    .describe(
+      "Error behavior: 'stop' rejects, 'warning'/'information' allows. Default: 'stop'",
+    ),
+  errorTitle: z.string().optional().describe("Error dialog title"),
+  errorMessage: z.string().optional().describe("Error dialog message"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetCreateDataValidationInput = z.infer<
+  typeof SpreadsheetCreateDataValidationSchema
+>;
+
+// Spreadsheet UpdateDataValidation
+export const SpreadsheetUpdateDataValidationSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  validationId: z.string().describe("The data validation rule ID to update"),
+
+  // All fields optional for update
+  range: z
+    .string()
+    .optional()
+    .describe("New A1 notation range for the validation"),
+  validationType: DataValidationTypeSchema.optional(),
+  listValues: z.array(z.string()).optional(),
+  listRange: z.string().optional(),
+  numberOperator: NumberOperatorSchema,
+  minValue: z.number().optional(),
+  maxValue: z.number().optional(),
+  dateOperator: DateOperatorSchema,
+  minDate: z.string().optional(),
+  maxDate: z.string().optional(),
+  customFormula: z.string().optional(),
+  allowBlank: z.boolean().optional(),
+  showDropdown: z.boolean().optional(),
+  inputTitle: z.string().nullable().optional(),
+  inputMessage: z.string().nullable().optional(),
+  errorStyle: z.enum(["stop", "warning", "information"]).optional(),
+  errorTitle: z.string().nullable().optional(),
+  errorMessage: z.string().nullable().optional(),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetUpdateDataValidationInput = z.infer<
+  typeof SpreadsheetUpdateDataValidationSchema
+>;
+
+// Spreadsheet DeleteDataValidation
+export const SpreadsheetDeleteDataValidationSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  validationId: z.string().describe("The data validation rule ID to delete"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteDataValidationInput = z.infer<
+  typeof SpreadsheetDeleteDataValidationSchema
+>;
