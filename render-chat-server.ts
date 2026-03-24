@@ -38,6 +38,7 @@ const DEFAULT_CHAT_ALLOWED_ORIGINS = [
   "https://rowsncolumns.ai",
   "https://www.rowsncolumns.ai",
   "http://localhost:3000",
+  "https://localhost:3000",
 ];
 const CHAT_MODEL = process.env.CHAT_MODEL?.trim() || undefined;
 const CHAT_PROVIDER = (() => {

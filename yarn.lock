@@ -2377,6 +2377,11 @@
   dependencies:
     undici-types "~6.21.0"
 
+"@types/office-js@^1.0.584":
+  version "1.0.584"
+  resolved "https://registry.yarnpkg.com/@types/office-js/-/office-js-1.0.584.tgz#511c10736770c0d02b636df9b62ab13fa4d6ce75"
+  integrity sha512-7uOf/ixGPc1jbKhmytSdktGDFTjSrVvZrQpVh4jdVgR0OSKWg17TCt8hvh/xiA06m4SgTF99XRIGF9fm/jSpBw==
+
 "@types/react-dom@^19":
   version "19.2.3"
   resolved "https://registry.yarnpkg.com/@types/react-dom/-/react-dom-19.2.3.tgz#c1e305d15a52a3e508d54dca770d202cb63abf2c"

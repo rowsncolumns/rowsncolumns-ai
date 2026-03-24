@@ -171,6 +171,47 @@ const parseCells = (input: unknown): CellData[][] => {
   return result;
 };
 
+const serializeToolCellValue = (
+  cellData: Record<string, any> | null | undefined,
+  sharedStrings: Map<unknown, unknown>,
+): unknown | undefined => {
+  if (!cellData) {
+    return undefined;
+  }
+
+  const effectiveValue = getCellEffectiveValue(cellData);
+  const ss = (cellData as { ss?: unknown }).ss;
+  const ev =
+    getExtendedValueBool(effectiveValue) ??
+    getExtendedValueNumber(effectiveValue) ??
+    getExtendedValueString(effectiveValue);
+  const fv = isNil(ss) ? getCellFormattedValue(cellData) : sharedStrings.get(ss);
+  const ue = getCellUserEnteredValue(cellData);
+  const formula = getExtendedValueFormula(ue);
+  const hasEv = !isNil(ev);
+  const hasFv = !isNil(fv);
+
+  if (formula) {
+    const formattedValue = hasFv ? fv : hasEv ? ev : formula;
+    const effectiveCellValue = hasEv ? ev : hasFv ? fv : formula;
+    return [formattedValue, effectiveCellValue, formula];
+  }
+
+  if (hasFv && hasEv && fv !== ev && fv !== String(ev)) {
+    return [fv, ev];
+  }
+
+  if (hasEv) {
+    return ev;
+  }
+
+  if (hasFv) {
+    return fv;
+  }
+
+  return undefined;
+};
+
 const documentWriteQueue = new Map<string, Promise<void>>();
 
 const withDocumentWriteLock = async <T>(
@@ -1441,35 +1482,12 @@ const handleSpreadsheetQueryRange = async (
                 const rowData = sheetData?.[rowIndex];
                 const cellData = rowData?.values?.[columnIndex];
 
-                if (!cellData) {
-                  cells[address] = null;
-                  continue;
-                }
-
-                // Cell data may have: value (v), formula (f), formattedValue, style (s), etc.
-                const effectiveValue = getCellEffectiveValue(cellData);
-                const ss = cellData.ss;
-                const ev =
-                  getExtendedValueBool(effectiveValue) ??
-                  getExtendedValueNumber(effectiveValue) ??
-                  getExtendedValueString(effectiveValue);
-                const fv = isNil(ss)
-                  ? getCellFormattedValue(cellData)
-                  : sharedStrings.get(ss);
-                const ue = getCellUserEnteredValue(cellData);
-                const formula = getExtendedValueFormula(ue);
-
-                // Determine output format based on what data is available
-                // Determine output format based on what data is available
-                if (formula) {
-                  // Formula cell: [formatted, effective, formula]
-                  cells[address] = [fv ?? ev ?? null, ev ?? null, formula];
-                } else if (fv !== undefined && fv !== ev && fv !== String(ev)) {
-                  // Formatted differs from effective: [formatted, effective]
-                  cells[address] = [fv, ev ?? null];
-                } else {
-                  // Plain value
-                  cells[address] = ev ?? fv ?? null;
+                const serializedCellValue = serializeToolCellValue(
+                  cellData,
+                  sharedStrings,
+                );
+                if (serializedCellValue !== undefined) {
+                  cells[address] = serializedCellValue;
                 }
               }
             }
@@ -1506,13 +1524,7 @@ const handleSpreadsheetQueryRange = async (
                   : ef;
 
                 console.log("ef", ef, cellXfs, style, cellData);
-                if (!cellData) {
-                  styles[address] = null;
-                  continue;
-                }
-
-                if (!style) {
-                  styles[address] = null;
+                if (!cellData || !style) {
                   continue;
                 }
 
@@ -1891,28 +1903,12 @@ const handleSpreadsheetReadDocument = async (
                 continue;
               }
 
-              const effectiveValue = getCellEffectiveValue(cellData);
-              const ss = cellData.ss;
-              const ev =
-                getExtendedValueBool(effectiveValue) ??
-                getExtendedValueNumber(effectiveValue) ??
-                getExtendedValueString(effectiveValue);
-              const fv = isNil(ss)
-                ? getCellFormattedValue(cellData)
-                : sharedStrings.get(ss);
-              const ue = getCellUserEnteredValue(cellData);
-              const formula = getExtendedValueFormula(ue);
-
-              // Determine output format based on what data is available
-              if (formula) {
-                // Formula cell: [formatted, effective, formula]
-                cells[address] = [fv ?? ev ?? null, ev ?? null, formula];
-              } else if (fv !== undefined && fv !== ev && fv !== String(ev)) {
-                // Formatted differs from effective: [formatted, effective]
-                cells[address] = [fv, ev ?? null];
-              } else {
-                // Plain value
-                cells[address] = ev ?? fv ?? null;
+              const serializedCellValue = serializeToolCellValue(
+                cellData,
+                sharedStrings,
+              );
+              if (serializedCellValue !== undefined) {
+                cells[address] = serializedCellValue;
               }
             }
           }

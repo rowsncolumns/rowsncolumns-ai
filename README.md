@@ -196,6 +196,112 @@ bun dev
 Open [https://localhost:3000](https://localhost:3000) with your browser to see the result.
 OAuth sign-in (especially Safari) requires secure cookies, so dev now starts with HTTPS by default. Use [https://localhost:3000](https://localhost:3000).
 
+## Excel Add-in (MVP)
+
+This repo includes an Excel task pane add-in surface backed by Office.js:
+
+- Task pane page: `/excel-addin`
+- Planning endpoint: `/api/chat/excel/step`
+- Manifest: `public/excel-addin/manifest.xml`
+
+Current local Excel tool support in the add-in:
+
+- `spreadsheet_changeBatch`
+- `spreadsheet_queryRange`
+- `spreadsheet_readDocument`
+- `spreadsheet_createSheet`
+- `spreadsheet_updateSheet`
+- `spreadsheet_formatRange`
+
+Run the app:
+
+```bash
+yarn dev
+```
+
+Sideload the manifest into Excel:
+
+1. Open Excel.
+2. Go to `Insert` -> `Add-ins` -> `My Add-ins` -> `Upload My Add-in`.
+3. Select `public/excel-addin/manifest.xml`.
+4. Open the task pane from the `RowsnColumns AI` ribbon button.
+
+Notes:
+
+- The manifest is preconfigured for `https://localhost:3000`.
+- If you host elsewhere, update URLs in `public/excel-addin/manifest.xml`.
+
+### Testing The Excel Add-in (Manual QA)
+
+Use this checklist to verify the MVP end-to-end.
+
+1. Start app + verify route:
+
+```bash
+yarn dev
+```
+
+Open:
+
+- `https://localhost:3000/excel-addin` (should render the taskpane UI in browser)
+- Sign in if prompted (the chat endpoint requires auth session cookies)
+
+2. Sideload in Excel:
+
+- Open Excel desktop or Excel on web.
+- Upload `public/excel-addin/manifest.xml`.
+- Open `RowsnColumns AI` from the ribbon.
+- Confirm header shows `Workbook connected`.
+
+3. Verify context wiring:
+
+- Click a cell (for example `B2`) in Excel.
+- In taskpane, verify active cell indicator updates to the same address.
+- Click `Refresh context` if needed.
+
+4. Test supported tools with prompts:
+
+- Query range:
+  - Prompt: `Read A1:C5 and summarize what is there.`
+  - Expect: assistant invokes `spreadsheet_readDocument` or `spreadsheet_queryRange` and returns values.
+- Write values:
+  - Prompt: `Put headers Name, Revenue, Cost in A1:C1 and add 3 sample rows.`
+  - Expect: assistant invokes `spreadsheet_changeBatch`; sheet updates.
+- Create sheet:
+  - Prompt: `Create a new sheet called Summary.`
+  - Expect: `spreadsheet_createSheet`; new tab appears.
+- Update sheet:
+  - Prompt: `Rename sheet 1 to RawData and freeze the top row.`
+  - Expect: `spreadsheet_updateSheet`; name/freeze updates.
+- Format:
+  - Prompt: `Format A1:C1 as bold with a light background.`
+  - Expect: `spreadsheet_formatRange`; visible formatting change.
+
+5. Verify tool cards:
+
+- Each tool call should appear in chat with:
+  - Input JSON
+  - Output JSON
+  - Running/completed state
+
+6. Negative test (unsupported tool):
+
+- Prompt: `Delete rows 2 through 5.`
+- Current MVP does not implement delete-row tool execution.
+- Expect: tool result contains explicit `not implemented` error.
+
+### Troubleshooting
+
+- `Unauthorized` from chat:
+  - Sign in to the web app at `https://localhost:3000` first, then reopen the taskpane.
+- Taskpane does not load:
+  - Confirm URLs in manifest match your dev host.
+  - Verify HTTPS is used (`yarn dev`, not `yarn dev:http`).
+- Office.js errors after workbook changes:
+  - Click `Refresh context` and retry prompt.
+- Manifest changes not reflected:
+  - Remove and re-sideload the add-in in Excel.
+
 If you need plain HTTP for debugging, run:
 
 ```bash
