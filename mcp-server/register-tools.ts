@@ -18,7 +18,7 @@ import {
   type ShareDBSpreadsheetDoc,
 } from "../lib/chat/utils";
 import { resolveAppBaseUrl, resolveAppOrigin } from "./app-url";
-import { selectionToAddress } from "@rowsncolumns/utils";
+import { selectionToAddress, uuidString } from "@rowsncolumns/utils";
 import { buildSpreadsheetContextPayload } from "../lib/chat/context";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
@@ -458,6 +458,62 @@ const readSpreadsheetDocument = async (
   }
 };
 
+const createSpreadsheetDocument = async ({
+  docId,
+  sheetTitle,
+}: {
+  docId: string;
+  sheetTitle?: string;
+}): Promise<{ created: boolean; exists: boolean }> => {
+  const normalizedSheetTitle =
+    typeof sheetTitle === "string" && sheetTitle.trim().length > 0
+      ? sheetTitle.trim()
+      : "Sheet1";
+
+  const { doc, close } = await getShareDBDocument(docId);
+  try {
+    if (doc.type !== null) {
+      return { created: false, exists: true };
+    }
+
+    const initialDoc: ShareDBSpreadsheetDoc = {
+      sheets: [{ sheetId: 1, title: normalizedSheetTitle }],
+      sheetData: {},
+      tables: [],
+      charts: [],
+      embeds: [],
+      namedRanges: [],
+      pivotTables: [],
+      dataValidations: [],
+      conditionalFormats: [],
+      cellXfs: {},
+      sharedStrings: {},
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      (
+        doc as {
+          create: (
+            data: ShareDBSpreadsheetDoc,
+            type: string,
+            callback?: (error?: unknown) => void,
+          ) => void;
+        }
+      ).create(initialDoc, "json0", (error?: unknown) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+
+    return { created: true, exists: false };
+  } finally {
+    close();
+  }
+};
+
 const buildSpreadsheetAppHtml = async ({
   appBaseUrl,
   shareDbUrl,
@@ -581,9 +637,13 @@ export const registerSpreadsheetTools = (server: McpServer) => {
     {
       title: "Get Spreadsheet Context",
       description:
-        "Returns sheet metadata and the last synced UI state (active cell, selections, active sheet) for a spreadsheet document.",
+        "Returns spreadsheet context instructions for the model. Use verbose=true to include full metadata JSON.",
       inputSchema: {
         docId: z.string().min(1).describe("Spreadsheet document ID"),
+        verbose: z
+          .boolean()
+          .optional()
+          .describe("When true, include full context metadata in structuredContent"),
       },
       annotations: {
         readOnlyHint: true,
@@ -591,7 +651,12 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       },
     },
     async (args: unknown) => {
-      const parsed = z.object({ docId: z.string().min(1) }).parse(args);
+      const parsed = z
+        .object({
+          docId: z.string().min(1),
+          verbose: z.boolean().optional(),
+        })
+        .parse(args);
       const data = await readSpreadsheetDocument(parsed.docId);
       const uiState = uiStateByDocId.get(parsed.docId) ?? null;
 
@@ -705,6 +770,13 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         contextInstructions,
       };
 
+      const minimalContext = {
+        docId: parsed.docId,
+        exists: true,
+        assistantContext,
+        contextInstructions,
+      };
+
       return {
         content: [
           {
@@ -712,7 +784,7 @@ export const registerSpreadsheetTools = (server: McpServer) => {
             text: contextInstructions,
           },
         ],
-        structuredContent: context,
+        structuredContent: parsed.verbose ? context : minimalContext,
       };
     },
   );
@@ -871,6 +943,106 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       },
     },
     buildSpreadsheetResourceResult,
+  );
+
+  registerAppTool(
+    server,
+    "spreadsheet_createDocument",
+    {
+      title: "Create Spreadsheet Document",
+      description:
+        "Creates a new spreadsheet document and opens it in the inline MCP spreadsheet app.",
+      inputSchema: {
+        sheetTitle: z
+          .string()
+          .min(1)
+          .max(80)
+          .optional()
+          .describe("Optional first-sheet title"),
+        locale: z
+          .string()
+          .min(2)
+          .optional()
+          .describe("Optional locale (e.g. en-US)"),
+        currency: z
+          .string()
+          .min(3)
+          .max(3)
+          .optional()
+          .describe("Optional ISO currency code (e.g. USD)"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+      },
+      _meta: {
+        ui: {
+          resourceUri: SPREADSHEET_APP_RESOURCE_URI,
+        },
+      },
+    },
+    async (args: unknown) => {
+      const parsed = z
+        .object({
+          sheetTitle: z.string().min(1).max(80).optional(),
+          locale: z.string().min(2).optional(),
+          currency: z.string().min(3).max(3).optional(),
+        })
+        .parse(args ?? {});
+
+      let docId = uuidString();
+      let created = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const result = await createSpreadsheetDocument({
+          docId,
+          sheetTitle: parsed.sheetTitle,
+        });
+        if (result.created) {
+          created = true;
+          break;
+        }
+        docId = uuidString();
+      }
+
+      if (!created) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Failed to create a new spreadsheet document. Please try again.",
+            },
+          ],
+          structuredContent: {
+            success: false,
+          },
+        };
+      }
+
+      const resolvedLocale = parsed.locale ?? locale;
+      const resolvedCurrency = (parsed.currency ?? currency).toUpperCase();
+      const url = new URL(
+        `${MCP_PUBLIC_DOC_BASE_PATH}/${encodeURIComponent(docId)}`,
+        appBaseUrl,
+      );
+      url.searchParams.set("locale", resolvedLocale);
+      url.searchParams.set("currency", resolvedCurrency);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Created spreadsheet document ${docId}.`,
+          },
+        ],
+        structuredContent: {
+          success: true,
+          docId,
+          locale: resolvedLocale,
+          currency: resolvedCurrency,
+          url: url.toString(),
+        },
+      };
+    },
   );
 
   registerAppTool(
