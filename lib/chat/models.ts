@@ -923,3 +923,37 @@ export const SpreadsheetUpdateChartSchema = z.object({
 export type SpreadsheetUpdateChartInput = z.infer<
   typeof SpreadsheetUpdateChartSchema
 >;
+
+// Spreadsheet DeleteSheet
+export const SpreadsheetDeleteSheetSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID to delete"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteSheetInput = z.infer<
+  typeof SpreadsheetDeleteSheetSchema
+>;
+
+// Spreadsheet DeleteChart
+export const SpreadsheetDeleteChartSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  chartId: z.string().describe("The chart ID to delete"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteChartInput = z.infer<
+  typeof SpreadsheetDeleteChartSchema
+>;
+
+// Spreadsheet DeleteTable
+export const SpreadsheetDeleteTableSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID containing the table"),
+  tableId: z.string().describe("The table ID to delete"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteTableInput = z.infer<
+  typeof SpreadsheetDeleteTableSchema
+>;

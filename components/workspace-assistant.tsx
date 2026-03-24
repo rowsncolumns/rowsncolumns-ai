@@ -1746,6 +1746,21 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Updated chart",
     failed: "Failed to update chart",
   },
+  spreadsheet_deleteSheet: {
+    running: "Deleting sheet",
+    success: "Deleted sheet",
+    failed: "Failed to delete sheet",
+  },
+  spreadsheet_deleteChart: {
+    running: "Deleting chart",
+    success: "Deleted chart",
+    failed: "Failed to delete chart",
+  },
+  spreadsheet_deleteTable: {
+    running: "Deleting table",
+    success: "Deleted table",
+    failed: "Failed to delete table",
+  },
 };
 
 const formatToolNameFallback = (toolName: string) =>
@@ -2195,6 +2210,9 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_updateTable",
   "spreadsheet_createChart",
   "spreadsheet_updateChart",
+  "spreadsheet_deleteSheet",
+  "spreadsheet_deleteChart",
+  "spreadsheet_deleteTable",
 ] as const;
 
 function SpreadsheetToolUIRegistration({

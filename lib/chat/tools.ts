@@ -62,6 +62,12 @@ import {
   SpreadsheetCreateChartSchema,
   type SpreadsheetUpdateChartInput,
   SpreadsheetUpdateChartSchema,
+  type SpreadsheetDeleteSheetInput,
+  SpreadsheetDeleteSheetSchema,
+  type SpreadsheetDeleteChartInput,
+  SpreadsheetDeleteChartSchema,
+  type SpreadsheetDeleteTableInput,
+  SpreadsheetDeleteTableSchema,
 } from "./models";
 import {
   cellsToValues,
@@ -4253,6 +4259,339 @@ Example 3 — Update data sources (extend range):
 });
 
 /**
+ * Handler for the spreadsheet_deleteSheet tool
+ */
+const handleSpreadsheetDeleteSheet = async (
+  input: SpreadsheetDeleteSheetInput,
+): Promise<string> => {
+  const { docId, sheetId } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to delete a sheet", {
+      field: "docId",
+    });
+  }
+
+  if (sheetId === undefined || sheetId === null) {
+    return failTool(
+      "MISSING_SHEET_ID",
+      "sheetId is required to delete a sheet",
+      { field: "sheetId" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteSheet] Starting:", { docId, sheetId });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Check if sheet exists
+        const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+        if (!sheet) {
+          return failTool("SHEET_NOT_FOUND", `Sheet ${sheetId} not found`, {
+            sheetId,
+          });
+        }
+
+        // Don't allow deleting the last sheet
+        if (spreadsheet.sheets.length <= 1) {
+          return failTool(
+            "CANNOT_DELETE_LAST_SHEET",
+            "Cannot delete the last sheet in the document",
+            { sheetId },
+          );
+        }
+
+        const sheetTitle = sheet.title;
+        spreadsheet.deleteSheet(sheetId);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteSheet] Completed:", {
+          docId,
+          sheetId,
+          sheetTitle,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted sheet "${sheetTitle}"`,
+          sheetId,
+          sheetTitle,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteSheet] Error:", error);
+      return failTool(
+        "DELETE_SHEET_FAILED",
+        error instanceof Error ? error.message : "Failed to delete sheet",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteSheet tool for LangChain
+ */
+export const spreadsheetDeleteSheetTool = tool(handleSpreadsheetDeleteSheet, {
+  name: "spreadsheet_deleteSheet",
+  description: `Delete a sheet from the spreadsheet.
+
+OVERVIEW:
+This tool permanently removes a sheet/tab from the document.
+
+WHEN TO USE THIS TOOL:
+- Removing unwanted sheets
+- Cleaning up temporary sheets
+- Reorganizing a workbook
+
+IMPORTANT:
+- Cannot delete the last remaining sheet
+- All data in the sheet will be permanently lost
+- Charts and tables on the sheet will also be deleted
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID to delete (required)
+
+EXAMPLE:
+  docId: "abc123"
+  sheetId: 2`,
+  schema: SpreadsheetDeleteSheetSchema,
+});
+
+/**
+ * Handler for the spreadsheet_deleteChart tool
+ */
+const handleSpreadsheetDeleteChart = async (
+  input: SpreadsheetDeleteChartInput,
+): Promise<string> => {
+  const { docId, chartId } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to delete a chart", {
+      field: "docId",
+    });
+  }
+
+  if (!chartId) {
+    return failTool(
+      "MISSING_CHART_ID",
+      "chartId is required to delete a chart",
+      { field: "chartId" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteChart] Starting:", { docId, chartId });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Check if chart exists
+        const charts = spreadsheet.charts || [];
+        const chart = charts.find((c) => String(c.chartId) === chartId);
+        if (!chart) {
+          return failTool("CHART_NOT_FOUND", `Chart "${chartId}" not found`, {
+            chartId,
+          });
+        }
+
+        spreadsheet.deleteChart(chartId);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteChart] Completed:", {
+          docId,
+          chartId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted chart`,
+          chartId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteChart] Error:", error);
+      return failTool(
+        "DELETE_CHART_FAILED",
+        error instanceof Error ? error.message : "Failed to delete chart",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteChart tool for LangChain
+ */
+export const spreadsheetDeleteChartTool = tool(handleSpreadsheetDeleteChart, {
+  name: "spreadsheet_deleteChart",
+  description: `Delete a chart from the spreadsheet.
+
+OVERVIEW:
+This tool permanently removes a chart from the document.
+
+WHEN TO USE THIS TOOL:
+- Removing unwanted charts
+- Replacing a chart with a new one
+- Cleaning up visualizations
+
+PARAMETERS:
+- docId: The document ID (required)
+- chartId: The chart ID to delete (required)
+
+EXAMPLE:
+  docId: "abc123"
+  chartId: "chart_abc123"`,
+  schema: SpreadsheetDeleteChartSchema,
+});
+
+/**
+ * Handler for the spreadsheet_deleteTable tool
+ */
+const handleSpreadsheetDeleteTable = async (
+  input: SpreadsheetDeleteTableInput,
+): Promise<string> => {
+  const { docId, sheetId, tableId } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required to delete a table", {
+      field: "docId",
+    });
+  }
+
+  if (!tableId) {
+    return failTool(
+      "MISSING_TABLE_ID",
+      "tableId is required to delete a table",
+      { field: "tableId" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteTable] Starting:", {
+      docId,
+      sheetId,
+      tableId,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Find the table
+        const tables = spreadsheet.tables || [];
+        const table = tables.find(
+          (t) => t.id === tableId && t.sheetId === sheetId,
+        );
+        if (!table) {
+          return failTool(
+            "TABLE_NOT_FOUND",
+            `Table "${tableId}" not found on sheet ${sheetId}`,
+            { tableId, sheetId },
+          );
+        }
+
+        spreadsheet.removeTable(table);
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteTable] Completed:", {
+          docId,
+          sheetId,
+          tableId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted table`,
+          tableId,
+          sheetId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteTable] Error:", error);
+      return failTool(
+        "DELETE_TABLE_FAILED",
+        error instanceof Error ? error.message : "Failed to delete table",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteTable tool for LangChain
+ */
+export const spreadsheetDeleteTableTool = tool(handleSpreadsheetDeleteTable, {
+  name: "spreadsheet_deleteTable",
+  description: `Delete a table from the spreadsheet.
+
+OVERVIEW:
+This tool removes a table definition from the document. The underlying cell data remains; only the table formatting and structure is removed.
+
+WHEN TO USE THIS TOOL:
+- Converting a table back to plain cells
+- Removing table formatting
+- Reorganizing data structure
+
+NOTE: This removes the table definition only. Cell values and basic formatting remain intact.
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID containing the table (required)
+- tableId: The table ID to delete (required)
+
+EXAMPLE:
+  docId: "abc123"
+  sheetId: 1
+  tableId: "table_abc123"`,
+  schema: SpreadsheetDeleteTableSchema,
+});
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
@@ -4277,4 +4616,7 @@ export const spreadsheetTools = [
   spreadsheetUpdateTableTool,
   spreadsheetCreateChartTool,
   spreadsheetUpdateChartTool,
+  spreadsheetDeleteSheetTool,
+  spreadsheetDeleteChartTool,
+  spreadsheetDeleteTableTool,
 ];
