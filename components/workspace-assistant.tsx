@@ -546,6 +546,9 @@ const buildSkillsInstruction = (skills: AssistantSkill[]) => {
       ? [
           "Branding guidelines are mandatory constraints for this conversation.",
           "Always follow branding skills when generating copy, structure, naming, colors, and style-related output.",
+          "When producing spreadsheet models/reports/tables (for example DCF, LBO, budget, dashboards), apply a branding pass before completion.",
+          "Branding pass means: align labels and wording with brand voice, and apply brand-aligned formatting/colors where formatting tools are available.",
+          "Do not treat branding as optional unless the user explicitly asks for raw/unformatted output.",
           "Only deviate if the user explicitly asks to override a branding rule.",
           `Branding skills in scope: ${brandingSkills.map((skill) => skill.name.trim()).join(", ")}`,
           "",
