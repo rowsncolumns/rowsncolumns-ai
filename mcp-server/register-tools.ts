@@ -61,7 +61,7 @@ const normalizeToolResult = (value: unknown) => {
   };
 };
 
-const SPREADSHEET_APP_RESOURCE_URI = "ui://rowsncolumns/spreadsheet-view.html";
+const SPREADSHEET_APP_RESOURCE_URI = "ui://rowsncolumns/spreadsheet-view-v3.html";
 const MCP_PUBLIC_DOC_BASE_PATH = "/mcp/doc";
 const MCP_WIDGET_BUNDLE_PATH = path.join(
   process.cwd(),

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ShareDBClient from "sharedb/lib/client";
-import ReconnectingWebSocket from "reconnecting-websocket";
 import {
   BottomBar,
   CanvasGrid,
@@ -139,38 +138,7 @@ const resolveShareDbUrl = (
 };
 
 const createShareDbSocket = (url: string): ShareDBSocket => {
-  const reconnectingSocket = new ReconnectingWebSocket(url);
-
-  const socket: ShareDBSocket = {
-    get readyState() {
-      return reconnectingSocket.readyState;
-    },
-    close(code?: number) {
-      reconnectingSocket.close(code);
-    },
-    send(data: unknown) {
-      reconnectingSocket.send(data as never);
-    },
-    onmessage: () => {},
-    onclose: () => {},
-    onerror: () => {},
-    onopen: () => {},
-  };
-
-  reconnectingSocket.onmessage = (event) => {
-    socket.onmessage(event);
-  };
-  reconnectingSocket.onclose = (event) => {
-    socket.onclose(event);
-  };
-  reconnectingSocket.onerror = (event) => {
-    socket.onerror(event);
-  };
-  reconnectingSocket.onopen = (event) => {
-    socket.onopen(event);
-  };
-
-  return socket;
+  return new WebSocket(url) as unknown as ShareDBSocket;
 };
 
 function SpreadsheetDocumentView({
