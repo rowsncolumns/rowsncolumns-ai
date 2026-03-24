@@ -5,6 +5,7 @@ import {
   type CreateMcpExpressAppOptions,
 } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSpreadsheetMcpServer } from "./create-server";
 import { loadEnvironment } from "./env";
 
@@ -30,18 +31,16 @@ const MCP_PATH = process.env.MCP_PATH?.trim() || DEFAULT_MCP_PATH;
 const MCP_HOST = process.env.MCP_HOST?.trim() || DEFAULT_MCP_HOST;
 const MCP_ALLOWED_HOSTS = splitCsv(process.env.MCP_ALLOWED_HOSTS);
 
-type HttpRequestLike = {
+type HttpRequestLike = IncomingMessage & {
   protocol?: string;
   get?: (headerName: string) => string | undefined;
   originalUrl?: string;
-  headers?: Record<string, string | string[] | undefined>;
   body?: unknown;
 };
 
-type HttpResponseLike = {
+type HttpResponseLike = ServerResponse<IncomingMessage> & {
   status: (code: number) => HttpResponseLike;
   json: (payload: unknown) => void;
-  headersSent?: boolean;
 };
 
 const detectUiHost = (
