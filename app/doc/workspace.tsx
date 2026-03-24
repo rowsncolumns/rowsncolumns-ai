@@ -928,7 +928,7 @@ function SpreadsheetPane({
         getSheetName={getSheetName}
         charts={charts}
       />
-      <Toolbar enableFloating>
+      <Toolbar enableFloating className="rounded-tl-xl rounded-tr-xl">
         <FileMenu
           onImportExcel={handleImportExcel}
           onImportCSV={handleImportCSV}
@@ -1505,7 +1505,7 @@ function SpreadsheetPane({
         />
       </div>
 
-      <BottomBar>
+      <BottomBar className="rounded-bl-xl rounded-br-xl">
         <NewSheetButton onClick={onCreateNewSheet} />
 
         <SheetSwitcher

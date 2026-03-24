@@ -4170,7 +4170,7 @@ function WorkspaceAssistantPanel({
   }, [isHydratingSession, isRestoringSessionFromPicker]);
 
   return (
-    <Card className="rnc-assistant-panel flex h-full min-h-128 flex-col overflow-hidden border-(--card-border) bg-(--assistant-panel-bg) rounded-none">
+    <Card className="rnc-assistant-panel flex h-full min-h-128 flex-col overflow-hidden border-(--card-border) bg-(--assistant-panel-bg) rounded-lg">
       <div
         ref={assistantHeaderRef}
         className="rnc-assistant-divider border-b border-black/8 px-5 py-4"
