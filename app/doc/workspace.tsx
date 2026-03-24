@@ -1515,6 +1515,7 @@ function SpreadsheetPane({
           onShowSheet={onShowSheet}
         />
         <SheetTabs
+          enableNavigationButton
           sheets={sheets}
           protectedRanges={protectedRanges}
           activeSheetId={activeSheetId}
@@ -1522,7 +1523,7 @@ function SpreadsheetPane({
           onChangeActiveSheet={onChangeActiveSheet}
           onRenameSheet={onRenameSheet}
           onChangeSheetTabColor={onChangeSheetTabColor}
-          onDeleteSheet={onDeleteSheet}
+          onDeleteSheet={onRequestDeleteSheet}
           onHideSheet={onHideSheet}
           onMoveSheet={onMoveSheet}
           onProtectSheet={onProtectSheet}
