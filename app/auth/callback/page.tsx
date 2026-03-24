@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { PopupComplete } from "@/app/auth/callback/popup-complete";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -12,6 +13,12 @@ function readSingleParam(value: string | string[] | undefined): string | null {
 function normalizeRedirectPath(value: string | null): string {
   if (value && value.startsWith("/") && !value.startsWith("//")) return value;
   return "/doc";
+}
+
+function withSessionVerifier(redirectPath: string, verifier: string): string {
+  const redirectUrl = new URL(redirectPath, "http://localhost");
+  redirectUrl.searchParams.set("neon_auth_session_verifier", verifier);
+  return `${redirectUrl.pathname}${redirectUrl.search}${redirectUrl.hash}`;
 }
 
 function buildSignInErrorRedirect({
@@ -55,7 +62,14 @@ export default async function AuthCallbackPage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
+  const isPopupFlow = readSingleParam(params.neon_popup) === "1";
+  if (isPopupFlow) {
+    return <PopupComplete />;
+  }
+
   const redirectTo = normalizeRedirectPath(readSingleParam(params.redirectTo));
+  const verifier =
+    readSingleParam(params.neon_auth_session_verifier)?.trim() || null;
   const oauthError = readSingleParam(params.error);
   const oauthErrorDescription =
     readSingleParam(params.error_description) ??
@@ -69,6 +83,10 @@ export default async function AuthCallbackPage({
         error: normalizeOAuthErrorMessage(oauthError, oauthErrorDescription),
       }),
     );
+  }
+
+  if (verifier) {
+    redirect(withSessionVerifier(redirectTo, verifier));
   }
 
   redirect(redirectTo);

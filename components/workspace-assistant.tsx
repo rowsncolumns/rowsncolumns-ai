@@ -245,10 +245,13 @@ const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
 
 const DEFAULT_MODEL =
   MODEL_OPTION_GROUPS[0]?.options[0]?.value ?? "gpt-5.2-chat-latest";
+export const DEFAULT_ASSISTANT_MODEL = DEFAULT_MODEL;
 
 const MODEL_OPTIONS: ModelOption[] = MODEL_OPTION_GROUPS.flatMap(
   (group) => group.options,
 );
+export const getAssistantModelLabel = (model: string) =>
+  MODEL_OPTIONS.find((option) => option.value === model)?.label ?? model;
 const MODEL_OPTION_VALUES = new Set<string>(
   MODEL_OPTIONS.map((option) => option.value),
 );
@@ -404,7 +407,8 @@ const useThreadIdFromUrl = () => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const initialSessionId = searchParams.get("session_id")?.trim() || null;
+  const safePathname = pathname || "/";
+  const initialSessionId = searchParams?.get("session_id")?.trim() || null;
   const [threadId, setThreadId] = React.useState(
     () => initialSessionId ?? uuidString(),
   );
@@ -413,7 +417,7 @@ const useThreadIdFromUrl = () => {
   );
 
   React.useEffect(() => {
-    const currentSessionId = searchParams.get("session_id")?.trim() || null;
+    const currentSessionId = searchParams?.get("session_id")?.trim() || null;
     setPersistInUrl(currentSessionId !== null);
     if (!currentSessionId) {
       return;
@@ -428,8 +432,8 @@ const useThreadIdFromUrl = () => {
 
   const pushSessionIdToHistory = React.useCallback(
     (nextSessionId: string | null) => {
-      const params = new URLSearchParams(searchParams.toString());
-      const currentSessionId = searchParams.get("session_id")?.trim() || null;
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      const currentSessionId = searchParams?.get("session_id")?.trim() || null;
 
       if (nextSessionId === null) {
         if (!currentSessionId) {
@@ -444,10 +448,12 @@ const useThreadIdFromUrl = () => {
       }
 
       const nextQuery = params.toString();
-      const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+      const nextUrl = nextQuery
+        ? `${safePathname}?${nextQuery}`
+        : safePathname;
       router.push(nextUrl, { scroll: false });
     },
-    [pathname, router, searchParams],
+    [router, safePathname, searchParams],
   );
 
   const markThreadStarted = React.useCallback(() => {
@@ -3107,7 +3113,7 @@ const AssistantDebugAccessContext = React.createContext<{ isAdmin: boolean }>({
   isAdmin: false,
 });
 
-function AssistantComposer({
+export function AssistantComposer({
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,

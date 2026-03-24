@@ -68,6 +68,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/office-js": "^1.0.584",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/sharedb": "^5.1.0",
