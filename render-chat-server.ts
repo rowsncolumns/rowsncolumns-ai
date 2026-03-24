@@ -46,6 +46,9 @@ type JwtPayloadLike = {
 
 const CHAT_PATH = process.env.CHAT_RENDER_PATH?.trim() || "/chat";
 const HEALTH_PATH = process.env.CHAT_RENDER_HEALTH_PATH?.trim() || "/health";
+const CHAT_RUNTIME_HEADER_NAME = "X-Chat-Runtime";
+const CHAT_RUNTIME_HEADER_VALUE =
+  process.env.CHAT_RUNTIME_HEADER_VALUE?.trim() || "render-chat-server";
 const DEFAULT_CHAT_SERVER_TIMEOUT_MS = 30 * 60_000; // 30 minutes
 const MAX_CHAT_SERVER_TIMEOUT_MS = 95 * 60_000; // Keep below common 100-min gateway limits
 const DEFAULT_CHAT_ALLOWED_ORIGINS = [
@@ -75,6 +78,11 @@ const parsePositiveInt = (value: string | undefined, fallback: number) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
+
+const CHAT_SSE_HEARTBEAT_INTERVAL_MS = Math.max(
+  0,
+  parsePositiveInt(process.env.CHAT_SSE_HEARTBEAT_INTERVAL_MS, 15000),
+);
 
 const normalizeAuthBaseUrl = () => {
   const raw = process.env.NEON_AUTH_BASE_URL?.trim();
@@ -134,12 +142,17 @@ const setCorsHeaders = (res: ServerResponse, origin: string | null) => {
   return true;
 };
 
+const setRuntimeHeader = (res: ServerResponse) => {
+  res.setHeader(CHAT_RUNTIME_HEADER_NAME, CHAT_RUNTIME_HEADER_VALUE);
+};
+
 const sendJson = (
   req: IncomingMessage,
   res: ServerResponse,
   status: number,
   payload: unknown,
 ) => {
+  setRuntimeHeader(res);
   const origin = req.headers.origin ?? null;
   const hasCors = setCorsHeaders(res, origin);
   if (origin && !hasCors) {
@@ -371,6 +384,7 @@ const getBearerToken = (authorizationHeader: string | undefined) => {
 };
 
 const startSse = (req: IncomingMessage, res: ServerResponse) => {
+  setRuntimeHeader(res);
   const origin = req.headers.origin ?? null;
   const hasCors = setCorsHeaders(res, origin);
   if (origin && !hasCors) {
@@ -382,8 +396,30 @@ const startSse = (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("Keep-Alive", "timeout=300");
+  res.setHeader("Content-Encoding", "identity");
   res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
   return true;
+};
+
+const startSseHeartbeat = (res: ServerResponse) => {
+  if (CHAT_SSE_HEARTBEAT_INTERVAL_MS <= 0) {
+    return () => {};
+  }
+
+  const interval = setInterval(() => {
+    if (res.writableEnded || res.destroyed) {
+      return;
+    }
+    // SSE comment heartbeat to keep intermediaries from closing idle streams.
+    res.write(": keepalive\n\n");
+  }, CHAT_SSE_HEARTBEAT_INTERVAL_MS);
+  interval.unref?.();
+
+  return () => {
+    clearInterval(interval);
+  };
 };
 
 const toProvider = (provider: string | undefined) => {
@@ -474,6 +510,7 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
   if (!startSse(req, res)) {
     return;
   }
+  const stopHeartbeat = startSseHeartbeat(res);
 
   const runId = crypto.randomUUID();
   const runAbortController = new AbortController();
@@ -550,6 +587,7 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
     }
   } finally {
+    stopHeartbeat();
     clearTimeout(timeoutHandle);
     req.off("close", abortFromClientClose);
 
@@ -601,6 +639,7 @@ const server = createServer(async (req, res) => {
     const method = (req.method ?? "GET").toUpperCase();
 
     if (method === "OPTIONS") {
+      setRuntimeHeader(res);
       const origin = req.headers.origin ?? null;
       const hasCors = setCorsHeaders(res, origin);
       if (origin && !hasCors) {
@@ -634,29 +673,8 @@ const server = createServer(async (req, res) => {
 
 const port = parsePositiveInt(process.env.PORT, 8787);
 const host = process.env.HOST?.trim() || "0.0.0.0";
-const getEnvPresence = (name: string) => {
-  const raw = process.env[name];
-  if (typeof raw !== "string") {
-    return { status: "undefined", length: 0, trimmedLength: 0 } as const;
-  }
-  return {
-    status: raw.trim().length > 0 ? ("present" as const) : ("empty" as const),
-    length: raw.length,
-    trimmedLength: raw.trim().length,
-  };
-};
 
 server.listen(port, host, () => {
-  console.log("[render-chat-server] env diagnostics", {
-    OPENAI_API_KEY: getEnvPresence("OPENAI_API_KEY"),
-    ANTHROPIC_API_KEY: getEnvPresence("ANTHROPIC_API_KEY"),
-    DATABASE_URL: getEnvPresence("DATABASE_URL"),
-    SHAREDB_URL: getEnvPresence("SHAREDB_URL"),
-    NEON_AUTH_BASE_URL: getEnvPresence("NEON_AUTH_BASE_URL"),
-    AI_PROVIDER: process.env.AI_PROVIDER?.trim() || null,
-    CHAT_PROVIDER: process.env.CHAT_PROVIDER?.trim() || null,
-    CHAT_MODEL: process.env.CHAT_MODEL?.trim() || null,
-  });
   console.log(
     `[render-chat-server] listening on http://${host}:${port} (chat path: ${CHAT_PATH})`,
   );

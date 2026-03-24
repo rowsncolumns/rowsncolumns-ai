@@ -287,9 +287,6 @@ export const getShareDBDocument = (
         }
 
         const delayMs = computeBackoffDelayMs(attempt);
-        console.warn(
-          `[ShareDB] getShareDBDocument retry ${attempt + 1}/${FETCH_MAX_RETRIES} for doc ${docId} after error: ${getErrorMessage(error)}. Retrying in ${delayMs}ms.`,
-        );
         await wait(delayMs);
       }
     }

@@ -35,9 +35,6 @@ const getEnv = (name: string) => {
   return value ? value : undefined;
 };
 
-const findCaseInsensitiveEnvKey = (name: string) =>
-  Object.keys(process.env).find((key) => key.toLowerCase() === name.toLowerCase());
-
 type Provider = "openai" | "anthropic";
 type OpenAIReasoningSummary = "auto" | "concise" | "detailed" | null;
 type OpenAIReasoningEffort = "low" | "medium" | "high";
@@ -391,21 +388,7 @@ const getModel = (override?: {
   const apiKey = getEnv("OPENAI_API_KEY");
 
   if (!apiKey) {
-    const rawValue = process.env.OPENAI_API_KEY;
-    const keyStatus =
-      typeof rawValue === "string"
-        ? rawValue.trim().length > 0
-          ? "present"
-          : "empty"
-        : "undefined";
-    const similarKey = findCaseInsensitiveEnvKey("OPENAI_API_KEY");
-    const similarKeyHint =
-      similarKey && similarKey !== "OPENAI_API_KEY"
-        ? ` Found similarly named key '${similarKey}'.`
-        : "";
-    throw new Error(
-      `OPENAI_API_KEY is not configured (status: ${keyStatus}).${similarKeyHint}`,
-    );
+    throw new Error("OPENAI_API_KEY is not configured.");
   }
 
   const reasoningSummary = parseOpenAIReasoningSummary(
