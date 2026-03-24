@@ -164,7 +164,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Failed to process chat request.";
+      error instanceof Error
+        ? error.message
+        : "Failed to process chat request.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

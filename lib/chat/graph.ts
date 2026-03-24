@@ -1,5 +1,9 @@
 import { ChatAnthropic } from "@langchain/anthropic";
-import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+} from "@langchain/core/messages";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import {
   END,
@@ -67,7 +71,11 @@ const getAbortReasonTimeoutMs = (reason: unknown) => {
   }
 
   const { timeoutMs } = reason as ChatAbortReason;
-  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+  if (
+    typeof timeoutMs !== "number" ||
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs <= 0
+  ) {
     return null;
   }
 
@@ -259,6 +267,14 @@ for the user to ask. This is critical for a good user experience.
   enable iterative calculation mode immediately
 - After fixing errors, verify the fix worked by re-querying the affected range
 - Inform the user what you fixed and why
+
+Execution contract (mandatory):
+- You are an execution agent, not a planner.
+- If any tool result shows formula errors (#REF!, #VALUE!, #DIV/0!, #NAME?, #N/A, #NUM!, #NULL!, #SPILL!), immediately issue tool calls to repair them in this same run.
+- After each repair, verify the affected range with spreadsheet_queryRange or spreadsheet_readDocument.
+- Do not output "next step", "I will fix", "I can fix", or any future-tense repair promise.
+- Only return a final assistant message when detected formula errors are resolved, or the tool-iteration limit is reached.
+- If the tool-iteration limit is reached, report unresolved cells/ranges and the exact next repair action.
 
 ## PREVENTION — Avoiding Circular References
 By default, do NOT create formulas that produce circular references.
@@ -1335,10 +1351,12 @@ const getStoredToolResult = (value: unknown): ParsedStoredToolResult | null => {
   const result =
     typeof resultSource === "string"
       ? tryParseJsonString(resultSource)
-      : resultSource ?? "";
+      : (resultSource ?? "");
 
   return {
-    ...(typeof toolCallIdValue === "string" ? { toolCallId: toolCallIdValue } : {}),
+    ...(typeof toolCallIdValue === "string"
+      ? { toolCallId: toolCallIdValue }
+      : {}),
     ...(typeof toolNameValue === "string" ? { toolName: toolNameValue } : {}),
     result,
     isError: statusValue === "error",
@@ -1407,7 +1425,7 @@ const buildPersistedThreadMessages = (
         const byId =
           toolResult.toolCallId &&
           toolCallLocationById.has(toolResult.toolCallId)
-            ? toolCallLocationById.get(toolResult.toolCallId) ?? null
+            ? (toolCallLocationById.get(toolResult.toolCallId) ?? null)
             : null;
         const byName =
           !byId && toolResult.toolName
@@ -1552,7 +1570,9 @@ export async function getSpreadsheetAssistantThreadMessages(input: {
   threadId: string;
   userId?: string;
 }): Promise<PersistedThreadMessage[]> {
-  const state = await (await getGraph()).getState(
+  const state = await (
+    await getGraph()
+  ).getState(
     getThreadConfig(input.threadId, "get-thread-state", {
       userId: input.userId,
     }),
@@ -1581,7 +1601,9 @@ const persistAssistantMessageToCheckpoint = async (input: {
   }
 
   try {
-    await (await getGraph()).updateState(
+    await (
+      await getGraph()
+    ).updateState(
       getThreadConfig(input.threadId, "persist-assistant-message", {
         userId: input.userId,
       }),
@@ -1614,7 +1636,9 @@ export const persistAssistantFailureToCheckpoint = async (input: {
   messages.push(new AIMessage(errorMessage));
 
   try {
-    await (await getGraph()).updateState(
+    await (
+      await getGraph()
+    ).updateState(
       getThreadConfig(input.threadId, "persist-assistant-failure", {
         userId: input.userId,
       }),
