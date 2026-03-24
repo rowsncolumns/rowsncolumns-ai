@@ -143,7 +143,7 @@ export type WorkspaceAssistantUIProps = {
   isAdmin?: boolean;
   threadId?: string;
   onNewSession?: () => void;
-  onSelectSession?: (threadId: string) => void;
+  onSelectSession?: (threadId: string) => void | Promise<void>;
   isHydratingSession: boolean;
   selectedModel: string;
   selectedModelLabel: string;
@@ -426,27 +426,12 @@ const useThreadIdFromUrl = () => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const initialSessionId = searchParams.get("session_id")?.trim() || null;
+  const [initialSessionIdOnMount] = React.useState<string | null>(
+    () => searchParams.get("session_id")?.trim() || null,
+  );
   const [threadId, setThreadId] = React.useState(
-    () => initialSessionId ?? uuidString(),
+    () => initialSessionIdOnMount ?? uuidString(),
   );
-  const [persistInUrl, setPersistInUrl] = React.useState(
-    () => initialSessionId !== null,
-  );
-
-  React.useEffect(() => {
-    const currentSessionId = searchParams.get("session_id")?.trim() || null;
-    setPersistInUrl(currentSessionId !== null);
-    if (!currentSessionId) {
-      return;
-    }
-
-    setThreadId((previousThreadId) =>
-      previousThreadId === currentSessionId
-        ? previousThreadId
-        : currentSessionId,
-    );
-  }, [searchParams]);
 
   const pushSessionIdToHistory = React.useCallback(
     (nextSessionId: string | null) => {
@@ -474,14 +459,12 @@ const useThreadIdFromUrl = () => {
 
   const markThreadStarted = React.useCallback(() => {
     pushSessionIdToHistory(threadId);
-    setPersistInUrl(true);
   }, [pushSessionIdToHistory, threadId]);
 
   const startNewThread = React.useCallback(() => {
     const nextThreadId = uuidString();
     pushSessionIdToHistory(null);
     setThreadId(nextThreadId);
-    setPersistInUrl(false);
   }, [pushSessionIdToHistory]);
 
   const selectThread = React.useCallback(
@@ -497,14 +480,13 @@ const useThreadIdFromUrl = () => {
           ? previousThreadId
           : normalizedThreadId,
       );
-      setPersistInUrl(true);
     },
     [pushSessionIdToHistory],
   );
 
   return {
+    initialSessionId: initialSessionIdOnMount,
     threadId,
-    persistInUrl,
     markThreadStarted,
     startNewThread,
     selectThread,
@@ -1243,84 +1225,17 @@ const fetchPersistedThreadHistory = async (
   return parsePersistedThreadHistoryPayload(payload);
 };
 
-const useHydratePersistedThreadHistory = ({
-  runtime,
-  threadId,
-  enabled = true,
-}: {
-  runtime: ReturnType<typeof useLocalRuntime>;
-  threadId: string;
-  enabled?: boolean;
-}) => {
-  const hydratedThreadIdRef = React.useRef<string | null>(null);
-  const [isHydratingSession, setIsHydratingSession] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!enabled) {
-      setIsHydratingSession(false);
-      return;
-    }
-
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) {
-      setIsHydratingSession(false);
-      return;
-    }
-
-    if (hydratedThreadIdRef.current === normalizedThreadId) {
-      setIsHydratingSession(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    setIsHydratingSession(true);
-
-    const hydrate = async () => {
-      try {
-        const history = await fetchPersistedThreadHistory(
-          normalizedThreadId,
-          controller.signal,
-        );
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        runtime.thread.reset(history);
-        hydratedThreadIdRef.current = normalizedThreadId;
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        console.error("[assistant] Failed to hydrate thread history", error);
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsHydratingSession(false);
-        }
-      }
-    };
-
-    void hydrate();
-
-    return () => {
-      controller.abort();
-      setIsHydratingSession(false);
-    };
-  }, [enabled, runtime, threadId]);
-
-  return isHydratingSession;
-};
-
 /**
  * Hook to create the assistant runtime with model selection state.
  * This can be used at a higher level to wrap multiple components with AssistantRuntimeProvider.
  */
 export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const {
+    initialSessionId,
     threadId,
-    persistInUrl,
     markThreadStarted,
-    startNewThread,
-    selectThread,
+    startNewThread: startNewThreadInUrl,
+    selectThread: selectThreadInUrl,
   } = useThreadIdFromUrl();
 
   const [selectedModel, setSelectedModel] =
@@ -1470,11 +1385,102 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   );
 
   const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
-  const isHydratingSession = useHydratePersistedThreadHistory({
-    runtime,
-    threadId,
-    enabled: persistInUrl,
-  });
+  const [isHydratingSession, setIsHydratingSession] = React.useState(false);
+  const hydrationControllerRef = React.useRef<AbortController | null>(null);
+  const hydrationRequestIdRef = React.useRef(0);
+  const didRestoreInitialSessionRef = React.useRef(false);
+
+  const cancelHydration = React.useCallback(() => {
+    hydrationControllerRef.current?.abort();
+    hydrationControllerRef.current = null;
+    hydrationRequestIdRef.current += 1;
+    setIsHydratingSession(false);
+  }, []);
+
+  const restoreThreadHistory = React.useCallback(
+    async (targetThreadId: string) => {
+      const normalizedThreadId = targetThreadId.trim();
+      if (!normalizedThreadId) {
+        return;
+      }
+
+      hydrationControllerRef.current?.abort();
+      const controller = new AbortController();
+      hydrationControllerRef.current = controller;
+      const requestId = hydrationRequestIdRef.current + 1;
+      hydrationRequestIdRef.current = requestId;
+      setIsHydratingSession(true);
+
+      try {
+        runtime.thread.reset([]);
+        const history = await fetchPersistedThreadHistory(
+          normalizedThreadId,
+          controller.signal,
+        );
+        if (
+          controller.signal.aborted ||
+          hydrationRequestIdRef.current !== requestId
+        ) {
+          return;
+        }
+
+        runtime.thread.reset(history);
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        console.error("[assistant] Failed to restore thread history", error);
+      } finally {
+        if (
+          !controller.signal.aborted &&
+          hydrationRequestIdRef.current === requestId
+        ) {
+          hydrationControllerRef.current = null;
+          setIsHydratingSession(false);
+        }
+      }
+    },
+    [runtime],
+  );
+
+  React.useEffect(() => {
+    return () => {
+      hydrationControllerRef.current?.abort();
+      hydrationControllerRef.current = null;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (didRestoreInitialSessionRef.current) {
+      return;
+    }
+    didRestoreInitialSessionRef.current = true;
+
+    if (!initialSessionId) {
+      return;
+    }
+
+    void restoreThreadHistory(initialSessionId);
+  }, [initialSessionId, restoreThreadHistory]);
+
+  const startNewThread = React.useCallback(() => {
+    cancelHydration();
+    startNewThreadInUrl();
+  }, [cancelHydration, startNewThreadInUrl]);
+
+  const selectThread = React.useCallback(
+    async (nextThreadId: string) => {
+      const normalizedThreadId = nextThreadId.trim();
+      if (!normalizedThreadId) {
+        return;
+      }
+
+      cancelHydration();
+      selectThreadInUrl(normalizedThreadId);
+      await restoreThreadHistory(normalizedThreadId);
+    },
+    [cancelHydration, restoreThreadHistory, selectThreadInUrl],
+  );
 
   return {
     runtime,
@@ -3344,7 +3350,7 @@ function SessionPickerButton({
 }: {
   iconOnly?: boolean;
   currentThreadId?: string;
-  onSelectSession?: (threadId: string) => void;
+  onSelectSession?: (threadId: string) => void | Promise<void>;
   onSessionRestoreStart?: () => void;
   onStartNewSession?: () => void;
 }) {
@@ -3418,7 +3424,7 @@ function SessionPickerButton({
   }, [isOpen, loadSessions, lastFetchedAt, sessions.length]);
 
   const handleSelectSession = React.useCallback(
-    (sessionThreadId: string) => {
+    async (sessionThreadId: string) => {
       const normalizedThreadId = sessionThreadId.trim();
       if (!normalizedThreadId) {
         return;
@@ -3428,11 +3434,14 @@ function SessionPickerButton({
         return;
       }
 
+      setLoadError("");
       setIsSwitchingSession(true);
       try {
         onSessionRestoreStart?.();
-        onSelectSession?.(normalizedThreadId);
+        await onSelectSession?.(normalizedThreadId);
         setIsOpen(false);
+      } catch {
+        setLoadError("Unable to restore session.");
       } finally {
         setIsSwitchingSession(false);
       }
@@ -3600,7 +3609,7 @@ type WorkspaceAssistantPanelProps = {
   isAdmin?: boolean;
   threadId?: string;
   onNewSession?: () => void;
-  onSelectSession?: (threadId: string) => void;
+  onSelectSession?: (threadId: string) => void | Promise<void>;
   isHydratingSession?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
