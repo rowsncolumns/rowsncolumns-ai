@@ -1,7 +1,6 @@
 import { inspect } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createNewSheet } from "@rowsncolumns/spreadsheet";
 import { uuidString } from "@rowsncolumns/utils";
 import {
   isReadOnlyTool,
@@ -83,7 +82,10 @@ const createShareDBDocument = async (docId: string) => {
 
     const initialDoc = {
       sheetData: {},
-      sheets: [createNewSheet(1, "Sheet1"), createNewSheet(2, "Sheet2")],
+      sheets: [
+        { sheetId: 1, title: "Sheet1" },
+        { sheetId: 2, title: "Sheet2" },
+      ],
       tables: [],
       charts: [],
       embeds: [],
