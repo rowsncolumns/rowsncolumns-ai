@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useRef, useTransition } from "react";
 import {
   ChevronDown,
@@ -22,10 +21,13 @@ import {
 import { ToolbarIconButton } from "@rowsncolumns/spreadsheet";
 
 type FileMenuProps = {
-  onImportExcel: (file: File) => Promise<void>;
-  onImportCSV: (file: File) => Promise<void>;
+  onImportExcel?: (file: File) => Promise<void>;
+  onImportCSV?: (file: File) => Promise<void>;
   onExportExcel: () => Promise<void>;
   onExportCSV: () => Promise<void>;
+  onCreateNew?: (docId: string) => void;
+  allowCreateNew?: boolean;
+  allowImport?: boolean;
 };
 
 export function FileMenu({
@@ -33,8 +35,10 @@ export function FileMenu({
   onImportCSV,
   onExportExcel,
   onExportCSV,
+  onCreateNew,
+  allowCreateNew = true,
+  allowImport = true,
 }: FileMenuProps) {
-  const router = useRouter();
   const [isCreatingNewSpreadsheet, startCreatingNewSpreadsheet] =
     useTransition();
   const excelFileInputRef = useRef<HTMLInputElement>(null);
@@ -47,22 +51,31 @@ export function FileMenu({
 
     const newDocId = uuidString();
     startCreatingNewSpreadsheet(() => {
-      router.push(`/doc/${newDocId}`);
+      if (onCreateNew) {
+        onCreateNew(newDocId);
+        return;
+      }
+
+      if (typeof window !== "undefined") {
+        window.location.assign(`/doc/${newDocId}`);
+      }
     });
-  }, [isCreatingNewSpreadsheet, router, startCreatingNewSpreadsheet]);
+  }, [isCreatingNewSpreadsheet, onCreateNew, startCreatingNewSpreadsheet]);
 
   const handleImportExcelClick = useCallback(() => {
+    if (!allowImport || !onImportExcel) return;
     excelFileInputRef.current?.click();
-  }, []);
+  }, [allowImport, onImportExcel]);
 
   const handleImportCSVClick = useCallback(() => {
+    if (!allowImport || !onImportCSV) return;
     csvFileInputRef.current?.click();
-  }, []);
+  }, [allowImport, onImportCSV]);
 
   const handleExcelFileChange = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
-      if (!file) return;
+      if (!file || !onImportExcel) return;
 
       try {
         await onImportExcel(file);
@@ -79,7 +92,7 @@ export function FileMenu({
   const handleCSVFileChange = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
-      if (!file) return;
+      if (!file || !onImportCSV) return;
 
       try {
         await onImportCSV(file);
@@ -126,22 +139,26 @@ export function FileMenu({
             document.body,
           )
         : null}
-      <input
-        ref={excelFileInputRef}
-        type="file"
-        accept=".xlsx,.xls"
-        onChange={handleExcelFileChange}
-        className="hidden"
-        aria-hidden="true"
-      />
-      <input
-        ref={csvFileInputRef}
-        type="file"
-        accept=".csv,text/csv,text/tab-separated-values"
-        onChange={handleCSVFileChange}
-        className="hidden"
-        aria-hidden="true"
-      />
+      {allowImport && onImportExcel ? (
+        <input
+          ref={excelFileInputRef}
+          type="file"
+          accept=".xlsx,.xls"
+          onChange={handleExcelFileChange}
+          className="hidden"
+          aria-hidden="true"
+        />
+      ) : null}
+      {allowImport && onImportCSV ? (
+        <input
+          ref={csvFileInputRef}
+          type="file"
+          accept=".csv,text/csv,text/tab-separated-values"
+          onChange={handleCSVFileChange}
+          className="hidden"
+          aria-hidden="true"
+        />
+      ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <ToolbarIconButton
@@ -160,29 +177,39 @@ export function FileMenu({
           </ToolbarIconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
-          <DropdownMenuItem
-            onClick={handleNewFile}
-            disabled={isCreatingNewSpreadsheet}
-          >
-            {isCreatingNewSpreadsheet ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FilePlus className="h-4 w-4" />
-            )}
-            {isCreatingNewSpreadsheet
-              ? "Creating spreadsheet..."
-              : "New Spreadsheet"}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleImportExcelClick}>
-            <FileSpreadsheet className="h-4 w-4" />
-            Import Excel
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleImportCSVClick}>
-            <FileText className="h-4 w-4" />
-            Import CSV
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {allowCreateNew ? (
+            <DropdownMenuItem
+              onClick={handleNewFile}
+              disabled={isCreatingNewSpreadsheet}
+            >
+              {isCreatingNewSpreadsheet ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FilePlus className="h-4 w-4" />
+              )}
+              {isCreatingNewSpreadsheet
+                ? "Creating spreadsheet..."
+                : "New Spreadsheet"}
+            </DropdownMenuItem>
+          ) : null}
+          {allowImport && (onImportExcel || onImportCSV) ? (
+            <DropdownMenuSeparator />
+          ) : null}
+          {allowImport && onImportExcel ? (
+            <DropdownMenuItem onClick={handleImportExcelClick}>
+              <FileSpreadsheet className="h-4 w-4" />
+              Import Excel
+            </DropdownMenuItem>
+          ) : null}
+          {allowImport && onImportCSV ? (
+            <DropdownMenuItem onClick={handleImportCSVClick}>
+              <FileText className="h-4 w-4" />
+              Import CSV
+            </DropdownMenuItem>
+          ) : null}
+          {(allowCreateNew || (allowImport && (onImportExcel || onImportCSV))) ? (
+            <DropdownMenuSeparator />
+          ) : null}
           <DropdownMenuItem onClick={handleExportExcel}>
             <FileSpreadsheet className="h-4 w-4" />
             Export as Excel

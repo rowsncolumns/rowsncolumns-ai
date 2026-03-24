@@ -8,13 +8,15 @@ import {
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { uuidString } from "@rowsncolumns/utils";
 import {
   isReadOnlyTool,
   spreadsheetMcpTools,
   toolNameToTitle,
 } from "./tool-catalog";
-import { getShareDBDocument } from "../lib/chat/utils";
+import {
+  getShareDBDocument,
+  type ShareDBSpreadsheetDoc,
+} from "../lib/chat/utils";
 import { resolveAppBaseUrl, resolveAppOrigin } from "./app-url";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
@@ -78,6 +80,22 @@ const MCP_WIDGET_BUNDLE_CSS_PATH = path.join(
 );
 
 let widgetBundleCache: { js: string; css: string } | null = null;
+const uiStateByDocId = new Map<
+  string,
+  {
+    activeSheetId?: number;
+    activeCell?: { rowIndex: number; columnIndex: number };
+    selections?: Array<{
+      startRowIndex: number;
+      endRowIndex: number;
+      startColumnIndex: number;
+      endColumnIndex: number;
+    }>;
+    locale?: string;
+    currency?: string;
+    updatedAt: string;
+  }
+>();
 
 const resolveUiDomain = () => {
   const value = process.env.MCP_UI_DOMAIN?.trim();
@@ -179,62 +197,18 @@ const readWidgetBundle = async () => {
   }
 };
 
-const createShareDBDocument = async (docId: string) => {
+const readSpreadsheetDocument = async (
+  docId: string,
+): Promise<ShareDBSpreadsheetDoc | null> => {
   const { doc, close } = await getShareDBDocument(docId);
-
   try {
-    if (doc.type !== null && doc.data) {
-      return { created: false, reason: "already_exists" as const };
+    if (doc.type === null || !doc.data) {
+      return null;
     }
-
-    const initialDoc = {
-      sheetData: {},
-      sheets: [
-        { sheetId: 1, title: "Sheet1" },
-        { sheetId: 2, title: "Sheet2" },
-      ],
-      tables: [],
-      charts: [],
-      embeds: [],
-      namedRanges: [],
-      protectedRanges: [],
-      conditionalFormats: [],
-      dataValidations: [],
-      pivotTables: [],
-      cellXfs: {},
-      sharedStrings: {},
-      iterativeCalculation: { enabled: false },
-      recalcCells: [],
-    };
-
-    await new Promise<void>((resolve, reject) => {
-      doc.create(initialDoc, (error?: { message?: string } | null) => {
-        if (!error) {
-          resolve();
-          return;
-        }
-
-        if (error.message?.includes("already created")) {
-          resolve();
-          return;
-        }
-
-        reject(error);
-      });
-    });
-
-    return { created: true, reason: "created" as const };
+    return doc.data as ShareDBSpreadsheetDoc;
   } finally {
     close();
   }
-};
-
-const createSpreadsheetDocumentInputSchema = {
-  docId: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("Optional document ID. If omitted, a UUID is generated."),
 };
 
 const buildSpreadsheetAppHtml = async ({
@@ -319,34 +293,6 @@ const buildSpreadsheetAppHtml = async ({
 </html>`;
 };
 
-const createSpreadsheetDocumentHandler = async (args: unknown) => {
-  const parsed = z.object(createSpreadsheetDocumentInputSchema).parse(args);
-
-  const docId = parsed.docId ?? uuidString();
-  const result = await createShareDBDocument(docId);
-  const url = new URL(
-    `${MCP_PUBLIC_DOC_BASE_PATH}/${encodeURIComponent(docId)}`,
-    resolveAppBaseUrl(),
-  );
-
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text:
-          result.reason === "created"
-            ? `Created spreadsheet document ${docId}. Open: ${url.toString()}`
-            : `Document ${docId} already exists. Open: ${url.toString()}`,
-      },
-    ],
-    structuredContent: {
-      docId,
-      url: url.toString(),
-      created: result.created,
-    },
-  };
-};
-
 export const registerSpreadsheetTools = (server: McpServer) => {
   const registerTool = server.registerTool.bind(server) as (
     name: string,
@@ -382,6 +328,182 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       },
     );
   }
+
+  registerTool(
+    "spreadsheet_getContext",
+    {
+      title: "Get Spreadsheet Context",
+      description:
+        "Returns sheet metadata and the last synced UI state (active cell, selections, active sheet) for a spreadsheet document.",
+      inputSchema: {
+        docId: z.string().min(1).describe("Spreadsheet document ID"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+      },
+    },
+    async (args: unknown) => {
+      const parsed = z.object({ docId: z.string().min(1) }).parse(args);
+      const data = await readSpreadsheetDocument(parsed.docId);
+      const uiState = uiStateByDocId.get(parsed.docId) ?? null;
+
+      if (!data) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Document ${parsed.docId} was not found.`,
+            },
+          ],
+          structuredContent: {
+            docId: parsed.docId,
+            exists: false,
+          },
+        };
+      }
+
+      const sheets = Array.isArray(data.sheets) ? data.sheets : [];
+      const activeSheetId =
+        uiState?.activeSheetId ??
+        (sheets[0] && typeof sheets[0].sheetId === "number"
+          ? sheets[0].sheetId
+          : null);
+      const activeSheetTitle =
+        sheets.find((sheet) => sheet.sheetId === activeSheetId)?.title ?? null;
+      const localeForContext = uiState?.locale ?? resolveWidgetLocale();
+      const currencyForContext = uiState?.currency ?? resolveWidgetCurrency();
+      const context = {
+        docId: parsed.docId,
+        exists: true,
+        locale: localeForContext,
+        currency: currencyForContext,
+        sheetCount: sheets.length,
+        sheets,
+        activeSheetId,
+        activeSheetTitle,
+        activeCell: uiState?.activeCell ?? null,
+        selections: uiState?.selections ?? [],
+        tablesCount: Array.isArray(data.tables) ? data.tables.length : 0,
+        chartsCount: Array.isArray(data.charts) ? data.charts.length : 0,
+        namedRangesCount: Array.isArray(data.namedRanges)
+          ? data.namedRanges.length
+          : 0,
+        pivotTablesCount: Array.isArray(data.pivotTables)
+          ? data.pivotTables.length
+          : 0,
+        dataValidationsCount: Array.isArray(data.dataValidations)
+          ? data.dataValidations.length
+          : 0,
+        conditionalFormatsCount: Array.isArray(data.conditionalFormats)
+          ? data.conditionalFormats.length
+          : 0,
+        updatedAt: uiState?.updatedAt ?? null,
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Context for ${parsed.docId}: ${context.sheetCount} sheet(s), active sheet ${context.activeSheetTitle ?? context.activeSheetId ?? "n/a"}, active cell ${
+              context.activeCell
+                ? `R${context.activeCell.rowIndex + 1}C${context.activeCell.columnIndex + 1}`
+                : "n/a"
+            }.`,
+          },
+        ],
+        structuredContent: context,
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "spreadsheet_syncUiState",
+    {
+      title: "Sync Spreadsheet UI State",
+      description:
+        "App-only tool: syncs active sheet/cell/selections from the interactive spreadsheet UI.",
+      inputSchema: {
+        docId: z.string().min(1),
+        activeSheetId: z.number().int().positive().optional(),
+        activeCell: z
+          .object({
+            rowIndex: z.number().int().nonnegative(),
+            columnIndex: z.number().int().nonnegative(),
+          })
+          .optional(),
+        selections: z
+          .array(
+            z.object({
+              startRowIndex: z.number().int().nonnegative(),
+              endRowIndex: z.number().int().nonnegative(),
+              startColumnIndex: z.number().int().nonnegative(),
+              endColumnIndex: z.number().int().nonnegative(),
+            }),
+          )
+          .optional(),
+        locale: z.string().min(2).optional(),
+        currency: z.string().min(3).max(3).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+      },
+      _meta: {
+        ui: {
+          visibility: ["app"],
+        },
+      },
+    },
+    async (args: unknown) => {
+      const parsed = z
+        .object({
+          docId: z.string().min(1),
+          activeSheetId: z.number().int().positive().optional(),
+          activeCell: z
+            .object({
+              rowIndex: z.number().int().nonnegative(),
+              columnIndex: z.number().int().nonnegative(),
+            })
+            .optional(),
+          selections: z
+            .array(
+              z.object({
+                startRowIndex: z.number().int().nonnegative(),
+                endRowIndex: z.number().int().nonnegative(),
+                startColumnIndex: z.number().int().nonnegative(),
+                endColumnIndex: z.number().int().nonnegative(),
+              }),
+            )
+            .optional(),
+          locale: z.string().min(2).optional(),
+          currency: z.string().min(3).max(3).optional(),
+        })
+        .parse(args);
+
+      uiStateByDocId.set(parsed.docId, {
+        ...(parsed.activeSheetId !== undefined
+          ? { activeSheetId: parsed.activeSheetId }
+          : {}),
+        ...(parsed.activeCell ? { activeCell: parsed.activeCell } : {}),
+        ...(parsed.selections ? { selections: parsed.selections } : {}),
+        ...(parsed.locale ? { locale: parsed.locale } : {}),
+        ...(parsed.currency
+          ? { currency: parsed.currency.toUpperCase() }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      });
+
+      return {
+        content: [{ type: "text", text: "UI state synced." }],
+        structuredContent: {
+          docId: parsed.docId,
+          synced: true,
+        },
+      };
+    },
+  );
 
   const appBaseUrl = resolveAppBaseUrl();
   const appOrigin = resolveAppOrigin();
@@ -527,20 +649,4 @@ export const registerSpreadsheetTools = (server: McpServer) => {
     },
   );
 
-  const createDocumentConfig = {
-    title: "Create Spreadsheet Document",
-    description:
-      "Creates a new spreadsheet document in ShareDB and returns its document ID and URL.",
-    inputSchema: createSpreadsheetDocumentInputSchema,
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: true,
-    },
-  };
-
-  registerTool(
-    "spreadsheet_createDocument",
-    createDocumentConfig,
-    createSpreadsheetDocumentHandler,
-  );
 };

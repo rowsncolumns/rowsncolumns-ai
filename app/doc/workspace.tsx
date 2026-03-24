@@ -1,6 +1,7 @@
 "use client";
 
 import { functionDescriptions, functions } from "@rowsncolumns/functions";
+import { useRouter } from "next/navigation";
 import { exportToCSV, exportToExcel } from "@rowsncolumns/toolkit";
 import type {
   CellData,
@@ -393,6 +394,7 @@ function SpreadsheetPane({
   locale: string;
   currency: string;
 }) {
+  const router = useRouter();
   const { data: sessionData } = authClient.useSession();
   const user = sessionData?.user ?? currentUser;
   const shareDbUserId = user.id;
@@ -934,6 +936,7 @@ function SpreadsheetPane({
           onImportCSV={handleImportCSV}
           onExportExcel={handleExportExcel}
           onExportCSV={handleExportCSV}
+          onCreateNew={(newDocId) => router.push(`/doc/${newDocId}`)}
         />
         <ToolbarSeparator />
         <ShareDocumentButton

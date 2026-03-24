@@ -1,8 +1,16 @@
-import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import ShareDBClient from "sharedb/lib/client";
 import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
 import { functionDescriptions, functions } from "@rowsncolumns/functions";
+import { exportToCSV, exportToExcel } from "@rowsncolumns/toolkit";
 import {
   ButtonBold,
   ButtonItalic,
@@ -120,7 +128,6 @@ import {
   useIsomorphicLayoutEffect,
 } from "@rowsncolumns/ui";
 import { FileMenu } from "@/components/file-menu";
-import { ShareDocumentButton } from "@/components/share-document-button";
 import { toggleThemeMode } from "@/lib/theme-preference";
 import { MagnifyingGlassIcon } from "@radix-ui/react-icons";
 
@@ -147,6 +154,20 @@ type InitialDocState = {
   meta: string;
   locale: string;
   currency: string;
+};
+
+type UiStateSyncPayload = {
+  docId: string;
+  activeSheetId?: number;
+  activeCell?: { rowIndex: number; columnIndex: number };
+  selections?: Array<{
+    startRowIndex: number;
+    endRowIndex: number;
+    startColumnIndex: number;
+    endColumnIndex: number;
+  }>;
+  locale?: string;
+  currency?: string;
 };
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
@@ -187,6 +208,42 @@ const parseToolPayload = (value: unknown): ToolPayload | null => {
     locale: readString(asRecord.locale) ?? undefined,
     currency: readString(asRecord.currency) ?? undefined,
   };
+};
+
+const serializeSelections = (
+  selections: Array<{ range?: unknown }>,
+): UiStateSyncPayload["selections"] => {
+  const result: NonNullable<UiStateSyncPayload["selections"]> = [];
+  for (const selection of selections) {
+    const range = selection?.range as
+      | {
+          startRowIndex?: unknown;
+          endRowIndex?: unknown;
+          startColumnIndex?: unknown;
+          endColumnIndex?: unknown;
+        }
+      | undefined;
+    if (!range) continue;
+    const startRowIndex = readInteger(range.startRowIndex);
+    const endRowIndex = readInteger(range.endRowIndex);
+    const startColumnIndex = readInteger(range.startColumnIndex);
+    const endColumnIndex = readInteger(range.endColumnIndex);
+    if (
+      startRowIndex === null ||
+      endRowIndex === null ||
+      startColumnIndex === null ||
+      endColumnIndex === null
+    ) {
+      continue;
+    }
+    result.push({
+      startRowIndex,
+      endRowIndex,
+      startColumnIndex,
+      endColumnIndex,
+    });
+  }
+  return result;
 };
 
 const resolveDocOpenUrl = ({
@@ -332,11 +389,13 @@ function SpreadsheetDocumentView({
   docUrl,
   locale,
   currency,
+  onSyncUiState,
 }: {
   docId: string;
   docUrl: string | null;
   locale: string;
   currency: string;
+  onSyncUiState?: (payload: UiStateSyncPayload) => void;
 }) {
   const config = window.__RNC_MCP_WIDGET_CONFIG__ ?? {};
   const shareDbUrl = resolveShareDbUrl(docUrl, config);
@@ -719,11 +778,75 @@ function SpreadsheetDocumentView({
     [activeCell, activeSheetId, getEffectiveFormat],
   );
 
+  const handleExportExcel = useCallback(async () => {
+    await exportToExcel({
+      filename: `spreadsheet-${docId}`,
+      sheets,
+      sheetData,
+      tables,
+      charts,
+      embeds,
+      slicers,
+      namedRanges,
+      conditionalFormats,
+      dataValidations,
+      theme,
+      cellXfs,
+      sharedStrings,
+    });
+  }, [
+    docId,
+    sheets,
+    sheetData,
+    tables,
+    charts,
+    embeds,
+    slicers,
+    namedRanges,
+    conditionalFormats,
+    dataValidations,
+    theme,
+    cellXfs,
+    sharedStrings,
+  ]);
+
+  const handleExportCSV = useCallback(async () => {
+    await exportToCSV({
+      filename: `spreadsheet-${docId}-${activeSheetId}`,
+      rowData: sheetData[activeSheetId] ?? [],
+      sharedStrings,
+    });
+  }, [docId, activeSheetId, sheetData, sharedStrings]);
+
   useEffect(() => {
     return () => {
       connection.close();
     };
   }, [connection]);
+
+  useEffect(() => {
+    if (!onSyncUiState) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      const payload: UiStateSyncPayload = {
+        docId,
+        activeSheetId,
+        activeCell: {
+          rowIndex: activeCell.rowIndex,
+          columnIndex: activeCell.columnIndex,
+        },
+        selections: serializeSelections(selections as Array<{ range?: unknown }>),
+        locale,
+        currency,
+      };
+      onSyncUiState(payload);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeCell, activeSheetId, currency, docId, locale, onSyncUiState, selections]);
 
   return (
     <div
@@ -733,6 +856,13 @@ function SpreadsheetDocumentView({
     >
       <LoadingIndicator />
       <Toolbar enableFloating className="rounded-tl-xl rounded-tr-xl">
+        <FileMenu
+          onExportExcel={handleExportExcel}
+          onExportCSV={handleExportCSV}
+          allowCreateNew={false}
+          allowImport={false}
+        />
+        <ToolbarSeparator />
         <ButtonUndo onClick={onUndo} disabled={!canUndo} />
         <ButtonRedo onClick={onRedo} disabled={!canRedo} />
         <ButtonPrint onClick={() => window.print()} />
@@ -1480,6 +1610,15 @@ function App() {
     });
   };
 
+  const onSyncUiState = (payload: UiStateSyncPayload) => {
+    sendRequest("tools/call", {
+      name: "spreadsheet_syncUiState",
+      arguments: payload,
+    }).catch(() => {
+      // Ignore host/tool sync failures to keep UI responsive.
+    });
+  };
+
   useEffect(() => {
     const notifySize = () => {
       const root = document.documentElement;
@@ -1636,6 +1775,7 @@ function App() {
         docUrl={docUrl}
         locale={locale}
         currency={currency}
+        onSyncUiState={onSyncUiState}
       />
     </SpreadsheetProvider>
   );
