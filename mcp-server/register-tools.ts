@@ -1,6 +1,7 @@
 import { inspect } from "node:util";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -99,31 +100,128 @@ const uiStateByDocId = new Map<
   }
 >();
 
-const resolveUiDomain = () => {
-  const value = process.env.MCP_UI_DOMAIN?.trim();
-  if (value) {
-    if (value.startsWith("http://") || value.startsWith("https://")) {
-      return value;
+type UiHost = "claude" | "openai" | null;
+
+export type RegisterSpreadsheetToolsOptions = {
+  uiHost?: UiHost;
+  mcpServerUrl?: string | null;
+};
+
+const normalizeDomainHost = (value: string | null | undefined) => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase();
+  } catch {
+    const withoutScheme = trimmed.replace(/^https?:\/\//i, "");
+    const hostOnly = withoutScheme.split("/")[0]?.trim().toLowerCase();
+    return hostOnly || null;
+  }
+};
+
+const sanitizeDomainLabel = (value: string) => {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/--+/g, "-");
+  return normalized.length > 0 ? normalized : null;
+};
+
+const resolveMcpServerUrl = (explicitUrl?: string | null) => {
+  const explicit = explicitUrl?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const envUrl =
+    process.env.MCP_SERVER_PUBLIC_URL?.trim() ||
+    process.env.MCP_PUBLIC_URL?.trim() ||
+    process.env.MCP_URL?.trim() ||
+    null;
+
+  if (envUrl) {
+    return envUrl;
+  }
+
+  const baseUrl = resolveAppBaseUrl();
+  const mcpPath =
+    process.env.MCP_PUBLIC_PATH?.trim() ||
+    process.env.MCP_PATH?.trim() ||
+    "/api/mcp";
+
+  try {
+    return new URL(mcpPath, baseUrl).toString();
+  } catch {
+    return null;
+  }
+};
+
+const computeAppDomainForClaude = (mcpServerUrl: string) => {
+  const hash = createHash("sha256")
+    .update(mcpServerUrl)
+    .digest("hex")
+    .slice(0, 32);
+  return `${hash}.claudemcpcontent.com`;
+};
+
+const computeAppDomainForOpenAI = (mcpServerUrl: string) => {
+  const parsed = new URL(mcpServerUrl);
+  const raw = `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  const label = sanitizeDomainLabel(raw);
+
+  if (!label) {
+    return null;
+  }
+
+  if (label.length <= 55) {
+    return `${label}.oaiusercontent.com`;
+  }
+
+  const hashSuffix = createHash("sha256")
+    .update(mcpServerUrl)
+    .digest("hex")
+    .slice(0, 8);
+  return `${label.slice(0, 46)}-${hashSuffix}.oaiusercontent.com`;
+};
+
+const resolveUiDomain = (options: RegisterSpreadsheetToolsOptions = {}) => {
+  const explicitDomain = normalizeDomainHost(process.env.MCP_UI_DOMAIN);
+  if (explicitDomain) {
+    return explicitDomain;
+  }
+
+  const hostSpecificDomain = normalizeDomainHost(
+    options.uiHost === "claude"
+      ? process.env.MCP_UI_DOMAIN_CLAUDE
+      : options.uiHost === "openai"
+        ? process.env.MCP_UI_DOMAIN_OPENAI
+        : null,
+  );
+  if (hostSpecificDomain) {
+    return hostSpecificDomain;
+  }
+
+  const mcpServerUrl = resolveMcpServerUrl(options.mcpServerUrl);
+  if (!mcpServerUrl || !options.uiHost) {
+    return null;
+  }
+
+  try {
+    if (options.uiHost === "claude") {
+      return computeAppDomainForClaude(mcpServerUrl);
     }
-    return `https://${value}`;
-  }
-
-  const appOrigin = resolveAppOrigin();
-  if (!appOrigin) {
+    if (options.uiHost === "openai") {
+      return computeAppDomainForOpenAI(mcpServerUrl);
+    }
+  } catch {
     return null;
   }
 
-  const host = new URL(appOrigin).hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "[::1]" ||
-    host.endsWith(".localhost")
-  ) {
-    return null;
-  }
-
-  return appOrigin;
+  return null;
 };
 
 const normalizeShareDbUrl = (value: string | null): string | null => {
@@ -615,7 +713,10 @@ const buildSpreadsheetAppHtml = async ({
 </html>`;
 };
 
-export const registerSpreadsheetTools = (server: McpServer) => {
+export const registerSpreadsheetTools = (
+  server: McpServer,
+  options: RegisterSpreadsheetToolsOptions = {},
+) => {
   const registerTool = server.registerTool.bind(server) as (
     name: string,
     config: {
@@ -898,7 +999,7 @@ export const registerSpreadsheetTools = (server: McpServer) => {
 
   const appBaseUrl = resolveAppBaseUrl();
   const appOrigin = resolveAppOrigin();
-  const uiDomain = resolveUiDomain();
+  const uiDomain = resolveUiDomain(options);
   const shareDbUrl = resolveShareDbUrl();
   const shareDbPort = resolveShareDbPort();
   const locale = resolveWidgetLocale();

@@ -1,6 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerSpreadsheetResources } from "./register-resources";
-import { registerSpreadsheetTools } from "./register-tools";
+import {
+  registerSpreadsheetTools,
+  type RegisterSpreadsheetToolsOptions,
+} from "./register-tools";
 
 const defaultServerName = "rowsncolumns-spreadsheet";
 const defaultServerVersion = "1.0.0";
@@ -11,7 +14,9 @@ const getServerName = () =>
 const getServerVersion = () =>
   process.env.MCP_SERVER_VERSION?.trim() || defaultServerVersion;
 
-export const createSpreadsheetMcpServer = () => {
+export const createSpreadsheetMcpServer = (
+  options: RegisterSpreadsheetToolsOptions = {},
+) => {
   const server = new McpServer(
     {
       name: getServerName(),
@@ -24,7 +29,7 @@ export const createSpreadsheetMcpServer = () => {
     },
   );
 
-  registerSpreadsheetTools(server);
+  registerSpreadsheetTools(server, options);
   registerSpreadsheetResources(server);
 
   return server;

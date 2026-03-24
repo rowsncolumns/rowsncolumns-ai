@@ -789,7 +789,7 @@ function SpreadsheetPane({
   // sycjed
   useIsomorphicLayoutEffect(() => {
     if (synced) {
-      hideLoader();
+      // hideLoader();
     } else {
       showLoader("Loading document...");
     }

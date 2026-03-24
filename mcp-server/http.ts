@@ -5,6 +5,7 @@ import {
   type CreateMcpExpressAppOptions,
 } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { Request, Response } from "express";
 import { createSpreadsheetMcpServer } from "./create-server";
 import { loadEnvironment } from "./env";
 
@@ -30,6 +31,21 @@ const MCP_PATH = process.env.MCP_PATH?.trim() || DEFAULT_MCP_PATH;
 const MCP_HOST = process.env.MCP_HOST?.trim() || DEFAULT_MCP_HOST;
 const MCP_ALLOWED_HOSTS = splitCsv(process.env.MCP_ALLOWED_HOSTS);
 
+const detectUiHost = (
+  userAgent: string | string[] | undefined,
+): "claude" | "openai" | null => {
+  const value = Array.isArray(userAgent)
+    ? userAgent.join(" ").toLowerCase()
+    : (userAgent ?? "").toLowerCase();
+  if (value.includes("claude")) {
+    return "claude";
+  }
+  if (value.includes("chatgpt") || value.includes("openai")) {
+    return "openai";
+  }
+  return null;
+};
+
 const mcpAppOptions: CreateMcpExpressAppOptions = {
   host: MCP_HOST,
   ...(MCP_ALLOWED_HOSTS.length > 0 ? { allowedHosts: MCP_ALLOWED_HOSTS } : {}),
@@ -37,7 +53,7 @@ const mcpAppOptions: CreateMcpExpressAppOptions = {
 
 const app = createMcpExpressApp(mcpAppOptions);
 
-app.get("/health", (_req: any, res: any) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({
     status: "ok",
     timestamp: new Date().toISOString(),
@@ -46,8 +62,20 @@ app.get("/health", (_req: any, res: any) => {
   });
 });
 
-app.post(MCP_PATH, async (req: any, res: any) => {
-  const server = createSpreadsheetMcpServer();
+app.post(MCP_PATH, async (req: Request, res: Response) => {
+  const requestOrigin =
+    typeof req.protocol === "string" && typeof req.get === "function"
+      ? `${req.protocol}://${req.get("host")}`
+      : null;
+  const requestUrl =
+    requestOrigin && typeof req.originalUrl === "string"
+      ? `${requestOrigin}${req.originalUrl}`
+      : null;
+
+  const server = createSpreadsheetMcpServer({
+    uiHost: detectUiHost(req.headers?.["user-agent"]),
+    mcpServerUrl: requestUrl,
+  });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
@@ -73,7 +101,7 @@ app.post(MCP_PATH, async (req: any, res: any) => {
   }
 });
 
-const methodNotAllowed = (_req: any, res: any) => {
+const methodNotAllowed = (_req: Request, res: Response) => {
   res.status(405).json({
     jsonrpc: "2.0",
     error: {

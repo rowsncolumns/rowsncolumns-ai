@@ -59,6 +59,17 @@ const originForbidden = (request: Request) => {
   return !MCP_ALLOWED_ORIGINS.includes(requestOrigin);
 };
 
+const detectUiHost = (request: Request): "claude" | "openai" | null => {
+  const userAgent = request.headers.get("user-agent")?.toLowerCase() ?? "";
+  if (userAgent.includes("claude")) {
+    return "claude";
+  }
+  if (userAgent.includes("chatgpt") || userAgent.includes("openai")) {
+    return "openai";
+  }
+  return null;
+};
+
 const handleMcpRequest = async (request: Request) => {
   if (originForbidden(request)) {
     return applyCorsHeaders(
@@ -71,7 +82,10 @@ const handleMcpRequest = async (request: Request) => {
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   });
-  const server = createSpreadsheetMcpServer();
+  const server = createSpreadsheetMcpServer({
+    uiHost: detectUiHost(request),
+    mcpServerUrl: request.url,
+  });
 
   try {
     await server.connect(transport);
