@@ -242,7 +242,7 @@ export default async function Home() {
                       >
                         Excel Add-in
                       </Button>
-                      <span className="pointer-events-none absolute -right-2 -top-2 rounded-full border border-[#0f4d2f] bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#185C37] shadow-sm">
+                      <span className="pointer-events-none absolute -right-10 -top-3 rounded-full border border-[#0f4d2f] bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#185C37] shadow-sm">
                         Coming soon
                       </span>
                     </div>
