@@ -137,21 +137,19 @@ yarn db:migrate:documents
 yarn db:migrate:document-shares
 ```
 
-## Auth Cookie Compatibility (Safari)
+## Auth Cookie Compatibility (Excel Taskpane)
 
-Safari can fail OAuth completion when auth cookies are set with `SameSite=None; Partitioned`, which can cause a sign-in loop (`/auth/callback` -> `/doc` -> `/auth/sign-in`).
+Excel taskpane runs inside a third-party iframe, so auth cookies must preserve upstream `SameSite=None; Secure` attributes (and optionally `Partitioned`) for OAuth/session continuity.
 
-To keep behavior stable across Safari/Chrome/Edge, this app normalizes Neon auth cookies at app boundaries (not in `node_modules`):
+This app keeps Neon auth `Set-Cookie` headers as-is at app boundaries (not in `node_modules`):
 
 - Utility: `lib/auth/cookie-compat.ts`
 - API boundary: `app/api/auth/[...path]/route.ts`
 - Middleware boundary: `proxy.ts`
 
-Normalization rules (only for `__Secure-neon-auth.*` cookies):
+Compatibility rule:
 
-- Remove `Partitioned`
-- Rewrite `SameSite=None` to `SameSite=Lax`
-- Preserve other attributes (`Secure`, `HttpOnly`, `Path`, `Domain`, `Max-Age`, etc.)
+- Preserve all upstream attributes on `Set-Cookie` headers unchanged
 
 Notes:
 
@@ -176,8 +174,7 @@ curl -i -X POST 'https://rowsncolumns.ai/api/auth/sign-in/social' \
 
 Expected `Set-Cookie` for Neon auth cookies:
 
-- Contains `SameSite=Lax`
-- Does not contain `Partitioned`
+- Preserves upstream attributes exactly (for example `SameSite=None; Secure`, with optional `Partitioned`)
 
 ## Getting Started
 

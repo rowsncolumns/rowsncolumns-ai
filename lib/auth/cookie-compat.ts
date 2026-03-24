@@ -1,5 +1,3 @@
-const NEON_AUTH_COOKIE_PREFIX = "__Secure-neon-auth.";
-
 function splitCombinedSetCookieHeader(setCookieHeader: string): string[] {
   const parts: string[] = [];
   let segmentStart = 0;
@@ -57,43 +55,11 @@ export function copySetCookieHeaders(
   }
 }
 
-function isNeonAuthSetCookie(setCookieHeader: string): boolean {
-  const [cookieName] = setCookieHeader.split("=", 1);
-  return cookieName.trimStart().startsWith(NEON_AUTH_COOKIE_PREFIX);
-}
-
 function normalizeNeonAuthSetCookie(setCookieHeader: string): string {
-  if (!isNeonAuthSetCookie(setCookieHeader)) {
-    return setCookieHeader;
-  }
-
-  const parts = setCookieHeader
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (parts.length === 0) {
-    return setCookieHeader;
-  }
-
-  const normalizedParts: string[] = [];
-  for (const part of parts) {
-    if (/^partitioned$/i.test(part)) {
-      continue;
-    }
-
-    if (/^samesite=/i.test(part)) {
-      const sameSiteValue = part.slice(part.indexOf("=") + 1).trim().toLowerCase();
-      if (sameSiteValue === "none") {
-        normalizedParts.push("SameSite=Lax");
-        continue;
-      }
-    }
-
-    normalizedParts.push(part);
-  }
-
-  return normalizedParts.join("; ");
+  // Preserve upstream cookie attributes as-is.
+  // Excel taskpane runs in a third-party iframe context and requires
+  // `SameSite=None; Secure` (and optionally `Partitioned`) cookies.
+  return setCookieHeader;
 }
 
 function didSetCookieHeadersChange(
