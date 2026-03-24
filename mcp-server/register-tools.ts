@@ -101,13 +101,29 @@ const uiStateByDocId = new Map<
 
 const resolveUiDomain = () => {
   const value = process.env.MCP_UI_DOMAIN?.trim();
-  if (!value) {
+  if (value) {
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+      return value;
+    }
+    return `https://${value}`;
+  }
+
+  const appOrigin = resolveAppOrigin();
+  if (!appOrigin) {
     return null;
   }
-  if (value.startsWith("http://") || value.startsWith("https://")) {
-    return value;
+
+  const host = new URL(appOrigin).hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host.endsWith(".localhost")
+  ) {
+    return null;
   }
-  return `https://${value}`;
+
+  return appOrigin;
 };
 
 const normalizeShareDbUrl = (value: string | null): string | null => {
