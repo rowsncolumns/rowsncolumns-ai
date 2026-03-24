@@ -19,6 +19,7 @@ import {
   chargeUserCreditsForRun,
   getUserCredits,
 } from "@/lib/credits/repository";
+import { listAssistantSkills } from "@/lib/skills/repository";
 
 type ChatRequestBody = {
   threadId?: string;
@@ -234,9 +235,10 @@ const verifyTokenViaVerifyJwtEndpoint = async (
       return null;
     }
 
-    const payload = (await response.json().catch(() => null)) as
-      | { payload?: JwtPayloadLike | null; data?: { payload?: JwtPayloadLike | null } }
-      | null;
+    const payload = (await response.json().catch(() => null)) as {
+      payload?: JwtPayloadLike | null;
+      data?: { payload?: JwtPayloadLike | null };
+    } | null;
     return payload?.payload ?? payload?.data?.payload ?? null;
   } catch {
     return null;
@@ -270,7 +272,9 @@ const tryGetSessionFromCookieName = async (
       return null;
     }
 
-    const payload = (await response.json().catch(() => null)) as SessionIntrospectionResult;
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SessionIntrospectionResult;
     return payload;
   } catch {
     return null;
@@ -429,6 +433,77 @@ const toProvider = (provider: string | undefined) => {
   return undefined;
 };
 
+const buildSkillsInstruction = (
+  skills: Array<{
+    name: string;
+    description: string;
+    instructions: string;
+    active: boolean;
+  }>,
+) => {
+  const activeSkills = skills.filter((skill) => {
+    if (!skill.active) return false;
+    if (!skill.name.trim()) return false;
+    if (!skill.instructions.trim()) return false;
+    return true;
+  });
+
+  if (activeSkills.length === 0) {
+    return "";
+  }
+
+  const blocks = activeSkills.map((skill, index) => {
+    const description = skill.description.trim();
+    const instructions = skill.instructions.trim();
+
+    return [
+      `Skill ${index + 1}: ${skill.name.trim()}`,
+      description ? `Description: ${description}` : null,
+      `Instructions:\n${instructions}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  });
+
+  return [
+    "User-defined custom skills are available for this conversation.",
+    "Apply any relevant active skills when planning or executing responses.",
+    "If multiple skills conflict, prefer the most specific skill and continue; ask only if conflict blocks safe execution.",
+    "",
+    ...blocks,
+  ].join("\n");
+};
+
+const resolveSystemInstructions = async (
+  userId: string,
+  baseInstructions: string | undefined,
+) => {
+  let skillsInstruction = "";
+  try {
+    const skills = await listAssistantSkills({ userId });
+    skillsInstruction = buildSkillsInstruction(skills);
+  } catch (error) {
+    console.error("[render-chat-server] Failed to load skills for user", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const base = baseInstructions?.trim() || "";
+  const skills = skillsInstruction.trim();
+
+  if (base && skills) {
+    return `${base}\n\n${skills}`;
+  }
+  if (base) {
+    return base;
+  }
+  if (skills) {
+    return skills;
+  }
+  return undefined;
+};
+
 const writeSseEvent = (res: ServerResponse, event: unknown) => {
   if (res.writableEnded || res.destroyed) {
     return;
@@ -473,7 +548,10 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
     typeof body.reasoningEnabled === "boolean"
       ? body.reasoningEnabled
       : CHAT_REASONING_ENABLED;
-  const systemInstructions = CHAT_SYSTEM_INSTRUCTIONS;
+  const systemInstructions = await resolveSystemInstructions(
+    identity.userId,
+    CHAT_SYSTEM_INSTRUCTIONS,
+  );
 
   if (!threadId) {
     sendJson(req, res, 400, { error: "threadId is required." });
