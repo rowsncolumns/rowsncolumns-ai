@@ -1,6 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
+import postcss from "postcss";
+import tailwindPostcss from "@tailwindcss/postcss";
 
 const projectRoot = process.cwd();
 const entryFile = path.join(
@@ -17,6 +19,32 @@ const eventsPolyfill = path.join(
 );
 const outDir = path.join(projectRoot, "public", "mcp");
 const outBaseName = "spreadsheet-widget.bundle";
+const tailwindEntryFile = path.join(
+  projectRoot,
+  "mcp-server",
+  "widget",
+  "tailwind.css",
+);
+
+const buildTailwindCss = async () => {
+  const inputCss = await readFile(tailwindEntryFile, "utf8");
+  // tailwind/postcss can be installed with a different PostCSS instance than ours.
+  // Cast to avoid type-level mismatch while keeping runtime behavior correct.
+  const postcssAny = postcss as unknown as (
+    plugins: unknown[],
+  ) => {
+    process: (
+      css: string,
+      options: { from: string; map: false },
+    ) => Promise<{ css: string }>;
+  };
+  const tailwindPlugin = tailwindPostcss as unknown as () => unknown;
+  const result = await postcssAny([tailwindPlugin()]).process(inputCss, {
+    from: tailwindEntryFile,
+    map: false,
+  });
+  return result.css;
+};
 
 const run = async () => {
   await mkdir(outDir, { recursive: true });
@@ -50,6 +78,25 @@ const run = async () => {
   const outputs = result.outputFiles ?? [];
   if (outputs.length === 0) {
     throw new Error("Failed to generate MCP spreadsheet widget bundle.");
+  }
+
+  const tailwindCss = await buildTailwindCss();
+  const cssOutputPath = path.join(outDir, `${outBaseName}.css`);
+  const cssOutput = outputs.find(
+    (output) => path.resolve(output.path) === path.resolve(cssOutputPath),
+  );
+
+  if (cssOutput) {
+    const existingCss = Buffer.from(cssOutput.contents).toString("utf8");
+    const combinedCss = `${existingCss}\n\n/* MCP widget Tailwind bundle */\n${tailwindCss}\n`;
+    cssOutput.contents = new Uint8Array(Buffer.from(combinedCss));
+  } else {
+    outputs.push({
+      path: cssOutputPath,
+      contents: new Uint8Array(Buffer.from(tailwindCss)),
+      hash: "",
+      text: tailwindCss,
+    });
   }
 
   for (const output of outputs) {

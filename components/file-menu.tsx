@@ -122,23 +122,25 @@ export function FileMenu({
     }
   }, [onExportCSV]);
 
-  return (
-    <div>
-      {isCreatingNewSpreadsheet && typeof document !== "undefined"
-        ? createPortal(
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
-              <div
-                role="status"
-                aria-live="polite"
-                className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm"
-              >
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Creating spreadsheet...
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+  const menuOverlay =
+    isCreatingNewSpreadsheet && typeof document !== "undefined"
+      ? createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+            <div
+              role="status"
+              aria-live="polite"
+              className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Creating spreadsheet...
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  const fileInputs = (
+    <>
       {allowImport && onImportExcel ? (
         <input
           ref={excelFileInputRef}
@@ -159,6 +161,13 @@ export function FileMenu({
           aria-hidden="true"
         />
       ) : null}
+    </>
+  );
+
+  return (
+    <div>
+      {menuOverlay}
+      {fileInputs}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <ToolbarIconButton
