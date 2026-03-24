@@ -7,12 +7,6 @@ loadEnv({
   quiet: true,
 });
 
-loadEnv({
-  path: path.resolve(process.cwd(), "external/rnc.ai/.env.local"),
-  override: false,
-  quiet: true,
-});
-
 void import("./render-chat-server").catch((error) => {
   console.error("Failed to start render chat server:", error);
   process.exit(1);

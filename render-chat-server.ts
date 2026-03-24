@@ -634,8 +634,29 @@ const server = createServer(async (req, res) => {
 
 const port = parsePositiveInt(process.env.PORT, 8787);
 const host = process.env.HOST?.trim() || "0.0.0.0";
+const getEnvPresence = (name: string) => {
+  const raw = process.env[name];
+  if (typeof raw !== "string") {
+    return { status: "undefined", length: 0, trimmedLength: 0 } as const;
+  }
+  return {
+    status: raw.trim().length > 0 ? ("present" as const) : ("empty" as const),
+    length: raw.length,
+    trimmedLength: raw.trim().length,
+  };
+};
 
 server.listen(port, host, () => {
+  console.log("[render-chat-server] env diagnostics", {
+    OPENAI_API_KEY: getEnvPresence("OPENAI_API_KEY"),
+    ANTHROPIC_API_KEY: getEnvPresence("ANTHROPIC_API_KEY"),
+    DATABASE_URL: getEnvPresence("DATABASE_URL"),
+    SHAREDB_URL: getEnvPresence("SHAREDB_URL"),
+    NEON_AUTH_BASE_URL: getEnvPresence("NEON_AUTH_BASE_URL"),
+    AI_PROVIDER: process.env.AI_PROVIDER?.trim() || null,
+    CHAT_PROVIDER: process.env.CHAT_PROVIDER?.trim() || null,
+    CHAT_MODEL: process.env.CHAT_MODEL?.trim() || null,
+  });
   console.log(
     `[render-chat-server] listening on http://${host}:${port} (chat path: ${CHAT_PATH})`,
   );
