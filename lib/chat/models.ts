@@ -705,10 +705,6 @@ export const SpreadsheetCreateTableSchema = z.object({
     .boolean()
     .optional()
     .describe("Whether the table displays a header row. Default: true."),
-  totalRow: z
-    .boolean()
-    .optional()
-    .describe("Whether the table displays a totals row. Default: false."),
   showRowStripes: z
     .boolean()
     .optional()
@@ -769,7 +765,6 @@ export const SpreadsheetUpdateTableSchema = z
       ),
     theme: TableThemeSchema,
     headerRow: z.boolean().optional().describe("Whether to show header row."),
-    totalRow: z.boolean().optional().describe("Whether to show a totals row."),
     showRowStripes: z
       .boolean()
       .optional()
