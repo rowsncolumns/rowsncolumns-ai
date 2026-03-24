@@ -378,8 +378,7 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         window.addEventListener("resize", () => notifySize());
       }
 
-      render();
-      initializeHost();
+      initializeHost().then(() => render());
     })();
   </script>
 </body>
