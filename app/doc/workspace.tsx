@@ -372,7 +372,7 @@ const useMediaQueryMatch = (query: string, initialValue = false) => {
   return matches;
 };
 
-type WorkspaceUser = {
+export type WorkspaceUser = {
   id: string;
   name?: string | null;
   email?: string | null;
@@ -1673,6 +1673,41 @@ type NewWorkspaceProps = {
   locale: string;
   currency: string;
 };
+
+type SpreadsheetOnlyWorkspaceProps = {
+  documentId: string;
+  currentUser: WorkspaceUser;
+  initialThemeMode: ThemeMode;
+  canManageShare: boolean;
+  locale: string;
+  currency: string;
+};
+
+export function SpreadsheetOnlyWorkspace({
+  documentId,
+  currentUser,
+  initialThemeMode,
+  canManageShare,
+  locale,
+  currency,
+}: SpreadsheetOnlyWorkspaceProps) {
+  return (
+    <main className="flex min-h-dvh w-full flex-col overflow-hidden">
+      <SpreadsheetProvider>
+        <div className="min-h-0 flex-1 flex flex-col">
+          <SpreadsheetPane
+            documentId={documentId}
+            currentUser={currentUser}
+            initialThemeMode={initialThemeMode}
+            canManageShare={canManageShare}
+            locale={locale}
+            currency={currency}
+          />
+        </div>
+      </SpreadsheetProvider>
+    </main>
+  );
+}
 
 export function NewWorkspace({
   defaultLayout,

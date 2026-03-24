@@ -62,6 +62,17 @@ const normalizeToolResult = (value: unknown) => {
 const SPREADSHEET_APP_RESOURCE_URI = "ui://rowsncolumns/spreadsheet-view.html";
 const MCP_PUBLIC_DOC_BASE_PATH = "/mcp/doc";
 
+const resolveUiDomain = () => {
+  const value = process.env.MCP_UI_DOMAIN?.trim();
+  if (!value) {
+    return null;
+  }
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
+  }
+  return `https://${value}`;
+};
+
 const createShareDBDocument = async (docId: string) => {
   const { doc, close } = await getShareDBDocument(docId);
 
@@ -141,97 +152,52 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
       font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
+      min-height: 120px;
     }
     .shell {
-      display: grid;
-      grid-template-rows: auto 1fr;
-      min-height: 92vh;
-    }
-    .bar {
       display: flex;
-      gap: 10px;
       align-items: center;
-      padding: 10px 12px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
       background: var(--panel);
+      margin: 8px;
     }
-    .bar .title {
-      font-weight: 700;
-      font-size: 13px;
-      letter-spacing: 0.2px;
-    }
-    .bar .meta {
+    .meta {
       color: var(--muted);
       font-size: 12px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      line-height: 1.4;
       flex: 1;
     }
-    .bar a {
+    a {
       color: white;
       background: var(--accent);
       text-decoration: none;
-      padding: 6px 10px;
+      padding: 7px 10px;
       border-radius: 8px;
       font-size: 12px;
       font-weight: 600;
-    }
-    .frame-wrap {
-      position: relative;
-      min-height: 560px;
-      background: #0b0d11;
-    }
-    .placeholder {
-      position: absolute;
-      inset: 0;
-      display: grid;
-      place-items: center;
-      color: var(--muted);
-      font-size: 14px;
-      padding: 24px;
-      text-align: center;
-    }
-    iframe {
-      border: 0;
-      width: 100%;
-      height: 100%;
-      min-height: 560px;
-      background: #fff;
+      white-space: nowrap;
     }
   </style>
 </head>
 <body>
   <div class="shell">
-    <div class="bar">
-      <div class="title">RowsnColumns</div>
-      <div id="meta" class="meta">Waiting for spreadsheet data...</div>
-      <a id="openLink" href="${appBaseUrl}" target="_blank" rel="noopener noreferrer">Open In New Tab</a>
-    </div>
-    <div class="frame-wrap">
-      <div id="placeholder" class="placeholder">Run <b>open_spreadsheet</b> to load a document inline.</div>
-      <iframe id="sheetFrame" title="Spreadsheet"></iframe>
-    </div>
+    <div id="meta" class="meta">Run <b>open_spreadsheet</b> to open a document.</div>
+    <a id="openLink" href="${appBaseUrl}" target="_blank" rel="noopener noreferrer">Open In New Tab</a>
   </div>
-
   <script>
     (() => {
       const appBaseUrl = ${JSON.stringify(appBaseUrl)};
       const publicDocBasePath = ${JSON.stringify(MCP_PUBLIC_DOC_BASE_PATH)};
       const state = { docId: null, sheetId: null, url: null };
       const protocolVersion = "2026-01-26";
-      const appInfo = {
-        name: "rowsncolumns-spreadsheet-app",
-        version: "1.0.0",
-      };
-      const appCapabilities = {
-        tools: {},
-        availableDisplayModes: ["inline", "fullscreen"],
-      };
-      const frame = document.getElementById("sheetFrame");
+      const appInfo = { name: "rowsncolumns-spreadsheet-app", version: "1.0.0" };
+      const appCapabilities = { tools: {}, availableDisplayModes: ["inline", "fullscreen"] };
       const meta = document.getElementById("meta");
       const openLink = document.getElementById("openLink");
-      const placeholder = document.getElementById("placeholder");
       const pendingRequests = new Map();
       let requestId = 0;
       let hostInitialized = false;
@@ -240,20 +206,14 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
       const readInt = (value) => Number.isFinite(value) ? Math.trunc(value) : null;
 
       const sendNotification = (method, params = {}) => {
-        window.parent.postMessage(
-          { jsonrpc: "2.0", method, params },
-          "*",
-        );
+        window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
       };
 
       const sendRequest = (method, params = {}) => {
         const id = ++requestId;
         return new Promise((resolve, reject) => {
           pendingRequests.set(id, { resolve, reject });
-          window.parent.postMessage(
-            { jsonrpc: "2.0", id, method, params },
-            "*",
-          );
+          window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
           window.setTimeout(() => {
             if (!pendingRequests.has(id)) return;
             pendingRequests.delete(id);
@@ -266,7 +226,7 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         const root = document.documentElement;
         const body = document.body;
         const width = Math.ceil(Math.max(root.scrollWidth, body.scrollWidth, root.clientWidth, 320));
-        const height = Math.ceil(Math.max(root.scrollHeight, body.scrollHeight, 560));
+        const height = Math.ceil(Math.max(root.scrollHeight, body.scrollHeight, 120));
         sendNotification("ui/notifications/size-changed", { width, height });
       };
 
@@ -288,24 +248,12 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         return next.toString();
       };
 
-      const render = () => {
-        const finalUrl = buildUrl(state.docId, state.sheetId, state.url);
-        openLink.href = finalUrl || appBaseUrl;
-        if (!finalUrl) {
-          meta.textContent = "Waiting for spreadsheet data...";
-          placeholder.style.display = "grid";
-          frame.removeAttribute("src");
-          notifySize();
-          return;
-        }
-        meta.textContent = state.docId
-          ? "docId: " + state.docId + (state.sheetId ? " | sheetId: " + state.sheetId : "")
-          : finalUrl;
-        placeholder.style.display = "none";
-        if (frame.src !== finalUrl) {
-          frame.src = finalUrl;
-        }
+      const navigateToSpreadsheet = (url) => {
+        if (!url) return;
+        openLink.href = url;
+        meta.textContent = "Opening spreadsheet…";
         notifySize();
+        window.location.assign(url);
       };
 
       const applyPayload = (payload) => {
@@ -313,7 +261,13 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         if (payload.docId) state.docId = payload.docId;
         if (payload.sheetId !== null && payload.sheetId !== undefined) state.sheetId = payload.sheetId;
         if (payload.url) state.url = payload.url;
-        render();
+        const finalUrl = buildUrl(state.docId, state.sheetId, state.url);
+        if (finalUrl) {
+          navigateToSpreadsheet(finalUrl);
+          return;
+        }
+        meta.textContent = "Run open_spreadsheet to open a document.";
+        notifySize();
       };
 
       const initializeHost = async () => {
@@ -326,19 +280,16 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
           });
           hostInitialized = true;
           sendNotification("ui/notifications/initialized", {});
-          notifySize();
-        } catch (error) {
-          console.error("Failed to initialize MCP app host", error);
-          // Continue rendering anyway so non-MCP hosts still show content.
+        } catch (_error) {
+          // keep going; non-MCP hosts still can use the fallback link
+        } finally {
           notifySize();
         }
       };
 
       window.addEventListener("message", (event) => {
         const message = event.data;
-        if (!message || message.jsonrpc !== "2.0") {
-          return;
-        }
+        if (!message || message.jsonrpc !== "2.0") return;
 
         if (message.id !== undefined && pendingRequests.has(message.id)) {
           const pending = pendingRequests.get(message.id);
@@ -352,22 +303,21 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
           return;
         }
 
-        if (typeof message.method !== "string") {
-          return;
-        }
+        if (typeof message.method !== "string") return;
 
-        if (message.method === "ui/notifications/tool-input" || message.method === "ui/notifications/tool-input-partial") {
+        if (
+          message.method === "ui/notifications/tool-input" ||
+          message.method === "ui/notifications/tool-input-partial"
+        ) {
           applyPayload(parseToolPayload(message.params && message.params.arguments));
           return;
         }
 
         if (message.method === "ui/notifications/tool-result") {
-          applyPayload(parseToolPayload(message.params && message.params.structuredContent));
+          applyPayload(
+            parseToolPayload(message.params && message.params.structuredContent),
+          );
         }
-      });
-
-      frame.addEventListener("load", () => {
-        notifySize();
       });
 
       if (typeof ResizeObserver !== "undefined") {
@@ -378,7 +328,7 @@ const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
         window.addEventListener("resize", () => notifySize());
       }
 
-      initializeHost().then(() => render());
+      initializeHost();
     })();
   </script>
 </body>
@@ -450,6 +400,7 @@ export const registerSpreadsheetTools = (server: McpServer) => {
 
   const appBaseUrl = resolveAppBaseUrl();
   const appOrigin = resolveAppOrigin();
+  const uiDomain = resolveUiDomain();
 
   registerAppResource(
     server,
@@ -470,6 +421,7 @@ export const registerSpreadsheetTools = (server: McpServer) => {
                 },
               }
             : {}),
+          ...(uiDomain ? { domain: uiDomain } : {}),
         },
       },
     },
@@ -491,6 +443,7 @@ export const registerSpreadsheetTools = (server: McpServer) => {
                     },
                   }
                 : {}),
+              ...(uiDomain ? { domain: uiDomain } : {}),
             },
           },
         },
