@@ -1698,26 +1698,88 @@ export async function* streamSpreadsheetAssistant(input: {
   const emittedToolResultKeys = new Set<string>();
   const observedToolCallKeys = new Set<string>();
   const pendingToolArgsByCallId = new Map<string, unknown>();
-  const pendingToolArgsByName = new Map<string, unknown[]>();
+  const pendingToolArgsByName = new Map<
+    string,
+    Array<{ args: unknown; toolCallId?: string }>
+  >();
+  const TOOL_INPUT_UNAVAILABLE_MARKER = "__rnc_tool_input_unavailable__";
+  const createUnavailableToolArgs = () => ({
+    [TOOL_INPUT_UNAVAILABLE_MARKER]: true,
+  });
+
+  const getToolArgsSpecificity = (value: unknown): number => {
+    if (value === undefined || value === null) {
+      return 0;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) {
+        return 1;
+      }
+      if (trimmed === "{}" || trimmed === "[]") {
+        return 2;
+      }
+      return 3 + Math.min(trimmed.length, 2000);
+    }
+
+    if (Array.isArray(value)) {
+      return value.length === 0 ? 2 : 20 + value.length;
+    }
+
+    if (typeof value === "object") {
+      const keyCount = Object.keys(value as Record<string, unknown>).length;
+      return keyCount === 0 ? 2 : 30 + keyCount;
+    }
+
+    return 10;
+  };
+
+  const shouldReplacePendingToolArgs = (next: unknown, current: unknown) =>
+    getToolArgsSpecificity(next) > getToolArgsSpecificity(current);
 
   const enqueuePendingToolArgs = (toolCall: StreamedToolCall) => {
-    const key = toolCall.toolCallId
-      ? `id:${toolCall.toolCallId}`
-      : `name:${toolCall.toolName}:${stringifyUnknown(toolCall.args)}`;
-    if (observedToolCallKeys.has(key)) {
-      return;
+    // Tool call IDs can appear many times as streaming argument chunks arrive.
+    // Keep upgrading to the most informative args instead of freezing on "{}".
+    if (!toolCall.toolCallId) {
+      const key = `name:${toolCall.toolName}:${stringifyUnknown(toolCall.args)}`;
+      if (observedToolCallKeys.has(key)) {
+        return;
+      }
+      observedToolCallKeys.add(key);
     }
-    observedToolCallKeys.add(key);
 
     if (toolCall.toolCallId) {
-      pendingToolArgsByCallId.set(toolCall.toolCallId, toolCall.args);
+      const existingById = pendingToolArgsByCallId.get(toolCall.toolCallId);
+      if (
+        existingById === undefined ||
+        shouldReplacePendingToolArgs(toolCall.args, existingById)
+      ) {
+        pendingToolArgsByCallId.set(toolCall.toolCallId, toolCall.args);
+      }
     }
 
-    const existing = pendingToolArgsByName.get(toolCall.toolName);
-    if (existing) {
-      existing.push(toolCall.args);
+    const existingQueue = pendingToolArgsByName.get(toolCall.toolName) ?? [];
+    if (toolCall.toolCallId) {
+      const existingEntry = existingQueue.find(
+        (entry) => entry.toolCallId === toolCall.toolCallId,
+      );
+      if (existingEntry) {
+        if (shouldReplacePendingToolArgs(toolCall.args, existingEntry.args)) {
+          existingEntry.args = toolCall.args;
+        }
+      } else {
+        existingQueue.push({
+          toolCallId: toolCall.toolCallId,
+          args: toolCall.args,
+        });
+      }
     } else {
-      pendingToolArgsByName.set(toolCall.toolName, [toolCall.args]);
+      existingQueue.push({ args: toolCall.args });
+    }
+
+    if (!pendingToolArgsByName.has(toolCall.toolName)) {
+      pendingToolArgsByName.set(toolCall.toolName, existingQueue);
     }
   };
 
@@ -1734,6 +1796,17 @@ export async function* streamSpreadsheetAssistant(input: {
       const byId = pendingToolArgsByCallId.get(toolCallId);
       if (byId !== undefined) {
         pendingToolArgsByCallId.delete(toolCallId);
+        const byNameQueue = pendingToolArgsByName.get(toolName);
+        if (byNameQueue) {
+          const remaining = byNameQueue.filter(
+            (entry) => entry.toolCallId !== toolCallId,
+          );
+          if (remaining.length > 0) {
+            pendingToolArgsByName.set(toolName, remaining);
+          } else {
+            pendingToolArgsByName.delete(toolName);
+          }
+        }
         return byId;
       }
     }
@@ -1741,10 +1814,13 @@ export async function* streamSpreadsheetAssistant(input: {
     const byNameQueue = pendingToolArgsByName.get(toolName);
     if (byNameQueue && byNameQueue.length > 0) {
       const next = byNameQueue.shift();
+      if (next?.toolCallId) {
+        pendingToolArgsByCallId.delete(next.toolCallId);
+      }
       if (byNameQueue.length === 0) {
         pendingToolArgsByName.delete(toolName);
       }
-      return next;
+      return next?.args;
     }
 
     return undefined;
@@ -1807,7 +1883,7 @@ export async function* streamSpreadsheetAssistant(input: {
           type: "tool.call",
           toolName,
           toolCallId: runId,
-          args: resolvedArgs ?? {},
+          args: resolvedArgs ?? createUnavailableToolArgs(),
         };
         continue;
       }

@@ -234,6 +234,18 @@ export default async function Home() {
                       triggerVariant="hero"
                       redirectTo="/doc"
                     />
+                    <div className="relative inline-flex w-fit">
+                      <Button
+                        type="button"
+                        disabled
+                        className="h-12 rounded-xl bg-[#217346] px-6 text-base text-white shadow-[0_18px_40px_rgba(33,115,70,0.3)] hover:bg-[#185C37] disabled:cursor-not-allowed disabled:bg-[#217346] disabled:opacity-100"
+                      >
+                        Excel Add-in
+                      </Button>
+                      <span className="pointer-events-none absolute -right-2 -top-2 rounded-full border border-[#0f4d2f] bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#185C37] shadow-sm">
+                        Coming soon
+                      </span>
+                    </div>
                   </div>
                 </div>
 
