@@ -1483,7 +1483,7 @@ const handleSpreadsheetQueryRange = async (
                 const cellData = rowData?.values?.[columnIndex];
 
                 if (!cellData) {
-                  cells[address] = null;
+                  // Skip empty cells to reduce response size
                   continue;
                 }
 
@@ -1501,7 +1501,6 @@ const handleSpreadsheetQueryRange = async (
                 const formula = getExtendedValueFormula(ue);
 
                 // Determine output format based on what data is available
-                // Determine output format based on what data is available
                 if (formula) {
                   // Formula cell: [formatted, effective, formula]
                   cells[address] = [fv ?? ev ?? null, ev ?? null, formula];
@@ -1514,8 +1513,12 @@ const handleSpreadsheetQueryRange = async (
                   // Formatted differs from effective: [formatted, effective]
                   cells[address] = [fv, ev];
                 } else {
-                  // Plain value
-                  cells[address] = ev ?? fv ?? null;
+                  // Plain value - skip if null to reduce response size
+                  const value = ev ?? fv;
+                  if (value === undefined || value === null) {
+                    continue;
+                  }
+                  cells[address] = value;
                 }
               }
             }
@@ -1551,13 +1554,8 @@ const handleSpreadsheetQueryRange = async (
                   ? cellXfs.get(String((ef as StyleReference)?.sid))
                   : ef;
 
-                if (!cellData) {
-                  styles[address] = null;
-                  continue;
-                }
-
-                if (!style) {
-                  styles[address] = null;
+                // Skip cells with no data or no style to reduce response size
+                if (!cellData || !style) {
                   continue;
                 }
 
@@ -1961,8 +1959,12 @@ const handleSpreadsheetReadDocument = async (
                 // Formatted differs from effective: [formatted, effective]
                 cells[address] = [fv, ev];
               } else {
-                // Plain value
-                cells[address] = ev ?? fv ?? null;
+                // Plain value - skip if null to reduce response size
+                const value = ev ?? fv;
+                if (value === undefined || value === null) {
+                  continue;
+                }
+                cells[address] = value;
               }
             }
           }

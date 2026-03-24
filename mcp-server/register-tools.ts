@@ -1,4 +1,6 @@
 import { inspect } from "node:util";
+import path from "node:path";
+import { readFile } from "node:fs/promises";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -61,6 +63,14 @@ const normalizeToolResult = (value: unknown) => {
 
 const SPREADSHEET_APP_RESOURCE_URI = "ui://rowsncolumns/spreadsheet-view.html";
 const MCP_PUBLIC_DOC_BASE_PATH = "/mcp/doc";
+const MCP_WIDGET_BUNDLE_PATH = path.join(
+  process.cwd(),
+  "public",
+  "mcp",
+  "spreadsheet-widget.bundle.js",
+);
+
+let widgetBundleCache: string | null = null;
 
 const resolveUiDomain = () => {
   const value = process.env.MCP_UI_DOMAIN?.trim();
@@ -71,6 +81,80 @@ const resolveUiDomain = () => {
     return value;
   }
   return `https://${value}`;
+};
+
+const normalizeShareDbUrl = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:") {
+      parsed.protocol = "ws:";
+      return parsed.toString();
+    }
+    if (parsed.protocol === "https:") {
+      parsed.protocol = "wss:";
+      return parsed.toString();
+    }
+    if (parsed.protocol === "ws:" || parsed.protocol === "wss:") {
+      return parsed.toString();
+    }
+  } catch {
+    // Fall through to prefix handling.
+  }
+
+  const isLocalHost =
+    trimmed.startsWith("localhost") ||
+    trimmed.startsWith("127.0.0.1") ||
+    trimmed.startsWith("[::1]");
+  const protocol = isLocalHost ? "ws" : "wss";
+  return `${protocol}://${trimmed}`;
+};
+
+const resolveShareDbUrl = () =>
+  normalizeShareDbUrl(
+    process.env.MCP_SHAREDB_URL?.trim() ||
+      process.env.NEXT_PUBLIC_SHAREDB_URL?.trim() ||
+      null,
+  );
+
+const resolveShareDbPort = () =>
+  process.env.MCP_SHAREDB_PORT?.trim() ||
+  process.env.NEXT_PUBLIC_SHAREDB_PORT?.trim() ||
+  null;
+
+const safeOrigin = (raw: string | null) => {
+  if (!raw) {
+    return null;
+  }
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+};
+
+const readWidgetBundle = async () => {
+  if (widgetBundleCache !== null) {
+    return widgetBundleCache;
+  }
+
+  try {
+    const text = await readFile(MCP_WIDGET_BUNDLE_PATH, "utf8");
+    widgetBundleCache = text;
+    return text;
+  } catch {
+    const fallback = `console.error("RowsnColumns MCP widget bundle not found. Run: npm run mcp:build-widget");`;
+    widgetBundleCache = fallback;
+    return fallback;
+  }
 };
 
 const createShareDBDocument = async (docId: string) => {
@@ -131,208 +215,65 @@ const createSpreadsheetDocumentInputSchema = {
     .describe("Optional document ID. If omitted, a UUID is generated."),
 };
 
-const buildSpreadsheetAppHtml = (appBaseUrl: string) =>
-  `<!doctype html>
+const buildSpreadsheetAppHtml = async ({
+  appBaseUrl,
+  shareDbUrl,
+  shareDbPort,
+}: {
+  appBaseUrl: string;
+  shareDbUrl: string | null;
+  shareDbPort: string | null;
+}) => {
+  const bundle = await readWidgetBundle();
+  const safeBundle = bundle.replace(/<\/script/gi, "<\\/script");
+  const configJson = JSON.stringify({
+    appBaseUrl,
+    shareDbUrl,
+    shareDbPort,
+  });
+
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>RowsnColumns Spreadsheet</title>
   <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #0f1115;
-      --panel: #171a21;
-      --text: #f3f6fb;
-      --muted: #a9b1c3;
-      --accent: #0ea5e9;
-    }
+    :root { color-scheme: light dark; }
     body {
       margin: 0;
       font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 120px;
+      background: #0f1115;
+      color: #f3f6fb;
     }
-    .shell {
+    #app {
+      min-height: 680px;
+    }
+    .rnc-widget-placeholder {
+      margin: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: #171a21;
+      border-radius: 10px;
+      padding: 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 10px;
-      background: var(--panel);
-      margin: 8px;
+      gap: 8px;
     }
-    .meta {
-      color: var(--muted);
+    .rnc-widget-meta {
+      color: #a9b1c3;
       font-size: 12px;
       line-height: 1.4;
-      flex: 1;
-    }
-    a {
-      color: white;
-      background: var(--accent);
-      text-decoration: none;
-      padding: 7px 10px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      white-space: nowrap;
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <div id="meta" class="meta">Run <b>open_spreadsheet</b> to open a document.</div>
-    <a id="openLink" href="${appBaseUrl}" target="_blank" rel="noopener noreferrer">Open In New Tab</a>
-  </div>
-  <script>
-    (() => {
-      const appBaseUrl = ${JSON.stringify(appBaseUrl)};
-      const publicDocBasePath = ${JSON.stringify(MCP_PUBLIC_DOC_BASE_PATH)};
-      const state = { docId: null, sheetId: null, url: null };
-      const protocolVersion = "2026-01-26";
-      const appInfo = { name: "rowsncolumns-spreadsheet-app", version: "1.0.0" };
-      const appCapabilities = { tools: {}, availableDisplayModes: ["inline", "fullscreen"] };
-      const meta = document.getElementById("meta");
-      const openLink = document.getElementById("openLink");
-      const pendingRequests = new Map();
-      let requestId = 0;
-      let hostInitialized = false;
-
-      const readString = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
-      const readInt = (value) => Number.isFinite(value) ? Math.trunc(value) : null;
-
-      const sendNotification = (method, params = {}) => {
-        window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
-      };
-
-      const sendRequest = (method, params = {}) => {
-        const id = ++requestId;
-        return new Promise((resolve, reject) => {
-          pendingRequests.set(id, { resolve, reject });
-          window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
-          window.setTimeout(() => {
-            if (!pendingRequests.has(id)) return;
-            pendingRequests.delete(id);
-            reject(new Error(method + " timed out"));
-          }, 4000);
-        });
-      };
-
-      const notifySize = () => {
-        const root = document.documentElement;
-        const body = document.body;
-        const width = Math.ceil(Math.max(root.scrollWidth, body.scrollWidth, root.clientWidth, 320));
-        const height = Math.ceil(Math.max(root.scrollHeight, body.scrollHeight, 120));
-        sendNotification("ui/notifications/size-changed", { width, height });
-      };
-
-      const parseToolPayload = (value) => {
-        if (!value || typeof value !== "object") return null;
-        const docId = readString(value.docId);
-        const sheetId = value.sheetId === undefined ? null : readInt(value.sheetId);
-        const url = readString(value.url);
-        return { docId, sheetId, url };
-      };
-
-      const buildUrl = (docId, sheetId, url) => {
-        if (url) return url;
-        if (!docId) return null;
-        const next = new URL(publicDocBasePath + "/" + encodeURIComponent(docId), appBaseUrl);
-        if (sheetId !== null && sheetId !== undefined) {
-          next.searchParams.set("sheetId", String(sheetId));
-        }
-        return next.toString();
-      };
-
-      const navigateToSpreadsheet = (url) => {
-        if (!url) return;
-        openLink.href = url;
-        meta.textContent = "Opening spreadsheet…";
-        notifySize();
-        window.location.assign(url);
-      };
-
-      const applyPayload = (payload) => {
-        if (!payload) return;
-        if (payload.docId) state.docId = payload.docId;
-        if (payload.sheetId !== null && payload.sheetId !== undefined) state.sheetId = payload.sheetId;
-        if (payload.url) state.url = payload.url;
-        const finalUrl = buildUrl(state.docId, state.sheetId, state.url);
-        if (finalUrl) {
-          navigateToSpreadsheet(finalUrl);
-          return;
-        }
-        meta.textContent = "Run open_spreadsheet to open a document.";
-        notifySize();
-      };
-
-      const initializeHost = async () => {
-        if (hostInitialized) return;
-        try {
-          await sendRequest("ui/initialize", {
-            appInfo,
-            appCapabilities,
-            protocolVersion,
-          });
-          hostInitialized = true;
-          sendNotification("ui/notifications/initialized", {});
-        } catch (_error) {
-          // keep going; non-MCP hosts still can use the fallback link
-        } finally {
-          notifySize();
-        }
-      };
-
-      window.addEventListener("message", (event) => {
-        const message = event.data;
-        if (!message || message.jsonrpc !== "2.0") return;
-
-        if (message.id !== undefined && pendingRequests.has(message.id)) {
-          const pending = pendingRequests.get(message.id);
-          pendingRequests.delete(message.id);
-          if (!pending) return;
-          if (Object.prototype.hasOwnProperty.call(message, "error")) {
-            pending.reject(message.error);
-          } else {
-            pending.resolve(message.result);
-          }
-          return;
-        }
-
-        if (typeof message.method !== "string") return;
-
-        if (
-          message.method === "ui/notifications/tool-input" ||
-          message.method === "ui/notifications/tool-input-partial"
-        ) {
-          applyPayload(parseToolPayload(message.params && message.params.arguments));
-          return;
-        }
-
-        if (message.method === "ui/notifications/tool-result") {
-          applyPayload(
-            parseToolPayload(message.params && message.params.structuredContent),
-          );
-        }
-      });
-
-      if (typeof ResizeObserver !== "undefined") {
-        const ro = new ResizeObserver(() => notifySize());
-        ro.observe(document.documentElement);
-        ro.observe(document.body);
-      } else {
-        window.addEventListener("resize", () => notifySize());
-      }
-
-      initializeHost();
-    })();
-  </script>
+  <div id="app"></div>
+  <script>window.__RNC_MCP_WIDGET_CONFIG__ = ${configJson};</script>
+  <script>${safeBundle}</script>
 </body>
 </html>`;
+};
 
 const createSpreadsheetDocumentHandler = async (args: unknown) => {
   const parsed = z.object(createSpreadsheetDocumentInputSchema).parse(args);
@@ -401,6 +342,15 @@ export const registerSpreadsheetTools = (server: McpServer) => {
   const appBaseUrl = resolveAppBaseUrl();
   const appOrigin = resolveAppOrigin();
   const uiDomain = resolveUiDomain();
+  const shareDbUrl = resolveShareDbUrl();
+  const shareDbPort = resolveShareDbPort();
+  const shareDbOrigin = safeOrigin(shareDbUrl);
+  const connectDomains = [appOrigin, shareDbOrigin].filter(
+    (value): value is string => Boolean(value),
+  );
+  const resourceDomains = [appOrigin].filter(
+    (value): value is string => Boolean(value),
+  );
 
   registerAppResource(
     server,
@@ -412,12 +362,15 @@ export const registerSpreadsheetTools = (server: McpServer) => {
       _meta: {
         ui: {
           prefersBorder: false,
-          ...(appOrigin
+          ...(connectDomains.length > 0 || resourceDomains.length > 0
             ? {
                 csp: {
-                  frameDomains: [appOrigin],
-                  connectDomains: [appOrigin],
-                  resourceDomains: [appOrigin],
+                  ...(connectDomains.length > 0
+                    ? { connectDomains }
+                    : {}),
+                  ...(resourceDomains.length > 0
+                    ? { resourceDomains }
+                    : {}),
                 },
               }
             : {}),
@@ -430,16 +383,23 @@ export const registerSpreadsheetTools = (server: McpServer) => {
         {
           uri: SPREADSHEET_APP_RESOURCE_URI,
           mimeType: RESOURCE_MIME_TYPE,
-          text: buildSpreadsheetAppHtml(appBaseUrl),
+          text: await buildSpreadsheetAppHtml({
+            appBaseUrl,
+            shareDbUrl,
+            shareDbPort,
+          }),
           _meta: {
             ui: {
               prefersBorder: false,
-              ...(appOrigin
+              ...(connectDomains.length > 0 || resourceDomains.length > 0
                 ? {
                     csp: {
-                      frameDomains: [appOrigin],
-                      connectDomains: [appOrigin],
-                      resourceDomains: [appOrigin],
+                      ...(connectDomains.length > 0
+                        ? { connectDomains }
+                        : {}),
+                      ...(resourceDomains.length > 0
+                        ? { resourceDomains }
+                        : {}),
                     },
                   }
                 : {}),
