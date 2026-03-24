@@ -1776,6 +1776,21 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Deleted data validation",
     failed: "Failed to delete data validation",
   },
+  spreadsheet_createConditionalFormat: {
+    running: "Creating conditional format",
+    success: "Created conditional format",
+    failed: "Failed to create conditional format",
+  },
+  spreadsheet_updateConditionalFormat: {
+    running: "Updating conditional format",
+    success: "Updated conditional format",
+    failed: "Failed to update conditional format",
+  },
+  spreadsheet_deleteConditionalFormat: {
+    running: "Deleting conditional format",
+    success: "Deleted conditional format",
+    failed: "Failed to delete conditional format",
+  },
 };
 
 const formatToolNameFallback = (toolName: string) =>
@@ -2231,6 +2246,9 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_createDataValidation",
   "spreadsheet_updateDataValidation",
   "spreadsheet_deleteDataValidation",
+  "spreadsheet_createConditionalFormat",
+  "spreadsheet_updateConditionalFormat",
+  "spreadsheet_deleteConditionalFormat",
 ] as const;
 
 function SpreadsheetToolUIRegistration({

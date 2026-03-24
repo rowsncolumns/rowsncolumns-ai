@@ -1980,10 +1980,10 @@
     "@rowsncolumns/fast-formula-parser" "^4.0.12"
     "@rowsncolumns/utils" "^7.0.12"
 
-"@rowsncolumns/charts@^20.0.12":
-  version "20.0.12"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/charts/20.0.12/1b9340d3ebafaed1cb2e8615f63f3fdd5a12f627#1b9340d3ebafaed1cb2e8615f63f3fdd5a12f627"
-  integrity sha512-2I7Uv1mPMlAds7R3rr3vZrU/lJ5OHZPJ/zRLjQzM30DqLn7VH6SMJ0TNjW7Ve+HPQAZPDYFneGmK91sYRxRM/w==
+"@rowsncolumns/charts@^20.0.13":
+  version "20.0.13"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/charts/20.0.13/37f2fd99617834798ff1acba80583ad79d883170#37f2fd99617834798ff1acba80583ad79d883170"
+  integrity sha512-5OqVBOQzDfr3ZPVsuW7kHz0dQiYLZfddG3o31dhjtN1fkM20LA7lYbTofxs+5Yun6RCXfYJPMzcV9pWtWfAXxw==
   dependencies:
     echarts "^5.6.0"
     formik "^2.4.6"
@@ -2046,10 +2046,10 @@
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.16/f8d473c83464e4bc435dea3903eb2777e8c50884#f8d473c83464e4bc435dea3903eb2777e8c50884"
   integrity sha512-+wQ9mVg1vYMT8Yuxs674HSz7D7f9OFlb4NKWbcY7hZMqA3ptciG6qkWvSSMub9y1EVjChtC021iqm4jHiZlhdA==
 
-"@rowsncolumns/spreadsheet-state@^21.0.35":
-  version "21.0.35"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.35/29ae7266e502b65188b2cdca8dc193322cf5f7f9#29ae7266e502b65188b2cdca8dc193322cf5f7f9"
-  integrity sha512-HkTNVNYA6GO+cNVglmL0Hu/Xw8qDcQW5HTtVua4nJlHTlKycElJyrwX0sVvgi+p+eHCwtIVKbl0mF2JsUjSsBg==
+"@rowsncolumns/spreadsheet-state@^21.0.36":
+  version "21.0.36"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.36/88bbd02f211bee5907cd9c333dfe630cc3dafc2b#88bbd02f211bee5907cd9c333dfe630cc3dafc2b"
+  integrity sha512-1+O1N5s+SFALr7cpHf0VnCGx058t141lVFjIMOs+7Ix8CFKog12Ci37siUcxqGdGyWwe+KVgux6i21y11o3dzQ==
   dependencies:
     "@rowsncolumns/calculation-worker" "^2.0.13"
     "@rowsncolumns/date-parser" "^5.0.12"

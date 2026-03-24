@@ -1132,3 +1132,158 @@ export const SpreadsheetDeleteDataValidationSchema = z.object({
 export type SpreadsheetDeleteDataValidationInput = z.infer<
   typeof SpreadsheetDeleteDataValidationSchema
 >;
+
+// Conditional Format Rule Types
+const ConditionalFormatRuleTypeSchema = z
+  .enum(["condition", "colorScale", "topBottom", "duplicates"])
+  .describe(
+    "Type of conditional format: 'condition' for value-based, 'colorScale' for gradients, 'topBottom' for ranking, 'duplicates' for duplicate detection",
+  );
+
+const ConditionTypeForFormatSchema = z
+  .enum([
+    "greaterThan",
+    "greaterThanOrEqual",
+    "lessThan",
+    "lessThanOrEqual",
+    "equal",
+    "notEqual",
+    "between",
+    "notBetween",
+    "textContains",
+    "textNotContains",
+    "textStartsWith",
+    "textEndsWith",
+    "blank",
+    "notBlank",
+    "custom",
+  ])
+  .optional()
+  .describe("Condition type for 'condition' rule type");
+
+// Spreadsheet CreateConditionalFormat
+export const SpreadsheetCreateConditionalFormatSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  range: z
+    .string()
+    .describe(
+      "A1 notation range to apply formatting. Use EXACTLY what user specifies.",
+    ),
+  ruleType: ConditionalFormatRuleTypeSchema,
+
+  // For "condition" rule type
+  conditionType: ConditionTypeForFormatSchema,
+  conditionValues: z
+    .array(z.union([z.string(), z.number()]))
+    .optional()
+    .describe(
+      "Values for condition (e.g., [50] for greaterThan, [10, 90] for between)",
+    ),
+  customFormula: z
+    .string()
+    .optional()
+    .describe("Custom formula for 'custom' condition type (e.g., '=A1>B1')"),
+
+  // For "colorScale" rule type
+  colorScaleType: z
+    .enum(["2color", "3color"])
+    .optional()
+    .describe("Type of color scale: '2color' or '3color'"),
+  minColor: z
+    .string()
+    .optional()
+    .describe("Color for minimum value (e.g., '#FF0000' for red)"),
+  midColor: z
+    .string()
+    .optional()
+    .describe("Color for midpoint value (only for 3color scale)"),
+  maxColor: z
+    .string()
+    .optional()
+    .describe("Color for maximum value (e.g., '#00FF00' for green)"),
+
+  // For "topBottom" rule type
+  topBottomType: z
+    .enum(["top", "bottom"])
+    .optional()
+    .describe("Highlight 'top' or 'bottom' values"),
+  rank: z
+    .number()
+    .int()
+    .optional()
+    .describe("Number of items or percentage to highlight (e.g., 10)"),
+  isPercent: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, rank is percentage (top 10%); if false, rank is count (top 10 items)",
+    ),
+
+  // For "duplicates" rule type
+  duplicateType: z
+    .enum(["duplicate", "unique"])
+    .optional()
+    .describe("Highlight 'duplicate' or 'unique' values"),
+
+  // Format to apply (for condition, topBottom, duplicates)
+  backgroundColor: z
+    .string()
+    .optional()
+    .describe("Background color to apply (e.g., '#FFCCCC')"),
+  textColor: z
+    .string()
+    .optional()
+    .describe("Text color to apply (e.g., '#FF0000')"),
+  bold: z.boolean().optional().describe("Make text bold"),
+  italic: z.boolean().optional().describe("Make text italic"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetCreateConditionalFormatInput = z.infer<
+  typeof SpreadsheetCreateConditionalFormatSchema
+>;
+
+// Spreadsheet UpdateConditionalFormat
+export const SpreadsheetUpdateConditionalFormatSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  ruleId: z.string().describe("The conditional format rule ID to update"),
+
+  // All fields optional for update
+  range: z.string().optional().describe("New A1 notation range"),
+  ruleType: ConditionalFormatRuleTypeSchema.optional(),
+  conditionType: ConditionTypeForFormatSchema,
+  conditionValues: z.array(z.union([z.string(), z.number()])).optional(),
+  customFormula: z.string().optional(),
+  colorScaleType: z.enum(["2color", "3color"]).optional(),
+  minColor: z.string().optional(),
+  midColor: z.string().optional(),
+  maxColor: z.string().optional(),
+  topBottomType: z.enum(["top", "bottom"]).optional(),
+  rank: z.number().int().optional(),
+  isPercent: z.boolean().optional(),
+  duplicateType: z.enum(["duplicate", "unique"]).optional(),
+  backgroundColor: z.string().optional(),
+  textColor: z.string().optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  enabled: z.boolean().optional().describe("Enable or disable the rule"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetUpdateConditionalFormatInput = z.infer<
+  typeof SpreadsheetUpdateConditionalFormatSchema
+>;
+
+// Spreadsheet DeleteConditionalFormat
+export const SpreadsheetDeleteConditionalFormatSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  ruleId: z.string().describe("The conditional format rule ID to delete"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDeleteConditionalFormatInput = z.infer<
+  typeof SpreadsheetDeleteConditionalFormatSchema
+>;

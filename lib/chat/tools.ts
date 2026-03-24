@@ -74,6 +74,12 @@ import {
   SpreadsheetUpdateDataValidationSchema,
   type SpreadsheetDeleteDataValidationInput,
   SpreadsheetDeleteDataValidationSchema,
+  type SpreadsheetCreateConditionalFormatInput,
+  SpreadsheetCreateConditionalFormatSchema,
+  type SpreadsheetUpdateConditionalFormatInput,
+  SpreadsheetUpdateConditionalFormatSchema,
+  type SpreadsheetDeleteConditionalFormatInput,
+  SpreadsheetDeleteConditionalFormatSchema,
 } from "./models";
 import {
   cellsToValues,
@@ -91,11 +97,13 @@ import {
   type TableView,
   type EmbeddedChart,
   type ChartSpec,
+  type ConditionalFormatRule,
 } from "@rowsncolumns/spreadsheet";
 import type {
   SelectionArea,
   ConditionType,
   DataValidationRuleRecord,
+  CellFormat,
 } from "@rowsncolumns/common-types";
 
 const failTool = (
@@ -4831,6 +4839,9 @@ const handleSpreadsheetCreateDataValidation = async (
 
         spreadsheet.createDataValidationRule(rule);
 
+        // trigger calc?
+        await spreadsheet.calculatePending();
+
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
         console.log("[spreadsheet_createDataValidation] Completed:", {
@@ -5059,6 +5070,9 @@ const handleSpreadsheetUpdateDataValidation = async (
 
         spreadsheet.updateDataValidationRule(updatedRule, existingRule);
 
+        // trigger calc?
+        await spreadsheet.calculatePending();
+
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
         console.log("[spreadsheet_updateDataValidation] Completed:", {
@@ -5177,6 +5191,9 @@ const handleSpreadsheetDeleteDataValidation = async (
 
         spreadsheet.deleteDataValidationRule(existingRule);
 
+        // trigger calc?
+        await spreadsheet.calculatePending();
+
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
         console.log("[spreadsheet_deleteDataValidation] Completed:", {
@@ -5233,6 +5250,717 @@ EXAMPLE:
 );
 
 /**
+ * Map simplified condition type to ConditionType for conditional formatting
+ */
+const mapConditionalFormatCondition = (
+  conditionType: string,
+): ConditionType => {
+  switch (conditionType) {
+    case "greaterThan":
+      return "NUMBER_GREATER";
+    case "greaterThanOrEqual":
+      return "NUMBER_GREATER_THAN_EQ";
+    case "lessThan":
+      return "NUMBER_LESS";
+    case "lessThanOrEqual":
+      return "NUMBER_LESS_THAN_EQ";
+    case "equal":
+      return "NUMBER_EQ";
+    case "notEqual":
+      return "NUMBER_NOT_EQ";
+    case "between":
+      return "NUMBER_BETWEEN";
+    case "notBetween":
+      return "NUMBER_NOT_BETWEEN";
+    case "textContains":
+      return "TEXT_CONTAINS";
+    case "textNotContains":
+      return "TEXT_NOT_CONTAINS";
+    case "textStartsWith":
+      return "TEXT_STARTS_WITH";
+    case "textEndsWith":
+      return "TEXT_ENDS_WITH";
+    case "blank":
+      return "BLANK";
+    case "notBlank":
+      return "NOT_BLANK";
+    case "custom":
+      return "CUSTOM_FORMULA";
+    default:
+      return "CUSTOM_FORMULA";
+  }
+};
+
+/**
+ * Build CellFormat from simplified format options
+ */
+const buildConditionalFormat = (input: {
+  backgroundColor?: string;
+  textColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+}): CellFormat => {
+  const format: CellFormat = {};
+
+  if (input.backgroundColor) {
+    format.backgroundColor = input.backgroundColor;
+  }
+
+  if (
+    input.textColor ||
+    input.bold !== undefined ||
+    input.italic !== undefined
+  ) {
+    format.textFormat = {
+      ...(input.textColor ? { color: input.textColor } : {}),
+      ...(input.bold !== undefined ? { bold: input.bold } : {}),
+      ...(input.italic !== undefined ? { italic: input.italic } : {}),
+    };
+  }
+
+  return format;
+};
+
+/**
+ * Handler for the spreadsheet_createConditionalFormat tool
+ */
+const handleSpreadsheetCreateConditionalFormat = async (
+  input: SpreadsheetCreateConditionalFormatInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId,
+    range,
+    ruleType,
+    conditionType,
+    conditionValues,
+    customFormula,
+    colorScaleType,
+    minColor,
+    midColor,
+    maxColor,
+    topBottomType,
+    rank,
+    isPercent,
+    duplicateType,
+    backgroundColor,
+    textColor,
+    bold,
+    italic,
+  } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to create conditional format",
+      { field: "docId" },
+    );
+  }
+
+  if (!range) {
+    return failTool(
+      "MISSING_RANGE",
+      "range is required for conditional format",
+      { field: "range" },
+    );
+  }
+
+  if (!ruleType) {
+    return failTool("MISSING_RULE_TYPE", "ruleType is required", {
+      field: "ruleType",
+    });
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_createConditionalFormat] Starting:", {
+      docId,
+      sheetId,
+      range,
+      ruleType,
+    });
+
+    try {
+      const selection = addressToSelection(range);
+      if (!selection?.range) {
+        return failTool("INVALID_RANGE", `Invalid range: ${range}`, { range });
+      }
+
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool(
+            "NO_CFRULE_EXISTS",
+            "Conditional format rule ID does not exist",
+          );
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+        const ruleId = uuidString();
+
+        const baseRule: ConditionalFormatRule = {
+          id: ruleId,
+          ranges: [
+            {
+              sheetId,
+              startRowIndex: selection.range.startRowIndex,
+              endRowIndex: selection.range.endRowIndex,
+              startColumnIndex: selection.range.startColumnIndex,
+              endColumnIndex: selection.range.endColumnIndex,
+            },
+          ],
+        };
+
+        let rule: ConditionalFormatRule;
+
+        if (ruleType === "condition") {
+          if (!conditionType) {
+            return failTool(
+              "MISSING_CONDITION_TYPE",
+              "conditionType is required for condition rule",
+              { field: "conditionType" },
+            );
+          }
+
+          const format = buildConditionalFormat({
+            backgroundColor,
+            textColor,
+            bold,
+            italic,
+          });
+
+          rule = {
+            ...baseRule,
+            booleanRule: {
+              condition: {
+                type: mapConditionalFormatCondition(conditionType),
+                values:
+                  conditionType === "custom" && customFormula
+                    ? [{ userEnteredValue: customFormula }]
+                    : conditionValues?.map((v) => ({
+                        userEnteredValue: String(v),
+                      })),
+              },
+              format,
+            },
+          };
+        } else if (ruleType === "colorScale") {
+          const minPointColor = minColor || "#FF0000";
+          const maxPointColor = maxColor || "#00FF00";
+          const midPointColor =
+            colorScaleType === "3color" ? midColor || "#FFFF00" : undefined;
+
+          rule = {
+            ...baseRule,
+            gradientRule: {
+              minpoint: {
+                color: minPointColor,
+                type: "MIN",
+              },
+              ...(colorScaleType === "3color" && midPointColor
+                ? {
+                    midpoint: {
+                      color: midPointColor,
+                      type: "PERCENTILE",
+                      value: 50,
+                    },
+                  }
+                : {}),
+              maxpoint: {
+                color: maxPointColor,
+                type: "MAX",
+              },
+            },
+          };
+        } else if (ruleType === "topBottom") {
+          if (!topBottomType || rank === undefined) {
+            return failTool(
+              "MISSING_TOP_BOTTOM_PARAMS",
+              "topBottomType and rank are required for topBottom rule",
+              { field: "topBottomType" },
+            );
+          }
+
+          const format = buildConditionalFormat({
+            backgroundColor,
+            textColor,
+            bold,
+            italic,
+          });
+
+          rule = {
+            ...baseRule,
+            topBottomRule: {
+              type: topBottomType === "top" ? "TOP" : "BOTTOM",
+              rank,
+              isPercent: isPercent ?? false,
+              format,
+            },
+          };
+        } else if (ruleType === "duplicates") {
+          if (!duplicateType) {
+            return failTool(
+              "MISSING_DUPLICATE_TYPE",
+              "duplicateType is required for duplicates rule",
+              { field: "duplicateType" },
+            );
+          }
+
+          const format = buildConditionalFormat({
+            backgroundColor,
+            textColor,
+            bold,
+            italic,
+          });
+
+          rule = {
+            ...baseRule,
+            distinctRule: {
+              type: duplicateType === "duplicate" ? "DUPLICATE" : "UNIQUE",
+              format,
+            },
+          };
+        } else {
+          return failTool(
+            "INVALID_RULE_TYPE",
+            `Unknown rule type: ${ruleType}`,
+            {
+              ruleType,
+            },
+          );
+        }
+
+        spreadsheet.createConditionalFormattingRule(rule);
+
+        // trigger calc?
+        await spreadsheet.calculatePending();
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_createConditionalFormat] Completed:", {
+          docId,
+          ruleId,
+          ruleType,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully created ${ruleType} conditional format on ${range}`,
+          ruleId,
+          range,
+          ruleType,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_createConditionalFormat] Error:", error);
+      return failTool(
+        "CREATE_CONDITIONAL_FORMAT_FAILED",
+        error instanceof Error
+          ? error.message
+          : "Failed to create conditional format",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_createConditionalFormat tool for LangChain
+ */
+export const spreadsheetCreateConditionalFormatTool = tool(
+  handleSpreadsheetCreateConditionalFormat,
+  {
+    name: "spreadsheet_createConditionalFormat",
+    description: `Create conditional formatting rules for cells.
+
+OVERVIEW:
+This tool applies visual formatting based on cell values or conditions.
+
+RULE TYPES:
+
+1. CONDITION - Format cells based on value conditions:
+   ruleType: "condition"
+   conditionType: "greaterThan" | "lessThan" | "between" | "equal" | "textContains" | "blank" | "custom"
+   conditionValues: [50] or [10, 90] for between
+   customFormula: "=A1>B1" (for custom type)
+   backgroundColor: "#FFCCCC"
+
+2. COLOR SCALE - Gradient colors based on values:
+   ruleType: "colorScale"
+   colorScaleType: "2color" or "3color"
+   minColor: "#FF0000" (red for low)
+   midColor: "#FFFF00" (yellow for mid, only for 3color)
+   maxColor: "#00FF00" (green for high)
+
+3. TOP/BOTTOM - Highlight top or bottom values:
+   ruleType: "topBottom"
+   topBottomType: "top" or "bottom"
+   rank: 10
+   isPercent: true (top 10%) or false (top 10 items)
+   backgroundColor: "#90EE90"
+
+4. DUPLICATES - Highlight duplicate or unique values:
+   ruleType: "duplicates"
+   duplicateType: "duplicate" or "unique"
+   backgroundColor: "#FFB6C1"
+
+FORMAT OPTIONS (for condition, topBottom, duplicates):
+- backgroundColor: Hex color (e.g., "#FFCCCC")
+- textColor: Hex color (e.g., "#FF0000")
+- bold: true/false
+- italic: true/false
+
+IMPORTANT: Use EXACTLY the range the user specifies.
+
+EXAMPLES:
+
+Example 1 — Highlight cells > 100:
+  docId: "abc123"
+  sheetId: 1
+  range: "C2:C50"
+  ruleType: "condition"
+  conditionType: "greaterThan"
+  conditionValues: [100]
+  backgroundColor: "#FFCCCC"
+
+Example 2 — 3-color scale (red → yellow → green):
+  docId: "abc123"
+  sheetId: 1
+  range: "D2:D50"
+  ruleType: "colorScale"
+  colorScaleType: "3color"
+  minColor: "#FF0000"
+  midColor: "#FFFF00"
+  maxColor: "#00FF00"
+
+Example 3 — Highlight top 10%:
+  docId: "abc123"
+  sheetId: 1
+  range: "E2:E50"
+  ruleType: "topBottom"
+  topBottomType: "top"
+  rank: 10
+  isPercent: true
+  backgroundColor: "#90EE90"
+
+Example 4 — Highlight duplicates:
+  docId: "abc123"
+  sheetId: 1
+  range: "A2:A100"
+  ruleType: "duplicates"
+  duplicateType: "duplicate"
+  backgroundColor: "#FFB6C1"`,
+    schema: SpreadsheetCreateConditionalFormatSchema,
+  },
+);
+
+/**
+ * Handler for the spreadsheet_updateConditionalFormat tool
+ */
+const handleSpreadsheetUpdateConditionalFormat = async (
+  input: SpreadsheetUpdateConditionalFormatInput,
+): Promise<string> => {
+  const { docId, sheetId, ruleId } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to update conditional format",
+      { field: "docId" },
+    );
+  }
+
+  if (!ruleId) {
+    return failTool(
+      "MISSING_RULE_ID",
+      "ruleId is required to update conditional format",
+      { field: "ruleId" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_updateConditionalFormat] Starting:", {
+      docId,
+      sheetId,
+      ruleId,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool(
+            "NO_CFRULE_EXISTS",
+            "Conditional format rule ID does not exist",
+          );
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Find existing rule
+        const conditionalFormats =
+          (spreadsheet.conditionalFormats as ConditionalFormatRule[]) || [];
+        const existingRule = conditionalFormats.find(
+          (r) => String(r.id) === ruleId,
+        );
+
+        if (!existingRule) {
+          return failTool(
+            "RULE_NOT_FOUND",
+            `Conditional format rule "${ruleId}" not found`,
+            { ruleId },
+          );
+        }
+
+        // Build updated rule
+        const updatedRule: ConditionalFormatRule = { ...existingRule };
+
+        // Update range if provided
+        if (input.range) {
+          const selection = addressToSelection(input.range);
+          if (selection?.range) {
+            updatedRule.ranges = [
+              {
+                sheetId,
+                startRowIndex: selection.range.startRowIndex,
+                endRowIndex: selection.range.endRowIndex,
+                startColumnIndex: selection.range.startColumnIndex,
+                endColumnIndex: selection.range.endColumnIndex,
+              },
+            ];
+          }
+        }
+
+        // Update enabled status
+        if (input.enabled !== undefined) {
+          updatedRule.enabled = input.enabled;
+        }
+
+        // Update format properties if provided
+        if (
+          input.backgroundColor !== undefined ||
+          input.textColor !== undefined ||
+          input.bold !== undefined ||
+          input.italic !== undefined
+        ) {
+          const format = buildConditionalFormat({
+            backgroundColor: input.backgroundColor,
+            textColor: input.textColor,
+            bold: input.bold,
+            italic: input.italic,
+          });
+
+          if (updatedRule.booleanRule) {
+            updatedRule.booleanRule = {
+              ...updatedRule.booleanRule,
+              format: format as typeof updatedRule.booleanRule.format,
+            };
+          } else if (updatedRule.topBottomRule) {
+            updatedRule.topBottomRule = {
+              ...updatedRule.topBottomRule,
+              format: format as typeof updatedRule.topBottomRule.format,
+            };
+          } else if (updatedRule.distinctRule) {
+            updatedRule.distinctRule = {
+              ...updatedRule.distinctRule,
+              format: format as typeof updatedRule.distinctRule.format,
+            };
+          }
+        }
+
+        spreadsheet.updateConditionalFormattingRule(updatedRule, existingRule);
+
+        // trigger calc?
+        await spreadsheet.calculatePending();
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_updateConditionalFormat] Completed:", {
+          docId,
+          ruleId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully updated conditional format`,
+          ruleId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_updateConditionalFormat] Error:", error);
+      return failTool(
+        "UPDATE_CONDITIONAL_FORMAT_FAILED",
+        error instanceof Error
+          ? error.message
+          : "Failed to update conditional format",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_updateConditionalFormat tool for LangChain
+ */
+export const spreadsheetUpdateConditionalFormatTool = tool(
+  handleSpreadsheetUpdateConditionalFormat,
+  {
+    name: "spreadsheet_updateConditionalFormat",
+    description: `Update an existing conditional formatting rule.
+
+OVERVIEW:
+This tool modifies an existing conditional formatting rule's properties.
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- ruleId: The conditional format rule ID to update (required)
+- range: New range for the rule
+- enabled: Enable or disable the rule
+- backgroundColor/textColor/bold/italic: Update format properties
+
+EXAMPLE:
+  docId: "abc123"
+  sheetId: 1
+  ruleId: "rule_xyz"
+  backgroundColor: "#CCFFCC"
+  enabled: true`,
+    schema: SpreadsheetUpdateConditionalFormatSchema,
+  },
+);
+
+/**
+ * Handler for the spreadsheet_deleteConditionalFormat tool
+ */
+const handleSpreadsheetDeleteConditionalFormat = async (
+  input: SpreadsheetDeleteConditionalFormatInput,
+): Promise<string> => {
+  const { docId, sheetId, ruleId } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to delete conditional format",
+      { field: "docId" },
+    );
+  }
+
+  if (!ruleId) {
+    return failTool(
+      "MISSING_RULE_ID",
+      "ruleId is required to delete conditional format",
+      { field: "ruleId" },
+    );
+  }
+
+  return withDocumentWriteLock(docId, async () => {
+    console.log("[spreadsheet_deleteConditionalFormat] Starting:", {
+      docId,
+      sheetId,
+      ruleId,
+    });
+
+    try {
+      const { doc, close } = await getShareDBDocument(docId);
+
+      try {
+        const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+        if (!data) {
+          return failTool("NO_DOCUMENT_DATA", "Document has no data");
+        }
+
+        const spreadsheet = createSpreadsheetInterface(data);
+
+        // Find existing rule
+        const conditionalFormats =
+          (spreadsheet.conditionalFormats as ConditionalFormatRule[]) || [];
+        const existingRule = conditionalFormats.find(
+          (r) => String(r.id) === ruleId,
+        );
+
+        if (!existingRule) {
+          return failTool(
+            "RULE_NOT_FOUND",
+            `Conditional format rule "${ruleId}" not found`,
+            { ruleId },
+          );
+        }
+
+        spreadsheet.deleteConditionalFormattingRule(existingRule);
+
+        // trigger calc?
+        await spreadsheet.calculatePending();
+
+        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+        console.log("[spreadsheet_deleteConditionalFormat] Completed:", {
+          docId,
+          ruleId,
+          patchCount: patchTuples.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          message: `Successfully deleted conditional format`,
+          ruleId,
+        });
+      } finally {
+        queueMicrotask(() => {
+          close();
+        });
+      }
+    } catch (error) {
+      console.error("[spreadsheet_deleteConditionalFormat] Error:", error);
+      return failTool(
+        "DELETE_CONDITIONAL_FORMAT_FAILED",
+        error instanceof Error
+          ? error.message
+          : "Failed to delete conditional format",
+      );
+    }
+  });
+};
+
+/**
+ * The spreadsheet_deleteConditionalFormat tool for LangChain
+ */
+export const spreadsheetDeleteConditionalFormatTool = tool(
+  handleSpreadsheetDeleteConditionalFormat,
+  {
+    name: "spreadsheet_deleteConditionalFormat",
+    description: `Delete a conditional formatting rule.
+
+OVERVIEW:
+This tool removes a conditional formatting rule from the spreadsheet.
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (required)
+- ruleId: The conditional format rule ID to delete (required)
+
+EXAMPLE:
+  docId: "abc123"
+  sheetId: 1
+  ruleId: "rule_xyz"`,
+    schema: SpreadsheetDeleteConditionalFormatSchema,
+  },
+);
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
@@ -5263,4 +5991,7 @@ export const spreadsheetTools = [
   spreadsheetCreateDataValidationTool,
   spreadsheetUpdateDataValidationTool,
   spreadsheetDeleteDataValidationTool,
+  spreadsheetCreateConditionalFormatTool,
+  spreadsheetUpdateConditionalFormatTool,
+  spreadsheetDeleteConditionalFormatTool,
 ];
