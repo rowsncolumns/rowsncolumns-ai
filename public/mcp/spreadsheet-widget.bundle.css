@@ -18,22 +18,14 @@
     --color-red-600: oklch(57.7% 0.245 27.325);
     --color-red-700: oklch(50.5% 0.213 27.518);
     --color-red-800: oklch(44.4% 0.177 26.899);
-    --color-red-900: oklch(39.6% 0.141 25.723);
-    --color-green-50: oklch(98.2% 0.018 155.826);
-    --color-green-100: oklch(96.2% 0.044 156.743);
-    --color-green-200: oklch(92.5% 0.084 155.995);
     --color-green-500: oklch(72.3% 0.219 149.579);
-    --color-green-600: oklch(62.7% 0.194 149.214);
     --color-green-700: oklch(52.7% 0.154 150.069);
-    --color-green-900: oklch(39.3% 0.095 152.535);
+    --color-emerald-600: oklch(59.6% 0.145 163.225);
     --color-emerald-700: oklch(50.8% 0.118 165.612);
-    --color-blue-50: oklch(97% 0.014 254.604);
-    --color-blue-100: oklch(93.2% 0.032 255.585);
-    --color-blue-200: oklch(88.2% 0.059 254.128);
     --color-blue-500: oklch(62.3% 0.214 259.815);
     --color-blue-600: oklch(54.6% 0.245 262.881);
     --color-blue-700: oklch(48.8% 0.243 264.376);
-    --color-blue-900: oklch(37.9% 0.146 265.522);
+    --color-violet-500: oklch(60.6% 0.25 292.717);
     --color-purple-50: oklch(97.7% 0.014 308.299);
     --color-purple-100: oklch(94.6% 0.033 307.174);
     --color-purple-200: oklch(90.2% 0.063 306.703);
@@ -574,9 +566,6 @@
   .-ml-\[15px\] {
     margin-left: calc(15px * -1);
   }
-  .ml-1 {
-    margin-left: calc(var(--spacing) * 1);
-  }
   .ml-2 {
     margin-left: calc(var(--spacing) * 2);
   }
@@ -945,6 +934,9 @@
   }
   .max-w-12\.5 {
     max-width: calc(var(--spacing) * 12.5);
+  }
+  .max-w-28 {
+    max-width: calc(var(--spacing) * 28);
   }
   .max-w-117\.5 {
     max-width: calc(var(--spacing) * 117.5);
@@ -1597,12 +1589,6 @@
       border-color: color-mix(in oklab, var(--color-black) 10%, transparent);
     }
   }
-  .border-blue-200 {
-    border-color: var(--color-blue-200);
-  }
-  .border-green-200 {
-    border-color: var(--color-green-200);
-  }
   .border-neutral-700 {
     border-color: var(--color-neutral-700);
   }
@@ -1648,6 +1634,9 @@
   .bg-\(--assistant-stop-bg\) {
     background-color: var(--assistant-stop-bg);
   }
+  .bg-\(--assistant-suggestion-bg\) {
+    background-color: var(--assistant-suggestion-bg);
+  }
   .bg-\(--card-bg\) {
     background-color: var(--card-bg);
   }
@@ -1656,6 +1645,9 @@
   }
   .bg-\(--card-bg-subtle\) {
     background-color: var(--card-bg-subtle);
+  }
+  .bg-\(--card-border\) {
+    background-color: var(--card-border);
   }
   .bg-\(--drawer-bg\) {
     background-color: var(--drawer-bg);
@@ -1753,15 +1745,6 @@
       background-color: color-mix(in oklab, var(--color-black) 45%, transparent);
     }
   }
-  .bg-blue-50 {
-    background-color: var(--color-blue-50);
-  }
-  .bg-blue-50\/70 {
-    background-color: color-mix(in srgb, oklch(97% 0.014 254.604) 70%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-blue-50) 70%, transparent);
-    }
-  }
   .bg-blue-500 {
     background-color: var(--color-blue-500);
   }
@@ -1770,15 +1753,6 @@
   }
   .bg-foreground {
     background-color: var(--foreground);
-  }
-  .bg-green-50 {
-    background-color: var(--color-green-50);
-  }
-  .bg-green-50\/70 {
-    background-color: color-mix(in srgb, oklch(98.2% 0.018 155.826) 70%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-green-50) 70%, transparent);
-    }
   }
   .bg-purple-50 {
     background-color: var(--color-purple-50);
@@ -1791,12 +1765,6 @@
   }
   .bg-red-50 {
     background-color: var(--color-red-50);
-  }
-  .bg-red-50\/70 {
-    background-color: color-mix(in srgb, oklch(97.1% 0.013 17.38) 70%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-red-50) 70%, transparent);
-    }
   }
   .bg-red-100 {
     background-color: var(--color-red-100);
@@ -1893,6 +1861,9 @@
   }
   .p-0 {
     padding: calc(var(--spacing) * 0);
+  }
+  .p-0\.5 {
+    padding: calc(var(--spacing) * 0.5);
   }
   .p-1 {
     padding: calc(var(--spacing) * 1);
@@ -2142,6 +2113,9 @@
   .text-\[11px\] {
     font-size: 11px;
   }
+  .text-\[12px\] {
+    font-size: 12px;
+  }
   .text-\[15px\] {
     font-size: 15px;
   }
@@ -2326,14 +2300,11 @@
   .text-background {
     color: var(--background);
   }
-  .text-blue-600 {
-    color: var(--color-blue-600);
-  }
   .text-blue-700 {
     color: var(--color-blue-700);
   }
-  .text-blue-900 {
-    color: var(--color-blue-900);
+  .text-emerald-600 {
+    color: var(--color-emerald-600);
   }
   .text-emerald-700 {
     color: var(--color-emerald-700);
@@ -2344,14 +2315,8 @@
   .text-gray-500 {
     color: var(--color-gray-500);
   }
-  .text-green-600 {
-    color: var(--color-green-600);
-  }
   .text-green-700 {
     color: var(--color-green-700);
-  }
-  .text-green-900 {
-    color: var(--color-green-900);
   }
   .text-purple-700 {
     color: var(--color-purple-700);
@@ -2374,11 +2339,11 @@
   .text-red-800 {
     color: var(--color-red-800);
   }
-  .text-red-900 {
-    color: var(--color-red-900);
-  }
   .text-transparent {
     color: transparent;
+  }
+  .text-violet-500 {
+    color: var(--color-violet-500);
   }
   .text-white {
     color: var(--color-white);
@@ -3007,24 +2972,10 @@
       }
     }
   }
-  .hover\:bg-blue-100 {
-    &:hover {
-      @media (hover: hover) {
-        background-color: var(--color-blue-100);
-      }
-    }
-  }
   .hover\:bg-blue-600 {
     &:hover {
       @media (hover: hover) {
         background-color: var(--color-blue-600);
-      }
-    }
-  }
-  .hover\:bg-green-100 {
-    &:hover {
-      @media (hover: hover) {
-        background-color: var(--color-green-100);
       }
     }
   }
@@ -3377,39 +3328,9 @@
       background-color: var(--assistant-tabs-active-bg);
     }
   }
-  .data-\[state\=active\]\:bg-blue-100 {
-    &[data-state="active"] {
-      background-color: var(--color-blue-100);
-    }
-  }
-  .data-\[state\=active\]\:bg-green-100 {
-    &[data-state="active"] {
-      background-color: var(--color-green-100);
-    }
-  }
-  .data-\[state\=active\]\:bg-red-100 {
-    &[data-state="active"] {
-      background-color: var(--color-red-100);
-    }
-  }
-  .data-\[state\=active\]\:text-blue-700 {
-    &[data-state="active"] {
-      color: var(--color-blue-700);
-    }
-  }
   .data-\[state\=active\]\:text-foreground {
     &[data-state="active"] {
       color: var(--foreground);
-    }
-  }
-  .data-\[state\=active\]\:text-green-700 {
-    &[data-state="active"] {
-      color: var(--color-green-700);
-    }
-  }
-  .data-\[state\=active\]\:text-red-700 {
-    &[data-state="active"] {
-      color: var(--color-red-700);
     }
   }
   .data-\[state\=active\]\:shadow {

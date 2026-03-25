@@ -10,7 +10,11 @@ import { createRoot } from "react-dom/client";
 import ShareDBClient from "sharedb/lib/client";
 import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
 import { functionDescriptions, functions } from "@rowsncolumns/functions";
-import { exportToCSV, exportToExcel } from "@rowsncolumns/toolkit";
+import {
+  createCSVFromSheetData,
+  exportToCSV,
+  exportToExcel,
+} from "@rowsncolumns/toolkit";
 import {
   ButtonBold,
   ButtonItalic,
@@ -130,6 +134,8 @@ import {
 import { FileMenu } from "@/components/file-menu";
 import { toggleThemeMode } from "@/lib/theme-preference";
 import { MagnifyingGlassIcon } from "@radix-ui/react-icons";
+import { getCellFormattedValue } from "@rowsncolumns/utils";
+import * as XLSX from "xlsx";
 
 type WidgetConfig = {
   shareDbUrl?: string | null;
@@ -168,6 +174,13 @@ type UiStateSyncPayload = {
   }>;
   locale?: string;
   currency?: string;
+};
+
+type HostDownloadPayload = {
+  filename: string;
+  mimeType: string;
+  text?: string;
+  blobBase64?: string;
 };
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
@@ -244,6 +257,108 @@ const serializeSelections = (
     });
   }
   return result;
+};
+
+const toBase64 = (bytes: Uint8Array) => {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const slice = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+};
+
+const getCellExportValue = (
+  cell: CellData | null | undefined,
+  sharedStrings: SharedStrings,
+) => {
+  if (!cell) {
+    return "";
+  }
+
+  const sharedStringIndex = (cell as { ss?: unknown }).ss;
+  if (
+    sharedStringIndex !== undefined &&
+    sharedStringIndex !== null &&
+    sharedStrings.has(sharedStringIndex as string)
+  ) {
+    return sharedStrings.get(sharedStringIndex as string) ?? "";
+  }
+
+  const formatted = getCellFormattedValue(cell);
+  if (formatted !== undefined && formatted !== null) {
+    return formatted;
+  }
+
+  return "";
+};
+
+const buildWorkbookBase64 = ({
+  sheets,
+  sheetData,
+  sharedStrings,
+}: {
+  sheets: Sheet[];
+  sheetData: SheetData<CellData>;
+  sharedStrings: SharedStrings;
+}) => {
+  const workbook = XLSX.utils.book_new();
+
+  for (const sheet of sheets) {
+    const rowData = sheetData[sheet.sheetId] ?? [];
+    const rowIndexes = Object.keys(rowData)
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const maxRowIndex = rowIndexes.length > 0 ? Math.max(...rowIndexes) : 0;
+
+    let maxColumnIndex = 0;
+    for (const rowIndex of rowIndexes) {
+      const row = rowData[rowIndex] as
+        | { values?: Array<CellData | null | undefined> }
+        | undefined;
+      const values = row?.values ?? [];
+      if (values.length > maxColumnIndex) {
+        maxColumnIndex = values.length - 1;
+      }
+    }
+
+    const aoa: Array<Array<string | number | boolean | null>> = [];
+    for (let rowIndex = 1; rowIndex <= maxRowIndex; rowIndex++) {
+      const row = rowData[rowIndex] as
+        | { values?: Array<CellData | null | undefined> }
+        | undefined;
+      const values = row?.values ?? [];
+      const cells: Array<string | number | boolean | null> = [];
+      for (let columnIndex = 1; columnIndex <= maxColumnIndex; columnIndex++) {
+        const value = getCellExportValue(values[columnIndex], sharedStrings);
+        if (
+          typeof value === "string" ||
+          typeof value === "number" ||
+          typeof value === "boolean" ||
+          value === null
+        ) {
+          cells.push(value);
+        } else {
+          cells.push(String(value));
+        }
+      }
+      aoa.push(cells);
+    }
+
+    const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      sheet.title?.trim() || `Sheet${sheet.sheetId}`,
+    );
+  }
+
+  const arrayBuffer = XLSX.write(workbook, {
+    bookType: "xlsx",
+    type: "array",
+  }) as ArrayBuffer;
+  return toBase64(new Uint8Array(arrayBuffer));
 };
 
 const resolveDocOpenUrl = ({
@@ -390,12 +505,14 @@ function SpreadsheetDocumentView({
   locale,
   currency,
   onSyncUiState,
+  onHostDownload,
 }: {
   docId: string;
   docUrl: string | null;
   locale: string;
   currency: string;
   onSyncUiState?: (payload: UiStateSyncPayload) => void;
+  onHostDownload?: (payload: HostDownloadPayload) => Promise<boolean>;
 }) {
   const config = window.__RNC_MCP_WIDGET_CONFIG__ ?? {};
   const shareDbUrl = resolveShareDbUrl(docUrl, config);
@@ -779,6 +896,27 @@ function SpreadsheetDocumentView({
   );
 
   const handleExportExcel = useCallback(async () => {
+    if (onHostDownload) {
+      try {
+        const blobBase64 = buildWorkbookBase64({
+          sheets,
+          sheetData,
+          sharedStrings,
+        });
+        const downloaded = await onHostDownload({
+          filename: `spreadsheet-${docId}.xlsx`,
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          blobBase64,
+        });
+        if (downloaded) {
+          return;
+        }
+      } catch {
+        // Fallback to browser download path.
+      }
+    }
+
     await exportToExcel({
       filename: `spreadsheet-${docId}`,
       sheets,
@@ -796,6 +934,7 @@ function SpreadsheetDocumentView({
     });
   }, [
     docId,
+    onHostDownload,
     sheets,
     sheetData,
     tables,
@@ -811,12 +950,31 @@ function SpreadsheetDocumentView({
   ]);
 
   const handleExportCSV = useCallback(async () => {
+    if (onHostDownload) {
+      try {
+        const csv = createCSVFromSheetData(
+          sheetData[activeSheetId] ?? [],
+          sharedStrings,
+        );
+        const downloaded = await onHostDownload({
+          filename: `spreadsheet-${docId}-${activeSheetId}.csv`,
+          mimeType: "text/csv;charset=utf-8",
+          text: csv,
+        });
+        if (downloaded) {
+          return;
+        }
+      } catch {
+        // Fallback to browser download path.
+      }
+    }
+
     await exportToCSV({
       filename: `spreadsheet-${docId}-${activeSheetId}`,
       rowData: sheetData[activeSheetId] ?? [],
       sharedStrings,
     });
-  }, [docId, activeSheetId, sheetData, sharedStrings]);
+  }, [docId, activeSheetId, onHostDownload, sheetData, sharedStrings]);
 
   useEffect(() => {
     return () => {
@@ -1635,6 +1793,48 @@ function App() {
     });
   };
 
+  const onHostDownload = useCallback(
+    async (payload: HostDownloadPayload) => {
+      if (!hasHostBridge) {
+        return false;
+      }
+
+      const resource: {
+        uri: string;
+        mimeType: string;
+        text?: string;
+        blob?: string;
+      } = {
+        uri: `file:///${payload.filename}`,
+        mimeType: payload.mimeType,
+      };
+
+      if (payload.text !== undefined) {
+        resource.text = payload.text;
+      } else if (payload.blobBase64 !== undefined) {
+        resource.blob = payload.blobBase64;
+      } else {
+        return false;
+      }
+
+      try {
+        const result = (await sendRequest("ui/download-file", {
+          contents: [
+            {
+              type: "resource",
+              resource,
+            },
+          ],
+        })) as { isError?: boolean } | null;
+
+        return !result?.isError;
+      } catch {
+        return false;
+      }
+    },
+    [hasHostBridge],
+  );
+
   const onSyncUiState = (payload: UiStateSyncPayload) => {
     if (!hasHostBridge) {
       return;
@@ -1813,6 +2013,7 @@ function App() {
         locale={locale}
         currency={currency}
         onSyncUiState={onSyncUiState}
+        onHostDownload={onHostDownload}
       />
     </SpreadsheetProvider>
   );

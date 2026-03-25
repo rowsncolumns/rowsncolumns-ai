@@ -781,6 +781,7 @@ function SpreadsheetPane({
     onChangeSheets,
     onChangeTables,
     onChangeActiveSheet,
+    onChangeCitations,
     calculateNow,
     enqueueGraphOperation,
     onChangeIterativeCalculation: setIterativeEnabled,

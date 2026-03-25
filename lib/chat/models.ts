@@ -30,9 +30,20 @@ const CellDataSchema = z
       .describe(
         "The cell's formula (e.g., '=SUM(A1:A5)'). Use this for computed values.",
       ),
+    citation: z
+      .string()
+      .optional()
+      .describe(
+        "Optional citation URL for this cell's data. Use this to track the source of the value.\n" +
+          "IMPORTANT: A citation MUST be accompanied by a 'value' or 'formula' - citations alone will result in empty cells.\n\n" +
+          "Citation URL format:\n" +
+          "- Internal assets: NONE Exists for now" +
+          "- External URLs: https://example.com/source?excerpt=[EXCERPT]\n\n" +
+          "The 'excerpt' parameter enables scroll-to-text: clicking the citation scrolls to and highlights that text.",
+      ),
   })
   .strict()
-  .describe("A single cell's data with optional value and formula");
+  .describe("A single cell's data with optional value, formula, and citation");
 
 export type CellData = z.infer<typeof CellDataSchema>;
 

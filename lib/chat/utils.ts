@@ -10,6 +10,7 @@ import { selectionToAddress } from "@rowsncolumns/utils";
 import { Spreadsheet } from "@rowsncolumns/spreadsheet-state/server";
 import { type CellData as SpreadsheetCellData } from "@rowsncolumns/spreadsheet";
 import { FormulaError } from "@rowsncolumns/fast-formula-parser";
+import { type Citation } from "@rowsncolumns/common-types";
 import {
   attachCalculationWorker,
   type WorkerRuntimeOptions,
@@ -75,6 +76,7 @@ export type ShareDBSpreadsheetDoc<
 export type ToolCellData = {
   value?: string | number | boolean | null;
   formula?: string;
+  citation?: string;
 };
 
 class InlineWorkerScope extends EventTarget {
@@ -316,6 +318,86 @@ export const cellsToValues = (
       return cell.value;
     }),
   );
+};
+
+/**
+ * Extract citations from tool cell input into a 2D array of citation strings.
+ * Returns undefined if no citations are present.
+ */
+export const cellsToCitationStrings = (
+  cells: ToolCellData[][],
+): (string | undefined)[][] | undefined => {
+  let hasCitations = false;
+
+  const citations = cells.map((row) =>
+    row.map((cell) => {
+      if (cell.citation) {
+        hasCitations = true;
+        return cell.citation;
+      }
+      return undefined;
+    }),
+  );
+
+  return hasCitations ? citations : undefined;
+};
+
+/**
+ * Extract citations from tool cell input and create full citation objects.
+ * Returns an object with:
+ * - citationStrings: 2D array for changeBatch (or undefined if no citations)
+ * - citationObjects: Array of CitationData objects for createBatchCitations
+ */
+export const cellsToCitations = (
+  cells: ToolCellData[][],
+  options: {
+    sheetId: number;
+    startRowIndex: number;
+    startColumnIndex: number;
+    userId?: string;
+    generateId: () => string;
+  },
+): {
+  citationStrings: (string | undefined)[][] | undefined;
+  citationObjects: Citation[];
+} => {
+  const citationObjects: Citation[] = [];
+  let hasCitations = false;
+
+  const citationStrings = cells.map((row, rowOffset) =>
+    row.map((cell, colOffset) => {
+      if (cell.citation) {
+        hasCitations = true;
+
+        const cellRow = options.startRowIndex + rowOffset;
+        const cellCol = options.startColumnIndex + colOffset;
+        const citationId = options.generateId();
+
+        citationObjects.push({
+          id: citationId,
+          range: {
+            sheetId: options.sheetId,
+            startRowIndex: cellRow,
+            endRowIndex: cellRow,
+            startColumnIndex: cellCol,
+            endColumnIndex: cellCol,
+          },
+          citation_string: cell.citation,
+          active: true,
+          created_at: new Date().toISOString(),
+          created_by: options.userId,
+        });
+
+        return citationId;
+      }
+      return undefined;
+    }),
+  );
+
+  return {
+    citationStrings: hasCitations ? citationStrings : undefined,
+    citationObjects,
+  };
 };
 
 /**

@@ -82,6 +82,7 @@ import {
   SpreadsheetDeleteConditionalFormatSchema,
 } from "./models";
 import {
+  cellsToCitations,
   cellsToValues,
   createSpreadsheetInterface,
   evaluateFormulas,
@@ -162,14 +163,17 @@ const parseCells = (input: unknown): CellData[][] => {
         rowCells.push({});
       } else if (typeof cell === "object" && !Array.isArray(cell)) {
         // Strictly validate allowed properties
-        const { value, formula, ...rest } = cell as Record<string, unknown>;
+        const { value, formula, citation, ...rest } = cell as Record<
+          string,
+          unknown
+        >;
         const extraKeys = Object.keys(rest);
 
         if (extraKeys.length > 0) {
           throw new Error(
             `Cell at row ${rowIdx}, col ${colIdx} has unexpected properties: ${extraKeys.join(
               ", ",
-            )}. Allowed keys: value, formula.`,
+            )}. Allowed keys: value, formula, citation.`,
           );
         }
 
@@ -193,12 +197,19 @@ const parseCells = (input: unknown): CellData[][] => {
           );
         }
 
+        if (citation !== undefined && typeof citation !== "string") {
+          throw new Error(
+            `Cell at row ${rowIdx}, col ${colIdx} has invalid citation type: ${typeof citation}`,
+          );
+        }
+
         rowCells.push({
           value:
             value === undefined
               ? undefined
               : (value as string | number | boolean | null),
           formula,
+          citation: citation as string | undefined,
         });
       } else {
         throw new Error(
@@ -306,8 +317,27 @@ const handleSpreadsheetChangeBatch = async (
         // Convert input cells to values array
         const values = cellsToValues(cells);
 
+        // Extract citations if present
+        const { citationStrings, citationObjects } = cellsToCitations(cells, {
+          sheetId,
+          startRowIndex: selection.range.startRowIndex,
+          startColumnIndex: selection.range.startColumnIndex,
+          generateId: uuidString,
+        });
+
         // Apply changes using changeBatch
-        spreadsheet.changeBatch(sheetId, selection?.range, values);
+        spreadsheet.changeBatch(
+          sheetId,
+          selection.range,
+          values,
+          undefined, // formatting
+          citationStrings,
+        );
+
+        // Add citations to state if any exist
+        if (citationObjects.length > 0) {
+          spreadsheet.createBatchCitations(citationObjects);
+        }
 
         // Evaluate formulas
         const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
@@ -363,7 +393,7 @@ WHEN TO USE THIS TOOL:
 CRITICAL RULES:
 1. Range uses A1 notation (e.g., 'A1:C3', 'B2:D5').
 2. 'cells' must be a 2D array: list of rows. Dimensions MUST match the range.
-3. Each cell object can have 'value' or 'formula' (or be empty {}).
+3. Each cell object can have 'value', 'formula', and/or 'citation' (or be empty {}).
 4. Use empty objects {} for blank cells you want to skip.
 5. Only the target range is modified — never affects data outside.
 6. IMPORTANT: Write data values BEFORE formulas that reference them.
@@ -379,12 +409,15 @@ CRITICAL RULES:
 8. PREFER FORMULAS: When referencing data from other cells, creating financial models, or building tabular content, prefer using formulas over hardcoded values. Formulas ensure data stays in sync and calculations update automatically.
 9. BATCHING: Multiple tool calls are permitted and encouraged for large datasets. You can write data in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability and allows for incremental progress.
 10. USE APPLYFILL FOR SEQUENCES: When writing sequential patterns (1, 2, 3... or Jan, Feb, Mar... or dates), DO NOT manually list each value. Instead:
-    - Write only the first 1-2 values using changeBatch to establish the pattern
+    - Write only the first 1-2 values to establish the pattern
     - Use spreadsheet_applyFill to extend the sequence automatically
     Example: For "Fiscal Month 1, 2, 3...12" across B5:M5:
-      Step 1: changeBatch range "B5:C5" with cells [[{"value": 1}, {"value": 2}]]
+      Step 1: Write range "B5:C5" with cells [[{"value": 1}, {"value": 2}]]
       Step 2: applyFill with sourceRange "B5:C5", fillRange "B5:M5"
     This saves tokens and is more efficient than listing all 12 values.
+11. CITATIONS: Use the 'citation' field to track data sources. Citations MUST be accompanied by a 'value' or 'formula'.
+    - Format: URL with optional 'excerpt' query param for scroll-to-text highlighting
+    - Example: "https://example.com/report.pdf?excerpt=Q3%20revenue%20was%20%2412M"
 
 EXAMPLES:
 
@@ -413,6 +446,14 @@ Example 4 — Create a financial calculation block:
     [{"value": "Gross Profit"}, {"formula": "=B1-B2"}],
     [{"value": "Tax Rate"}, {"value": 0.25}],
     [{"value": "Net Profit"}, {"formula": "=B3*(1-B4)"}]
+  ]
+
+Example 5 — Write values with citations to track data sources:
+  range: "A1:B3"
+  cells: [
+    [{"value": "Metric"}, {"value": "Value"}],
+    [{"value": "Q3 Revenue"}, {"value": 12000000, "citation": "https://example.com/annual-report.pdf?excerpt=Q3%20revenue%20was%20%2412M"}],
+    [{"value": "Growth Rate"}, {"value": 0.15, "citation": "https://example.com/analysis.pdf?excerpt=15%25%20year-over-year%20growth"}]
   ]`,
   schema: SpreadsheetChangeBatchSchema,
 });

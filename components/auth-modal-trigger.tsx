@@ -10,7 +10,9 @@ import { withCookieCompatCallbackURL } from "@/lib/auth/cookie-compat-client";
 
 type AuthModalTriggerProps = {
   triggerText: string;
+  mobileTriggerText?: string;
   authenticatedTriggerText?: string;
+  mobileAuthenticatedTriggerText?: string;
   initialIsAuthenticated?: boolean;
   triggerVariant?: "ghost" | "hero";
   redirectTo?: string;
@@ -44,7 +46,9 @@ function GoogleBadge() {
 
 export function AuthModalTrigger({
   triggerText,
+  mobileTriggerText,
   authenticatedTriggerText,
+  mobileAuthenticatedTriggerText,
   initialIsAuthenticated = false,
   triggerVariant = "ghost",
   redirectTo = "/doc",
@@ -61,6 +65,10 @@ export function AuthModalTrigger({
     isAuthenticated && authenticatedTriggerText
       ? authenticatedTriggerText
       : triggerText;
+  const resolvedMobileTriggerText =
+    isAuthenticated && mobileAuthenticatedTriggerText
+      ? mobileAuthenticatedTriggerText
+      : mobileTriggerText ?? resolvedTriggerText;
   const [open, setOpen] = useState(false);
   const [loadingProvider, setLoadingProvider] = useState<SocialProvider | null>(
     null,
@@ -204,7 +212,8 @@ export function AuthModalTrigger({
           onClick={handleTriggerClick}
           className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-(--accent) px-6 text-base font-semibold text-(--accent-foreground) shadow-[0_18px_40px_rgba(255,109,52,0.22)] transition-all duration-200 hover:bg-(--accent-strong) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-background ${className}`}
         >
-          {resolvedTriggerText}
+          <span className="sm:hidden">{resolvedMobileTriggerText}</span>
+          <span className="hidden sm:inline">{resolvedTriggerText}</span>
         </button>
       )}
 

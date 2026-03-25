@@ -2239,15 +2239,15 @@
   dependencies:
     "@radix-ui/react-icons" "^1.3.2"
 
-"@rowsncolumns/sharedb@^1.0.16":
-  version "1.0.16"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.16/f8d473c83464e4bc435dea3903eb2777e8c50884#f8d473c83464e4bc435dea3903eb2777e8c50884"
-  integrity sha512-+wQ9mVg1vYMT8Yuxs674HSz7D7f9OFlb4NKWbcY7hZMqA3ptciG6qkWvSSMub9y1EVjChtC021iqm4jHiZlhdA==
+"@rowsncolumns/sharedb@^1.0.19":
+  version "1.0.19"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.19/d79a1f7d705ea131e31ea90b5d40884d6ed36be0#d79a1f7d705ea131e31ea90b5d40884d6ed36be0"
+  integrity sha512-3i56Q7cTqjkbdmVs4djcTX2duGAEf7GWww0R/uXn+nA+f1mxKlO9KwEMfG2V1p9kDdvRaEWgGo5nPgJvClzZig==
 
-"@rowsncolumns/spreadsheet-state@^21.0.37":
-  version "21.0.37"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.37/33962c56fd34a09ba1f02fe7333c9844d7065edf#33962c56fd34a09ba1f02fe7333c9844d7065edf"
-  integrity sha512-s6in+Pt9+HPWNlWzMykFiAPjm6GhmNDFYSxXFmB+dpLrP0SuRO4FFyX7VwHHtGX1SXpWSRHT6zrdw5rw1tIO1A==
+"@rowsncolumns/spreadsheet-state@^21.0.40":
+  version "21.0.40"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.40/45e223878d9fa2e3e5bef17be66c4b099ea25f83#45e223878d9fa2e3e5bef17be66c4b099ea25f83"
+  integrity sha512-l3EKPioqNaHPio0rTJgG+xqUhPvh8gExj7wCFhB06tkOu8ZmJlN6JEWyoSmdgS+6kXrV9PbVWk0ofYy7Y4gEyw==
   dependencies:
     "@rowsncolumns/calculation-worker" "^2.0.13"
     "@rowsncolumns/date-parser" "^5.0.12"

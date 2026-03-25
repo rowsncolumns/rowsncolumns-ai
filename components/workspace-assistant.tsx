@@ -2014,73 +2014,75 @@ function ToolCallDisplay({
   }, [args, parsedArgs]);
   return (
     <Collapsible.Root open={isOpen} onOpenChange={setIsOpen}>
-      <Collapsible.Trigger
-        className={cn(
-          "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors",
-          isRunning
-            ? "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)"
-            : isError
-              ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-              : "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)",
-        )}
-      >
-        <FileText className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-        <div className="min-w-0 flex-1 truncate">{titleText}</div>
-        {range && (
-          <span
-            className="max-w-28 shrink-0 truncate rounded border border-(--card-border) bg-(--assistant-chip-hover) px-1.5 py-0.5 font-mono text-[10px] text-(--muted-foreground)"
-            title={`Range: ${range}`}
-          >
-            {range}
-          </span>
-        )}
-        {explanation && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-(--muted-foreground)">
-                <Info className="h-3.5 w-3.5" />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent
-              side="top"
-              align="start"
-              className="max-w-xs text-xs whitespace-pre-wrap break-words"
-            >
-              {explanation}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        <ChevronDown
+      <Collapsible.Trigger asChild>
+        <div
           className={cn(
-            "h-3.5 w-3.5 shrink-0 text-(--muted-foreground) transition-transform",
-            isOpen && "rotate-180",
+            "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors",
+            isRunning
+              ? "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)"
+              : isError
+                ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                : "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)",
           )}
-        />
-        <span className="h-3.5 w-px shrink-0 bg-(--card-border)" />
-        {isComplete && canNavigateToRange && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={handleNavigateInlineClick}
-                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-(--muted-foreground) transition-colors hover:bg-(--assistant-chip-hover) hover:text-foreground"
-                aria-label="Go to range"
+        >
+          <FileText className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+          <div className="min-w-0 flex-1 truncate">{titleText}</div>
+          {range && (
+            <span
+              className="max-w-28 shrink-0 truncate rounded border border-(--card-border) bg-(--assistant-chip-hover) px-1.5 py-0.5 font-mono text-[10px] text-(--muted-foreground)"
+              title={`Range: ${range}`}
+            >
+              {range}
+            </span>
+          )}
+          {explanation && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-(--muted-foreground)">
+                  <Info className="h-3.5 w-3.5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                align="start"
+                className="max-w-xs text-xs whitespace-pre-wrap break-words"
               >
-                <Navigation className="h-3 w-3" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" align="center" className="text-xs">
-              Go to range
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {isRunning ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-(--muted-foreground)" />
-        ) : isError ? (
-          <X className="h-3.5 w-3.5 shrink-0 text-red-600" />
-        ) : (
-          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-        )}
+                {explanation}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-(--muted-foreground) transition-transform",
+              isOpen && "rotate-180",
+            )}
+          />
+          <span className="h-3.5 w-px shrink-0 bg-(--card-border)" />
+          {isComplete && canNavigateToRange && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleNavigateInlineClick}
+                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-(--muted-foreground) transition-colors hover:bg-(--assistant-chip-hover) hover:text-foreground"
+                  aria-label="Go to range"
+                >
+                  <Navigation className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center" className="text-xs">
+                Go to range
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {isRunning ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-(--muted-foreground)" />
+          ) : isError ? (
+            <X className="h-3.5 w-3.5 shrink-0 text-red-600" />
+          ) : (
+            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+          )}
+        </div>
       </Collapsible.Trigger>
       <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
         {explanation && (

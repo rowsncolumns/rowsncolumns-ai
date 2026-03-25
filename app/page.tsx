@@ -226,23 +226,31 @@ export default async function Home() {
                     ship accurate outputs at production speed.
                   </p>
 
-                  <div className="mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row sm:justify-center lg:justify-start">
+                  <div
+                    className="mt-6 mx-auto inline-flex items-center justify-center gap-2 whitespace-nowrap sm:mt-8 sm:gap-3 lg:mx-0 lg:justify-start"
+                    style={{ flexWrap: "nowrap" }}
+                  >
                     <AuthModalTrigger
                       triggerText="Try for free"
+                      mobileTriggerText="Try free"
                       authenticatedTriggerText="New spreadsheet"
+                      mobileAuthenticatedTriggerText="New sheet"
                       initialIsAuthenticated={initialIsAuthenticated}
                       triggerVariant="hero"
                       redirectTo="/doc"
+                      className="h-11 shrink-0 px-4 text-sm whitespace-nowrap sm:h-12 sm:px-6 sm:text-base"
                     />
-                    <div className="relative inline-flex w-fit">
+                    <div className="relative inline-flex w-fit shrink-0">
                       <Button
                         type="button"
                         disabled
-                        className="h-12 rounded-xl bg-[#217346] px-6 text-base text-white shadow-[0_18px_40px_rgba(33,115,70,0.3)] hover:bg-[#185C37] disabled:cursor-not-allowed disabled:bg-[#217346] disabled:opacity-100"
+                        aria-label="Excel Add-in (Coming soon)"
+                        title="Excel Add-in (Coming soon)"
+                        className="h-11 shrink-0 rounded-xl bg-[#217346] px-4 text-sm whitespace-nowrap text-white shadow-[0_18px_40px_rgba(33,115,70,0.3)] hover:bg-[#185C37] disabled:cursor-not-allowed disabled:bg-[#217346] disabled:opacity-100 sm:h-12 sm:px-6 sm:text-base"
                       >
                         Excel Add-in
                       </Button>
-                      <span className="pointer-events-none absolute -right-10 -top-3 rounded-full border border-[#0f4d2f] bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#185C37] shadow-sm">
+                      <span className="pointer-events-none absolute -right-10 -top-3 rounded-full border border-[#0f4d2f] bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#185C37] shadow-sm sm:inline">
                         Coming soon
                       </span>
                     </div>
