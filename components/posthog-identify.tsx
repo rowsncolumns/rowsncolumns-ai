@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { authClient } from "@/lib/auth/client";
-import { identifyUser } from "@/lib/analytics";
+import { identifyUser } from "@/lib/analytics/posthog-client";
 
 /**
  * Component that identifies the current user with PostHog.
