@@ -1295,7 +1295,7 @@ function SpreadsheetDocumentView({
           onChangeTheme={onChangeTheme}
           onChangeDecimals={onChangeDecimals}
           enableDataBoundaryNavigation
-          enableMagicFill={true}
+          enableMagicFill={false}
           showSelectionResizeHandles
           stickyEditor={true}
           showGridLines={showGridLines}

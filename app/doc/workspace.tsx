@@ -1340,6 +1340,8 @@ function SpreadsheetPane({
       <div className="min-h-0 flex-1 flex">
         <CanvasGrid
           {...spreadsheetColors}
+          enableQuickEdit={false}
+          enableMagicFill={false}
           locale={locale}
           instanceId={documentId}
           users={users}
@@ -1368,7 +1370,6 @@ function SpreadsheetPane({
           onChangeTheme={onChangeTheme}
           onChangeDecimals={onChangeDecimals}
           enableDataBoundaryNavigation
-          enableMagicFill={true}
           showSelectionResizeHandles
           stickyEditor={true}
           showGridLines={showGridLines}
