@@ -28,16 +28,13 @@ const AUTH_COOKIE_CLEANUP_NAMES = [
   "neon-auth.session_challange",
   "neon-auth.session_challenge",
 ] as const;
-const AUTH_COOKIE_CLEANUP_PATHS = ["/", "/api", "/api/auth", "/auth"] as const;
+const AUTH_COOKIE_CLEANUP_PATHS = ["/"] as const;
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function shouldApplyAuthCookieCleanup(request: Request): boolean {
   const requestUrl = new URL(request.url);
   const pathname = requestUrl.pathname;
   const method = request.method.toUpperCase();
-  if (method === "POST" && pathname.endsWith("/sign-in/social")) {
-    return true;
-  }
   if (method === "GET" && pathname.includes("/callback")) {
     return true;
   }
@@ -67,9 +64,6 @@ function getCookieCleanupDomains(request: Request): Array<string | undefined> {
   const domains = new Set<string | undefined>();
   domains.add(undefined);
   domains.add(hostname);
-  if (!hostname.startsWith(".")) {
-    domains.add(`.${hostname}`);
-  }
   return [...domains];
 }
 
