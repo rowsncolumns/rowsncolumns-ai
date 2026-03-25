@@ -20,9 +20,12 @@ if (!cookieSecret) {
   );
 }
 
+const cookieDomain = process.env.NEON_AUTH_COOKIE_DOMAIN; // e.g., '.rowsncolumns.ai'
+
 export const auth = createNeonAuth({
   baseUrl,
   cookies: {
     secret: cookieSecret,
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
   },
 });

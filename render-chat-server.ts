@@ -108,6 +108,7 @@ const buildCorsHeaders = (origin: string | null) => {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   } as const;
@@ -370,6 +371,48 @@ const getBearerToken = (authorizationHeader: string | undefined) => {
   return token || null;
 };
 
+const parseCookies = (cookieHeader: string | undefined): Map<string, string> => {
+  const cookies = new Map<string, string>();
+  if (!cookieHeader) return cookies;
+
+  for (const part of cookieHeader.split(";")) {
+    const [name, ...valueParts] = part.split("=");
+    const trimmedName = name?.trim();
+    if (!trimmedName) continue;
+    const value = valueParts.join("=").trim();
+    // Decode the cookie value (it may be URL-encoded)
+    try {
+      cookies.set(trimmedName, decodeURIComponent(value));
+    } catch {
+      cookies.set(trimmedName, value);
+    }
+  }
+
+  return cookies;
+};
+
+const getSessionTokenFromCookies = (
+  cookieHeader: string | undefined,
+): string | null => {
+  const cookies = parseCookies(cookieHeader);
+
+  // Try different cookie names in order of preference
+  const cookieNames = [
+    "__Secure-neon-auth.session_token",
+    "neon-auth.session_token",
+    "session_token",
+  ];
+
+  for (const name of cookieNames) {
+    const value = cookies.get(name);
+    if (value && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return null;
+};
+
 const startSse = (req: IncomingMessage, res: ServerResponse) => {
   setRuntimeHeader(res);
   const origin = req.headers.origin ?? null;
@@ -417,15 +460,18 @@ const writeSseEvent = (res: ServerResponse, event: unknown) => {
 };
 
 const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
+  // Try Bearer token first, then fall back to session cookie
   const bearerToken = getBearerToken(req.headers.authorization);
-  if (!bearerToken) {
+  const sessionToken = bearerToken ?? getSessionTokenFromCookies(req.headers.cookie);
+
+  if (!sessionToken) {
     sendJson(req, res, 401, {
-      error: "Unauthorized. Bearer token is required.",
+      error: "Unauthorized. Bearer token or session cookie is required.",
     });
     return;
   }
 
-  const identity = await verifyAuthToken(bearerToken);
+  const identity = await verifyAuthToken(sessionToken);
   if (!identity) {
     sendJson(req, res, 401, {
       error: "Unauthorized. Invalid or expired token.",

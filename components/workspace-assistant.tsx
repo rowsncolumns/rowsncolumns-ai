@@ -277,7 +277,6 @@ const CHAT_EXTERNAL_API_PATH = (
   process.env.NEXT_PUBLIC_CHAT_API_PATH ?? "/chat"
 ).trim();
 const CHAT_EXTERNAL_API_ENABLED = CHAT_EXTERNAL_API_BASE_URL.length > 0;
-const CHAT_AUTH_TOKEN_ENDPOINT = "/api/auth/token";
 const ASSISTANT_CONTEXT_BY_DOCUMENT_ID = new Map<
   string,
   SpreadsheetAssistantContext
@@ -349,70 +348,6 @@ const getChatRequestUrl = () => {
   return CHAT_API_ENDPOINT;
 };
 
-const normalizeNonEmptyToken = (value: unknown): string | null => {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-};
-
-const readTokenFromChatTokenPayload = (payload: unknown): string | null => {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const parsed = payload as {
-    token?: unknown;
-    data?: { token?: unknown };
-  };
-  return (
-    normalizeNonEmptyToken(parsed.token) ??
-    normalizeNonEmptyToken(parsed.data?.token)
-  );
-};
-
-const getExternalChatAccessToken = async (options?: {
-  forceRefresh?: boolean;
-}): Promise<string | null> => {
-  try {
-    if (options?.forceRefresh) {
-      await fetch("/api/auth/get-session?disableCookieCache=true", {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-        headers: {
-          Accept: "application/json",
-        },
-      }).catch(() => null);
-    }
-
-    const response = await fetch(CHAT_AUTH_TOKEN_ENDPOINT, {
-      method: "GET",
-      credentials: "include",
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = await response.json().catch(() => null);
-    const token = readTokenFromChatTokenPayload(payload);
-    if (token) {
-      return token;
-    }
-  } catch {
-    // Ignore and treat as missing token.
-  }
-
-  return null;
-};
-
 const setAssistantContextSnapshot = (
   documentId: string,
   context: SpreadsheetAssistantContext,
@@ -464,41 +399,14 @@ const requestAssistantChat = async (input: {
     "Content-Type": "application/json",
   };
 
-  let initialBearerToken: string | null = null;
-  if (CHAT_EXTERNAL_API_ENABLED) {
-    const bearerToken = await getExternalChatAccessToken();
-    if (!bearerToken) {
-      throw new Error("Your session expired. Please sign in again.");
-    }
-    initialBearerToken = bearerToken;
-    headers.Authorization = `Bearer ${bearerToken}`;
-  }
-
-  let response = await fetch(getChatRequestUrl(), {
+  const response = await fetch(getChatRequestUrl(), {
     method: "POST",
     headers,
     body: requestBody,
     signal: input.signal,
     cache: "no-store",
+    credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
   });
-
-  if (CHAT_EXTERNAL_API_ENABLED && response.status === 401) {
-    const refreshedToken = await getExternalChatAccessToken({
-      forceRefresh: true,
-    });
-    if (refreshedToken && refreshedToken !== initialBearerToken) {
-      response = await fetch(getChatRequestUrl(), {
-        method: "POST",
-        headers: {
-          ...headers,
-          Authorization: `Bearer ${refreshedToken}`,
-        },
-        body: requestBody,
-        signal: input.signal,
-        cache: "no-store",
-      });
-    }
-  }
 
   return response;
 };
