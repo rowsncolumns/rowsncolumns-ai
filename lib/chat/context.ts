@@ -17,7 +17,12 @@ export type ChartSummary = {
 
 export type SpreadsheetAssistantContext = {
   documentId?: string;
-  sheets?: Array<{ title: string; sheetId: number }>;
+  sheets?: Array<{
+    title: string;
+    sheetId: number;
+    frozenRowCount?: number | null;
+    frozenColumnCount?: number | null;
+  }>;
   activeSheetId?: number;
   activeCell?: {
     rowIndex: number;
@@ -162,7 +167,9 @@ export const buildSpreadsheetContextPayload = (
 ) => {
   const assistantContext: SpreadsheetAssistantContext = {
     documentId: input.documentId,
-    ...(input.sheets && input.sheets.length > 0 ? { sheets: input.sheets } : {}),
+    ...(input.sheets && input.sheets.length > 0
+      ? { sheets: input.sheets }
+      : {}),
     ...(typeof input.activeSheetId === "number"
       ? { activeSheetId: input.activeSheetId }
       : {}),
@@ -176,8 +183,12 @@ export const buildSpreadsheetContextPayload = (
         }
       : {}),
     ...(input.cellXfs ? { cellXfs: input.cellXfs } : {}),
-    ...(input.tables && input.tables.length > 0 ? { tables: input.tables } : {}),
-    ...(input.charts && input.charts.length > 0 ? { charts: input.charts } : {}),
+    ...(input.tables && input.tables.length > 0
+      ? { tables: input.tables }
+      : {}),
+    ...(input.charts && input.charts.length > 0
+      ? { charts: input.charts }
+      : {}),
     ...(input.theme ? { theme: input.theme } : {}),
   };
 

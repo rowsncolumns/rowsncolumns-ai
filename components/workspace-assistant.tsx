@@ -2523,6 +2523,8 @@ export function SheetsInstructions({
       sheets?.map((s) => ({
         title: s.title,
         sheetId: s.sheetId,
+        frozenRowCount: s.frozenRowCount,
+        frozenColumnCount: s.frozenColumnCount,
       })) ?? [],
     [sheets],
   );
