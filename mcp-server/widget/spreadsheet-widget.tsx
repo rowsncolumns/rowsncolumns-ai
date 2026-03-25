@@ -1587,6 +1587,7 @@ function SpreadsheetDocumentView({
 function App() {
   const config = window.__RNC_MCP_WIDGET_CONFIG__ ?? {};
   const initialState = getInitialDocState(config);
+  const hasHostBridge = window.parent !== window;
   const [docId, setDocId] = useState<string | null>(initialState.docId);
   const [docUrl, setDocUrl] = useState<string | null>(initialState.docUrl);
   const [meta, setMeta] = useState(initialState.meta);
@@ -1597,7 +1598,11 @@ function App() {
   const pendingRequestsRef = useRef(
     new Map<
       number,
-      { resolve: (result: unknown) => void; reject: (error: unknown) => void }
+      {
+        resolve: (result: unknown) => void;
+        reject: (error: unknown) => void;
+        timeoutId: number;
+      }
     >(),
   );
   const hostInitializedRef = useRef(false);
@@ -1606,6 +1611,9 @@ function App() {
     method: string,
     params: Record<string, unknown> = {},
   ) => {
+    if (!hasHostBridge) {
+      return;
+    }
     window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
   };
 
@@ -1613,20 +1621,26 @@ function App() {
     method: string,
     params: Record<string, unknown> = {},
   ) => {
+    if (!hasHostBridge) {
+      return Promise.resolve(null);
+    }
     const id = requestIdRef.current + 1;
     requestIdRef.current = id;
     return new Promise((resolve, reject) => {
-      pendingRequestsRef.current.set(id, { resolve, reject });
-      window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
-      window.setTimeout(() => {
+      const timeoutId = window.setTimeout(() => {
         if (!pendingRequestsRef.current.has(id)) return;
         pendingRequestsRef.current.delete(id);
         reject(new Error(`${method} timed out`));
       }, 4000);
+      pendingRequestsRef.current.set(id, { resolve, reject, timeoutId });
+      window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
     });
   };
 
   const onSyncUiState = (payload: UiStateSyncPayload) => {
+    if (!hasHostBridge) {
+      return;
+    }
     sendRequest("tools/call", {
       name: "spreadsheet_syncUiState",
       arguments: payload,
@@ -1636,6 +1650,10 @@ function App() {
   };
 
   useEffect(() => {
+    if (!hasHostBridge) {
+      return;
+    }
+
     const notifySize = () => {
       const root = document.documentElement;
       const body = document.body;
@@ -1649,6 +1667,10 @@ function App() {
     };
 
     const onMessage = (event: MessageEvent) => {
+      if (event.source !== window.parent) {
+        return;
+      }
+
       const message = event.data as
         | {
             jsonrpc?: string;
@@ -1671,6 +1693,7 @@ function App() {
         const pending = pendingRequestsRef.current.get(message.id);
         pendingRequestsRef.current.delete(message.id);
         if (!pending) return;
+        window.clearTimeout(pending.timeoutId);
         if (Object.prototype.hasOwnProperty.call(message, "error")) {
           pending.reject(message.error);
         } else {
@@ -1706,6 +1729,7 @@ function App() {
             }),
           );
           setMeta(`Document ${payload.docId}`);
+          notifySize();
         }
       }
 
@@ -1729,10 +1753,9 @@ function App() {
             }),
           );
           setMeta(`Document ${payload.docId}`);
+          notifySize();
         }
       }
-
-      notifySize();
     };
 
     window.addEventListener("message", onMessage);
@@ -1768,7 +1791,7 @@ function App() {
       ro.disconnect();
       window.removeEventListener("message", onMessage);
     };
-  }, [docId, config.appBaseUrl]);
+  }, [docId, config.appBaseUrl, hasHostBridge]);
 
   if (!docId) {
     return (
