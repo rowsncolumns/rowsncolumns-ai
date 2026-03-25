@@ -263,15 +263,21 @@ async function resolveCookieCompatibilityMode(
 function withCookieCompatibility(handler: AuthRouteHandler): AuthRouteHandler {
   return async (request, context) => {
     const normalizedRequest = withDedupedTokenRequestCookies(request);
-    const response = await handler(normalizedRequest, context);
-    const cookieHeader = request.headers.get("cookie") ?? "";
-    const shouldCleanupForDuplicateToken =
-      request.method.toUpperCase() === "GET" &&
-      new URL(request.url).pathname.endsWith("/token") &&
-      cookieHeader.length > 0 &&
-      hasDuplicateSessionTokenValues(cookieHeader);
+    const requestWasNormalized = normalizedRequest !== request;
+
+    let response: Response;
+    try {
+      response = await handler(normalizedRequest, context);
+    } catch (error) {
+      if (!requestWasNormalized) {
+        throw error;
+      }
+      // Fallback to original request shape if the normalized request path fails.
+      response = await handler(request, context);
+    }
+
     const cleanedResponse =
-      shouldApplyAuthCookieCleanup(request) || shouldCleanupForDuplicateToken
+      shouldApplyAuthCookieCleanup(request)
         ? addAuthCookieCleanupHeaders(response, request)
         : response;
     const mode = await resolveCookieCompatibilityMode(request);
