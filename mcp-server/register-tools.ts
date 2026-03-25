@@ -131,6 +131,12 @@ const sanitizeDomainLabel = (value: string) => {
   return normalized.length > 0 ? normalized : null;
 };
 
+const splitCsv = (value: string | undefined) =>
+  (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
 const resolveMcpServerUrl = (explicitUrl?: string | null) => {
   const explicit = explicitUrl?.trim();
   if (explicit) {
@@ -207,7 +213,24 @@ const resolveUiDomain = (options: RegisterSpreadsheetToolsOptions = {}) => {
 
   const mcpServerUrl = resolveMcpServerUrl(options.mcpServerUrl);
   if (!mcpServerUrl || !options.uiHost) {
-    return null;
+    const appOrigin = resolveAppOrigin();
+    if (!appOrigin) {
+      return null;
+    }
+    try {
+      const host = new URL(appOrigin).hostname.toLowerCase();
+      if (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "[::1]" ||
+        host.endsWith(".localhost")
+      ) {
+        return null;
+      }
+      return host;
+    } catch {
+      return null;
+    }
   }
 
   try {
@@ -1005,11 +1028,24 @@ export const registerSpreadsheetTools = (
   const locale = resolveWidgetLocale();
   const currency = resolveWidgetCurrency();
   const shareDbOrigin = safeOrigin(shareDbUrl);
-  const connectDomains = [appOrigin, shareDbOrigin].filter(
-    (value): value is string => Boolean(value),
+  const extraConnectDomains = splitCsv(process.env.MCP_EXTRA_CONNECT_DOMAINS);
+  const extraResourceDomains = splitCsv(
+    process.env.MCP_EXTRA_RESOURCE_DOMAINS,
   );
-  const resourceDomains = [appOrigin].filter((value): value is string =>
-    Boolean(value),
+  const connectDomains = [
+    appOrigin,
+    shareDbOrigin,
+    ...extraConnectDomains,
+  ].filter((value, index, list): value is string =>
+    Boolean(value) && list.indexOf(value) === index,
+  );
+  const resourceDomains = [
+    appOrigin,
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com",
+    ...extraResourceDomains,
+  ].filter((value, index, list): value is string =>
+    Boolean(value) && list.indexOf(value) === index,
   );
 
   const buildSpreadsheetResourceResult = async () => ({
