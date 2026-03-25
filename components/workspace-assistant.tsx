@@ -349,9 +349,64 @@ const getChatRequestUrl = () => {
   return CHAT_API_ENDPOINT;
 };
 
-const getAuthBearerToken = async () => {
+const normalizeNonEmptyToken = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const readTokenFromAuthSessionPayload = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const parsed = payload as {
+    session?: { token?: unknown };
+    data?: { session?: { token?: unknown } };
+  };
+
+  return (
+    normalizeNonEmptyToken(parsed.session?.token) ??
+    normalizeNonEmptyToken(parsed.data?.session?.token)
+  );
+};
+
+const getAuthBearerToken = async (options?: {
+  forceRefresh?: boolean;
+}): Promise<string | null> => {
+  const forceRefresh = options?.forceRefresh === true;
+
+  if (forceRefresh) {
+    try {
+      const response = await fetch(
+        "/api/auth/get-session?disableCookieCache=true",
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
+        },
+      );
+
+      if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        const freshToken = readTokenFromAuthSessionPayload(payload);
+        if (freshToken) {
+          return freshToken;
+        }
+      }
+    } catch {
+      // Ignore and continue to SDK session lookup.
+    }
+  }
+
   const sessionResult = await authClient.getSession();
-  const sessionToken = sessionResult.data?.session?.token?.trim();
+  const sessionToken = normalizeNonEmptyToken(sessionResult.data?.session?.token);
   if (sessionToken) {
     return sessionToken;
   }
@@ -394,35 +449,57 @@ const requestAssistantChat = async (input: {
   context?: SpreadsheetAssistantContext;
   signal: AbortSignal;
 }) => {
+  const requestBody = JSON.stringify({
+    threadId: input.threadId,
+    docId: input.docId,
+    message: input.message,
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(typeof input.reasoningEnabled === "boolean"
+      ? { reasoningEnabled: input.reasoningEnabled }
+      : {}),
+    ...(input.context ? { context: input.context } : {}),
+  });
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
+  let initialBearerToken: string | null = null;
   if (CHAT_EXTERNAL_API_ENABLED) {
     const bearerToken = await getAuthBearerToken();
     if (!bearerToken) {
       throw new Error("Your session expired. Please sign in again.");
     }
+    initialBearerToken = bearerToken;
     headers.Authorization = `Bearer ${bearerToken}`;
   }
 
-  return fetch(getChatRequestUrl(), {
+  let response = await fetch(getChatRequestUrl(), {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      threadId: input.threadId,
-      docId: input.docId,
-      message: input.message,
-      ...(input.model ? { model: input.model } : {}),
-      ...(input.provider ? { provider: input.provider } : {}),
-      ...(typeof input.reasoningEnabled === "boolean"
-        ? { reasoningEnabled: input.reasoningEnabled }
-        : {}),
-      ...(input.context ? { context: input.context } : {}),
-    }),
+    body: requestBody,
     signal: input.signal,
     cache: "no-store",
   });
+
+  if (CHAT_EXTERNAL_API_ENABLED && response.status === 401) {
+    const refreshedToken = await getAuthBearerToken({ forceRefresh: true });
+    if (refreshedToken && refreshedToken !== initialBearerToken) {
+      response = await fetch(getChatRequestUrl(), {
+        method: "POST",
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${refreshedToken}`,
+        },
+        body: requestBody,
+        signal: input.signal,
+        cache: "no-store",
+      });
+    }
+  }
+
+  return response;
 };
 
 const useThreadIdFromUrl = () => {
