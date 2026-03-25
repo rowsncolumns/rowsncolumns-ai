@@ -1189,7 +1189,7 @@ export const registerSpreadsheetTools = (
         content: [
           {
             type: "text",
-            text: `Created spreadsheet document ${docId}.`,
+            text: `Created spreadsheet document ${docId}. Open: ${url.toString()} (canonical path: /mcp/doc/${docId})`,
           },
         ],
         structuredContent: {
