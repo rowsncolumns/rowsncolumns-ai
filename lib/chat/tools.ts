@@ -1661,7 +1661,7 @@ const handleSpreadsheetQueryRange = async (
  */
 export const spreadsheetQueryRangeTool = tool(handleSpreadsheetQueryRange, {
   name: "spreadsheet_queryRange",
-  description: `Query multiple ranges of cells from an Athena spreadsheet to get cell data.
+  description: `Query multiple ranges of cells from an  spreadsheet to get cell data.
 
 ROUTING GUIDANCE (PRIMARY TOOL FOR TARGETED READS):
 - Use this tool whenever the user asks for specific cells/ranges, even for a single sheet.
@@ -2496,7 +2496,7 @@ export const spreadsheetDuplicateSheetTool = tool(
   handleSpreadsheetDuplicateSheet,
   {
     name: "spreadsheet_duplicateSheet",
-    description: `Copies an existing sheet to a new sheet in an Athena spreadsheet.
+    description: `Copies an existing sheet to a new sheet in an  spreadsheet.
 
 OVERVIEW:
 This tool duplicates an existing sheet (tab) including all its data, formatting, and structure. The new sheet will be an exact copy of the source sheet.
@@ -2507,7 +2507,6 @@ WHEN TO USE THIS TOOL:
 - Duplicating a sheet to create variations (e.g., monthly reports)
 
 IMPORTANT:
-- This tool only works with Athena spreadsheets, not documents or other document types
 - All indices are 1-based
 
 PARAMETERS:
@@ -2663,7 +2662,6 @@ WHEN TO USE THIS TOOL:
 - Cleaning up sections of a spreadsheet
 
 IMPORTANT:
-- This tool only works with Athena spreadsheets, not documents or other document types
 - All indices are 1-based
 - This clears cell contents, not the cells themselves (use delete rows/columns for structural changes)
 
@@ -2823,7 +2821,6 @@ WHEN TO USE THIS TOOL:
 - Preparing cells before applying new uniform formatting
 
 IMPORTANT:
-- This tool only works with Athena spreadsheets, not documents or other document types
 - All indices are 1-based
 - Cell values and formulas are preserved - only visual formatting is removed
 
@@ -3022,7 +3019,6 @@ Use this approach:
   2. applyFill: Extend to full range (sourceRange: "B5:C5", fillRange: "B5:M5")
 
 IMPORTANT:
-- This tool only works with Athena spreadsheets, not documents or other document types
 - All indices are 1-based
 - fillRange must INCLUDE the sourceRange (it's the entire area, not just the destination)
 - The tool auto-detects patterns (numbers, dates, series)
@@ -3166,7 +3162,6 @@ WHEN TO USE THIS TOOL:
 - Removing existing notes (by omitting the note parameter)
 
 IMPORTANT:
-- This tool only works with Athena spreadsheets, not documents or other document types
 - All indices are 1-based
 - To remove a note, call without the note parameter or with an empty string
 
@@ -3290,7 +3285,6 @@ WHEN TO USE THIS TOOL:
 - Deleting multiple rows at once
 
 IMPORTANT:
-- This tool only works with Athena spreadsheets, not documents or other document types
 - All indices are 1-based (row 1 is the first row)
 - Deleting rows will shift all rows below upward
 - This is a destructive operation - data cannot be recovered
@@ -3416,7 +3410,6 @@ WHEN TO USE THIS TOOL:
 - Deleting multiple columns at once
 
 IMPORTANT:
-- This tool only works with Athena spreadsheets, not documents or other document types
 - All indices are 1-based (A=1, B=2, C=3, etc.)
 - Deleting columns will shift all columns to the right leftward
 - This is a destructive operation - data cannot be recovered
