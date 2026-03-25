@@ -2042,6 +2042,48 @@ const handleSpreadsheetReadDocument = async (
         });
       }
 
+      // Build metadata for all sheets in the workbook
+      const metadata = {
+        totalSheets: spreadsheet.sheets.length,
+        sheets: spreadsheet.sheets.map((sheet) => {
+          const sheetDataForMeta = spreadsheet.sheetData[sheet.sheetId];
+          let rowCount = 0;
+          let columnCount = 0;
+
+          // Calculate data bounds from actual data
+          if (sheetDataForMeta) {
+            for (const rowIndexStr of Object.keys(sheetDataForMeta)) {
+              const rowIndex = parseInt(rowIndexStr, 10);
+              if (isNaN(rowIndex)) continue;
+
+              const rowData = sheetDataForMeta[rowIndex];
+              if (!rowData?.values) continue;
+
+              rowCount = Math.max(rowCount, rowIndex);
+
+              for (const colIndexStr of Object.keys(rowData.values)) {
+                const colIndex = parseInt(colIndexStr, 10);
+                if (isNaN(colIndex)) continue;
+
+                if (rowData.values[colIndex]) {
+                  columnCount = Math.max(columnCount, colIndex);
+                }
+              }
+            }
+          }
+
+          return {
+            title:
+              (sheet as { title?: string }).title ||
+              (sheet as { name?: string }).name ||
+              `Sheet${sheet.sheetId}`,
+            sheetId: sheet.sheetId,
+            rowCount,
+            columnCount,
+          };
+        }),
+      };
+
       console.log("[spreadsheet_readDocument] Completed:", {
         docId,
         sheetCount: resultSheets.length,
@@ -2049,6 +2091,7 @@ const handleSpreadsheetReadDocument = async (
 
       return JSON.stringify({
         success: true,
+        metadata,
         workbook: {
           sheets: resultSheets,
         },
@@ -2098,6 +2141,13 @@ RETURNS:
 JSON with workbook structure:
 {
   "success": true,
+  "metadata": {
+    "totalSheets": 3,
+    "sheets": [
+      {"title": "Sheet1", "sheetId": 1, "rowCount": 14, "columnCount": 4},
+      {"title": "Sheet2", "sheetId": 2, "rowCount": 8, "columnCount": 3}
+    ]
+  },
   "workbook": {
     "sheets": [
       {
@@ -2112,6 +2162,8 @@ JSON with workbook structure:
     ]
   }
 }
+
+The metadata object always includes ALL sheets in the workbook, even when reading a single sheet, providing full context about the workbook structure.
 
 Cell values are returned in one of three formats:
 - Plain value (string/number/boolean) when formatted equals effective
