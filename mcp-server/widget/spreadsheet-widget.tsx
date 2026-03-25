@@ -864,7 +864,11 @@ function SpreadsheetDocumentView({
       data-locale={locale}
       data-currency={currency}
     >
-      <LoadingIndicator />
+      <LoadingIndicator
+        style={{
+          transform: `translate3d(0,0,0)`,
+        }}
+      />
       {/* Remove rounded class */}
       <Toolbar enableFloating>
         <FileMenu
