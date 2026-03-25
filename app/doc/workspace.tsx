@@ -377,6 +377,7 @@ export type WorkspaceUser = {
   id: string;
   name?: string | null;
   email?: string | null;
+  image?: string | null;
 };
 
 function SpreadsheetPane({
@@ -1808,6 +1809,7 @@ export function NewWorkspace({
               id: currentUser.id,
               name: currentUser.name,
               email: currentUser.email,
+              image: currentUser.image,
             }}
           />
         </div>
