@@ -1014,6 +1014,9 @@ const handleSpreadsheetFormatRange = async (
           { formattingOnly: true },
         );
 
+        // trigger calc?
+        await spreadsheet.calculatePending();
+
         // Get patch tuples and apply them directly (don't call getPatchTuples twice)
         const patchTuples = spreadsheet.getPatchTuples();
 
