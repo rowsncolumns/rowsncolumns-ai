@@ -686,16 +686,23 @@ const buildSpreadsheetAppHtml = async ({
   <title>RowsnColumns Spreadsheet</title>
   <style>${safeBundleCss}</style>
   <style>
-    :root { color-scheme: light dark; }
-    body {
+    :root { color-scheme: light dark; --app-height: 100vh; }
+    html, body {
       margin: 0;
+      padding: 0;
+      height: 100%;
+      min-height: 100%;
+    }
+    body {
       font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       background: transparent;
       color: #f3f6fb;
     }
     #app {
+      min-height: 100vh;
       min-height: 100dvh;
-      height: 100dvh;
+      min-height: var(--app-height);
+      height: var(--app-height);
       display: flex;
       flex-direction: column;
     }
@@ -727,6 +734,15 @@ const buildSpreadsheetAppHtml = async ({
       line-height: 1.4;
     }
   </style>
+  <script>
+    function setAppHeight() {
+      var h = window.innerHeight;
+      if (h > 50) document.documentElement.style.setProperty('--app-height', h + 'px');
+    }
+    setAppHeight();
+    window.addEventListener('resize', setAppHeight);
+    window.addEventListener('orientationchange', function() { setTimeout(setAppHeight, 100); });
+  </script>
 </head>
 <body>
   <div id="app"></div>
