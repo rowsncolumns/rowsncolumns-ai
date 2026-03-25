@@ -29,6 +29,7 @@ const AUTH_COOKIE_CLEANUP_NAMES = [
   "neon-auth.session_challenge",
 ] as const;
 const AUTH_COOKIE_CLEANUP_PATHS = ["/", "/api", "/api/auth", "/auth"] as const;
+const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function shouldApplyAuthCookieCleanup(request: Request): boolean {
   const requestUrl = new URL(request.url);
@@ -50,23 +51,149 @@ function buildCookieDeleteHeader(
   name: string,
   path: string,
   secure: boolean,
+  domain?: string,
 ): string {
   const secureDirective = secure ? "; Secure" : "";
-  return `${name}=; Path=${path}; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secureDirective}`;
+  const domainDirective = domain ? `; Domain=${domain}` : "";
+  return `${name}=; Path=${path}${domainDirective}; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secureDirective}`;
 }
 
-function addAuthCookieCleanupHeaders(response: Response): Response {
+function getCookieCleanupDomains(request: Request): Array<string | undefined> {
+  const hostname = new URL(request.url).hostname.trim().toLowerCase();
+  if (!hostname || LOCALHOST_HOSTNAMES.has(hostname)) {
+    return [undefined];
+  }
+
+  const domains = new Set<string | undefined>();
+  domains.add(undefined);
+  domains.add(hostname);
+  if (!hostname.startsWith(".")) {
+    domains.add(`.${hostname}`);
+  }
+  return [...domains];
+}
+
+function splitCookieSegments(cookieHeader: string): string[] {
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parseCookieSegment(
+  segment: string,
+): { name: string; value: string } | null {
+  const separatorIndex = segment.indexOf("=");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const name = segment.slice(0, separatorIndex).trim();
+  const value = segment.slice(separatorIndex + 1).trim();
+  if (!name) {
+    return null;
+  }
+
+  return { name, value };
+}
+
+function hasDuplicateSessionTokenValues(cookieHeader: string): boolean {
+  const parsed = splitCookieSegments(cookieHeader)
+    .map(parseCookieSegment)
+    .filter((cookie): cookie is { name: string; value: string } => Boolean(cookie));
+  const tokenValues = parsed
+    .filter((cookie) => cookie.name === "__Secure-neon-auth.session_token")
+    .map((cookie) => cookie.value);
+  return new Set(tokenValues).size > 1;
+}
+
+function dedupeNeonAuthCookieHeader(cookieHeader: string): string {
+  const segments = splitCookieSegments(cookieHeader);
+  if (segments.length === 0) {
+    return cookieHeader;
+  }
+
+  const parsed = segments.map(parseCookieSegment);
+  const latestIndexByName = new Map<string, number>();
+
+  for (let index = 0; index < parsed.length; index += 1) {
+    const cookie = parsed[index];
+    if (!cookie) continue;
+    if (
+      !cookie.name.startsWith("__Secure-neon-auth.") &&
+      !cookie.name.startsWith("neon-auth.")
+    ) {
+      continue;
+    }
+    latestIndexByName.set(cookie.name, index);
+  }
+
+  if (latestIndexByName.size === 0) {
+    return cookieHeader;
+  }
+
+  const normalizedSegments: string[] = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const cookie = parsed[index];
+    if (!cookie) {
+      normalizedSegments.push(segments[index]);
+      continue;
+    }
+    const latestIndex = latestIndexByName.get(cookie.name);
+    if (latestIndex !== undefined && latestIndex !== index) {
+      continue;
+    }
+    normalizedSegments.push(segments[index]);
+  }
+
+  return normalizedSegments.join("; ");
+}
+
+function withDedupedTokenRequestCookies(request: Request): Request {
+  const requestUrl = new URL(request.url);
+  if (
+    request.method.toUpperCase() !== "GET" ||
+    !requestUrl.pathname.endsWith("/token")
+  ) {
+    return request;
+  }
+
+  const cookieHeader = request.headers.get("cookie");
+  if (!cookieHeader) {
+    return request;
+  }
+  if (!hasDuplicateSessionTokenValues(cookieHeader)) {
+    return request;
+  }
+
+  const dedupedCookieHeader = dedupeNeonAuthCookieHeader(cookieHeader);
+  if (dedupedCookieHeader === cookieHeader) {
+    return request;
+  }
+
+  const headers = new Headers(request.headers);
+  headers.set("cookie", dedupedCookieHeader);
+  return new Request(request, { headers });
+}
+
+function addAuthCookieCleanupHeaders(
+  response: Response,
+  request: Request,
+): Response {
   const existingSetCookies = readSetCookieHeaders(response.headers);
   const nextHeaders = new Headers(response.headers);
   nextHeaders.delete("set-cookie");
+  const domains = getCookieCleanupDomains(request);
 
   for (const cookieName of AUTH_COOKIE_CLEANUP_NAMES) {
     const isSecureCookie = cookieName.startsWith("__Secure-");
     for (const path of AUTH_COOKIE_CLEANUP_PATHS) {
-      nextHeaders.append(
-        "set-cookie",
-        buildCookieDeleteHeader(cookieName, path, isSecureCookie),
-      );
+      for (const domain of domains) {
+        nextHeaders.append(
+          "set-cookie",
+          buildCookieDeleteHeader(cookieName, path, isSecureCookie, domain),
+        );
+      }
     }
   }
 
@@ -141,10 +268,18 @@ async function resolveCookieCompatibilityMode(
 
 function withCookieCompatibility(handler: AuthRouteHandler): AuthRouteHandler {
   return async (request, context) => {
-    const response = await handler(request, context);
-    const cleanedResponse = shouldApplyAuthCookieCleanup(request)
-      ? addAuthCookieCleanupHeaders(response)
-      : response;
+    const normalizedRequest = withDedupedTokenRequestCookies(request);
+    const response = await handler(normalizedRequest, context);
+    const cookieHeader = request.headers.get("cookie") ?? "";
+    const shouldCleanupForDuplicateToken =
+      request.method.toUpperCase() === "GET" &&
+      new URL(request.url).pathname.endsWith("/token") &&
+      cookieHeader.length > 0 &&
+      hasDuplicateSessionTokenValues(cookieHeader);
+    const cleanedResponse =
+      shouldApplyAuthCookieCleanup(request) || shouldCleanupForDuplicateToken
+        ? addAuthCookieCleanupHeaders(response, request)
+        : response;
     const mode = await resolveCookieCompatibilityMode(request);
     return cloneResponseWithNormalizedNeonAuthCookies(cleanedResponse, mode);
   };
