@@ -51,12 +51,13 @@ import {
 import {
   Bug,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronsUpDown,
   Copy,
   Cpu,
+  FileText,
+  Info,
   Loader2,
   History,
   Navigation,
@@ -66,10 +67,8 @@ import {
   Square,
   SendHorizontal,
   Sparkles,
-  Table2,
   Trash2,
   X,
-  XCircle,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
@@ -1692,9 +1691,9 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     failed: "Failed to update iterative mode",
   },
   spreadsheet_readDocument: {
-    running: "Reading document",
-    success: "Read document",
-    failed: "Failed to read document",
+    running: "Reading data schema",
+    success: "Read data schema",
+    failed: "Failed to read data schema",
   },
   spreadsheet_setRowColDimensions: {
     running: "Setting row/column dimensions",
@@ -1967,22 +1966,8 @@ function ToolCallDisplay({
       enableFlash: true,
     });
   }, [navigateToSheetRange, sheetRange]);
-
-  const handleNavigateIconClick = React.useCallback(
-    (event: React.MouseEvent<HTMLSpanElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      navigateToRange();
-    },
-    [navigateToRange],
-  );
-
-  const handleNavigateIconKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLSpanElement>) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-
+  const handleNavigateInlineClick = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
       event.stopPropagation();
       navigateToRange();
@@ -2031,54 +2016,76 @@ function ToolCallDisplay({
     <Collapsible.Root open={isOpen} onOpenChange={setIsOpen}>
       <Collapsible.Trigger
         className={cn(
-          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-medium transition",
+          "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors",
           isRunning
-            ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+            ? "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)"
             : isError
               ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-              : "border-green-200 bg-green-50 text-green-700 hover:bg-green-100",
+              : "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)",
         )}
       >
-        {isRunning ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : isError ? (
-          <XCircle className="h-3.5 w-3.5" />
-        ) : (
-          <CheckCircle2 className="h-3.5 w-3.5" />
+        <FileText className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+        <div className="min-w-0 flex-1 truncate">{titleText}</div>
+        {explanation && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-(--muted-foreground)">
+                <Info className="h-3.5 w-3.5" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              align="start"
+              className="max-w-xs text-xs whitespace-pre-wrap break-words"
+            >
+              {explanation}
+            </TooltipContent>
+          </Tooltip>
         )}
-        <Table2 className="h-3.5 w-3.5" />
-        <div className="min-w-0 flex-1">
-          <div>
-            {titleText}
-            {range && (
-              <span className="text-[10px] opacity-70 ml-1">({range})</span>
-            )}
-            . {explanation}
-          </div>
-        </div>
-
-        {isComplete && canNavigateToRange && (
-          <span
-            role="button"
-            tabIndex={0}
-            aria-label="Navigate to affected range"
-            title="Navigate to affected range"
-            onClick={handleNavigateIconClick}
-            onKeyDown={handleNavigateIconKeyDown}
-            className="ml-auto shrink-0 rounded p-1 cursor-pointer text-green-600 hover:bg-green-100"
-          >
-            <Navigation className="h-3.5 w-3.5" />
-          </span>
-        )}
-
         <ChevronDown
           className={cn(
-            "ml-1 h-3.5 w-3.5 shrink-0 transition-transform",
+            "h-3.5 w-3.5 shrink-0 text-(--muted-foreground) transition-transform",
             isOpen && "rotate-180",
           )}
         />
+        <span className="h-3.5 w-px shrink-0 bg-(--card-border)" />
+        {isComplete && canNavigateToRange && (
+          <button
+            type="button"
+            onClick={handleNavigateInlineClick}
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-emerald-700 transition-colors hover:bg-emerald-100"
+            aria-label="Go to range"
+            title="Go to range"
+          >
+            <Navigation className="h-3 w-3" />
+          </button>
+        )}
+        {isRunning ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-(--muted-foreground)" />
+        ) : isError ? (
+          <X className="h-3.5 w-3.5 shrink-0 text-red-600" />
+        ) : (
+          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+        )}
       </Collapsible.Trigger>
       <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
+        {(range || explanation) && (
+          <div className="mt-1">
+            {range && (
+              <div className="text-[11px] text-muted-foreground">
+                Range:{" "}
+                <span className="font-medium text-foreground">{range}</span>
+              </div>
+            )}
+            {explanation && (
+              <div className="mt-1.5 rounded-md border border-(--panel-border) bg-(--assistant-suggestion-bg) px-2 py-1.5">
+                <p className="mt-1 text-xs leading-relaxed text-foreground">
+                  {explanation}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         {isError && (
           <div className="mt-1 rounded border border-red-200 bg-red-100 p-2 text-red-800 text-xs">
             <div className="font-medium">Error</div>
@@ -2087,31 +2094,17 @@ function ToolCallDisplay({
             </div>
           </div>
         )}
-        <Tabs defaultValue="input" className="mt-1">
-          <TabsList className="h-7 gap-1 bg-transparent p-0">
+        <Tabs defaultValue="input" className="mt-2">
+          <TabsList className="inline-flex h-7 gap-1 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) p-0.5">
             <TabsTrigger
               value="input"
-              className={cn(
-                "h-6 rounded px-2 py-0.5 text-[10px] font-medium",
-                isRunning
-                  ? "data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700"
-                  : isError
-                    ? "data-[state=active]:bg-red-100 data-[state=active]:text-red-700"
-                    : "data-[state=active]:bg-green-100 data-[state=active]:text-green-700",
-              )}
+              className="h-6 rounded-md px-2.5 py-0.5 text-[10px] font-medium text-(--muted-foreground) transition-colors data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)]"
             >
               Input
             </TabsTrigger>
             <TabsTrigger
               value="output"
-              className={cn(
-                "h-6 rounded px-2 py-0.5 text-[10px] font-medium",
-                isRunning
-                  ? "data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700"
-                  : isError
-                    ? "data-[state=active]:bg-red-100 data-[state=active]:text-red-700"
-                    : "data-[state=active]:bg-green-100 data-[state=active]:text-green-700",
-              )}
+              className="h-6 rounded-md px-2.5 py-0.5 text-[10px] font-medium text-(--muted-foreground) transition-colors data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)]"
             >
               Output
             </TabsTrigger>
@@ -2121,14 +2114,7 @@ function ToolCallDisplay({
               <button
                 type="button"
                 onClick={() => handleCopy(formattedArgs, "input")}
-                className={cn(
-                  "absolute right-1 top-1 rounded p-1 transition-colors",
-                  isRunning
-                    ? "text-blue-600 hover:bg-blue-100"
-                    : isError
-                      ? "text-red-600 hover:bg-red-100"
-                      : "text-green-600 hover:bg-green-100",
-                )}
+                className="absolute right-1 top-1 rounded p-1 text-(--muted-foreground) transition-colors hover:bg-(--assistant-chip-hover) hover:text-foreground"
                 title="Copy to clipboard"
               >
                 {copiedTab === "input" ? (
@@ -2137,16 +2123,7 @@ function ToolCallDisplay({
                   <Copy className="h-3.5 w-3.5" />
                 )}
               </button>
-              <pre
-                className={cn(
-                  "max-h-64 overflow-y-auto  whitespace-pre-wrap wrap-break-word rounded-md p-2 pr-8 font-mono text-[11px] leading-relaxed",
-                  isRunning
-                    ? "bg-blue-50/70 text-blue-900"
-                    : isError
-                      ? "bg-red-50/70 text-red-900"
-                      : "bg-green-50/70 text-green-900",
-                )}
-              >
+              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap wrap-break-word rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2 pr-8 font-mono text-[11px] leading-relaxed text-foreground">
                 {formattedArgs}
               </pre>
             </div>
@@ -2164,9 +2141,7 @@ function ToolCallDisplay({
                   }
                   className={cn(
                     "absolute right-1 top-1 rounded p-1 transition-colors",
-                    isError
-                      ? "text-red-600 hover:bg-red-100"
-                      : "text-green-600 hover:bg-green-100",
+                    "text-(--muted-foreground) hover:bg-(--assistant-chip-hover) hover:text-foreground",
                   )}
                   title="Copy to clipboard"
                 >
@@ -2178,18 +2153,11 @@ function ToolCallDisplay({
                 </button>
               )}
               {hasResult ? (
-                <pre
-                  className={cn(
-                    "max-h-64 overflow-y-auto overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-md p-2 pr-8 font-mono text-[11px] leading-relaxed",
-                    isError
-                      ? "bg-red-50/70 text-red-900"
-                      : "bg-green-50/70 text-green-900",
-                  )}
-                >
+                <pre className="max-h-64 overflow-y-auto overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2 pr-8 font-mono text-[11px] leading-relaxed text-foreground">
                   {JSON.stringify(extractedResult, null, 2)}
                 </pre>
               ) : (
-                <div className="rounded-md bg-blue-50/70 p-2 text-[11px] text-blue-600 italic">
+                <div className="rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2 text-[11px] text-(--muted-foreground) italic">
                   Waiting for result...
                 </div>
               )}
