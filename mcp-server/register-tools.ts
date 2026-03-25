@@ -21,6 +21,7 @@ import {
 import { resolveAppBaseUrl, resolveAppOrigin } from "./app-url";
 import { selectionToAddress, uuidString } from "@rowsncolumns/utils";
 import { buildSpreadsheetContextPayload } from "../lib/chat/context";
+import { trackMcpTool, trackMcpSession } from "../lib/analytics/posthog-server";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" &&
@@ -778,8 +779,32 @@ export const registerSpreadsheetTools = (
         },
       },
       async (args: unknown) => {
-        const result = await spreadsheetTool.invoke(args);
-        return normalizeToolResult(result);
+        const startTime = Date.now();
+        let success = true;
+        let errorCode: string | undefined;
+
+        try {
+          const result = await spreadsheetTool.invoke(args);
+          return normalizeToolResult(result);
+        } catch (error) {
+          success = false;
+          errorCode = error instanceof Error ? error.name : "UNKNOWN_ERROR";
+          throw error;
+        } finally {
+          const durationMs = Date.now() - startTime;
+          const parsedArgs = isPlainRecord(args) ? args : {};
+          const docId = asString(parsedArgs.docId) ?? undefined;
+
+          trackMcpTool(docId ?? "anonymous", {
+            tool: spreadsheetTool.name,
+            docId,
+            sheetId: asNumber(parsedArgs.sheetId) ?? undefined,
+            success,
+            durationMs,
+            errorCode,
+            inputSize: JSON.stringify(args).length,
+          });
+        }
       },
     );
   }
@@ -1194,6 +1219,13 @@ export const registerSpreadsheetTools = (
       url.searchParams.set("locale", resolvedLocale);
       url.searchParams.set("currency", resolvedCurrency);
 
+      // Track document creation
+      trackMcpSession(docId, {
+        docId,
+        action: "create",
+        host: options.uiHost ?? "unknown",
+      });
+
       return {
         content: [
           {
@@ -1270,6 +1302,13 @@ export const registerSpreadsheetTools = (
       const resolvedCurrency = (parsed.currency ?? currency).toUpperCase();
       url.searchParams.set("locale", resolvedLocale);
       url.searchParams.set("currency", resolvedCurrency);
+
+      // Track document open
+      trackMcpSession(parsed.docId, {
+        docId: parsed.docId,
+        action: "open",
+        host: options.uiHost ?? "unknown",
+      });
 
       return {
         content: [

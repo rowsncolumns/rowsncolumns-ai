@@ -11,6 +11,7 @@ import {
   parseThemeCookie,
   THEME_COOKIE,
 } from "@/lib/theme-preference";
+import { PostHogProvider } from "@/lib/analytics/posthog-client";
 import "./globals.css";
 
 const fontBody = Plus_Jakarta_Sans({
@@ -78,7 +79,7 @@ export default async function RootLayout({
           themeMode === "dark" ? DARK_THEME_CLASS : ""
         }`}
       >
-        {children}
+        <PostHogProvider>{children}</PostHogProvider>
       </body>
     </html>
   );
