@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     params: Promise.resolve({ path: ["sign-out"] }),
   });
   const normalizedSignOutResponse =
-    cloneResponseWithNormalizedNeonAuthCookies(signOutResponse);
+    await cloneResponseWithNormalizedNeonAuthCookies(signOutResponse);
 
   const response = NextResponse.redirect(new URL("/", request.url), {
     status: 303,

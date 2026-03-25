@@ -147,17 +147,21 @@ export function normalizeNeonAuthSetCookieHeadersInPlace(
   return true;
 }
 
-export function cloneResponseWithNormalizedNeonAuthCookies(
+export async function cloneResponseWithNormalizedNeonAuthCookies(
   response: Response,
   mode: NeonAuthCookieCompatibilityMode = "normalize",
-): Response {
+): Promise<Response> {
   const headers = new Headers(response.headers);
   const changed = normalizeNeonAuthSetCookieHeadersInPlace(headers, mode);
   if (!changed) {
     return response;
   }
 
-  return new Response(response.body, {
+  // Read the body as ArrayBuffer to avoid iOS Safari issues with ReadableStream
+  // iOS Safari can fail when passing response.body directly to a new Response
+  const body = await response.arrayBuffer();
+
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,
