@@ -869,8 +869,7 @@ function SpreadsheetDocumentView({
           transform: `translate3d(0,0,0)`,
         }}
       />
-      {/* Remove rounded class */}
-      <Toolbar enableFloating>
+      <Toolbar enableFloating className="rounded-tl-xl rounded-tr-xl">
         <FileMenu
           onExportExcel={handleExportExcel}
           onExportCSV={handleExportCSV}
@@ -1439,8 +1438,7 @@ function SpreadsheetDocumentView({
           )}
         />
       </div>
-      {/* Remove rounded class */}
-      <BottomBar>
+      <BottomBar className="rounded-bl-xl rounded-br-xl">
         <NewSheetButton onClick={onCreateNewSheet} />
 
         <SheetSwitcher

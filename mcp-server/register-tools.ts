@@ -667,7 +667,7 @@ const buildSpreadsheetAppHtml = async ({
     body {
       margin: 0;
       font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      background: #0f1115;
+      background: transparent;
       color: #f3f6fb;
     }
     #app {
