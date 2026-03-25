@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth/server";
 import {
   cloneResponseWithNormalizedNeonAuthCookies,
   type NeonAuthCookieCompatibilityMode,
+  readSetCookieHeaders,
 } from "@/lib/auth/cookie-compat";
 
 const authHandler = auth.handler();
@@ -16,6 +17,69 @@ type AuthRouteHandler = (
   request: Request,
   context: AuthRouteContext,
 ) => Promise<Response>;
+
+const AUTH_COOKIE_CLEANUP_NAMES = [
+  "__Secure-neon-auth.session_token",
+  "__Secure-neon-auth.local.session_data",
+  "__Secure-neon-auth.session_challange",
+  "__Secure-neon-auth.session_challenge",
+  "neon-auth.session_token",
+  "neon-auth.local.session_data",
+  "neon-auth.session_challange",
+  "neon-auth.session_challenge",
+] as const;
+const AUTH_COOKIE_CLEANUP_PATHS = ["/", "/api", "/api/auth", "/auth"] as const;
+
+function shouldApplyAuthCookieCleanup(request: Request): boolean {
+  const requestUrl = new URL(request.url);
+  const pathname = requestUrl.pathname;
+  const method = request.method.toUpperCase();
+  if (method === "POST" && pathname.endsWith("/sign-in/social")) {
+    return true;
+  }
+  if (method === "GET" && pathname.includes("/callback")) {
+    return true;
+  }
+  if (method === "POST" && pathname.endsWith("/sign-out")) {
+    return true;
+  }
+  return false;
+}
+
+function buildCookieDeleteHeader(
+  name: string,
+  path: string,
+  secure: boolean,
+): string {
+  const secureDirective = secure ? "; Secure" : "";
+  return `${name}=; Path=${path}; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secureDirective}`;
+}
+
+function addAuthCookieCleanupHeaders(response: Response): Response {
+  const existingSetCookies = readSetCookieHeaders(response.headers);
+  const nextHeaders = new Headers(response.headers);
+  nextHeaders.delete("set-cookie");
+
+  for (const cookieName of AUTH_COOKIE_CLEANUP_NAMES) {
+    const isSecureCookie = cookieName.startsWith("__Secure-");
+    for (const path of AUTH_COOKIE_CLEANUP_PATHS) {
+      nextHeaders.append(
+        "set-cookie",
+        buildCookieDeleteHeader(cookieName, path, isSecureCookie),
+      );
+    }
+  }
+
+  for (const setCookie of existingSetCookies) {
+    nextHeaders.append("set-cookie", setCookie);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: nextHeaders,
+  });
+}
 
 function getModeFromSearchParams(
   searchParams: URLSearchParams,
@@ -78,8 +142,11 @@ async function resolveCookieCompatibilityMode(
 function withCookieCompatibility(handler: AuthRouteHandler): AuthRouteHandler {
   return async (request, context) => {
     const response = await handler(request, context);
+    const cleanedResponse = shouldApplyAuthCookieCleanup(request)
+      ? addAuthCookieCleanupHeaders(response)
+      : response;
     const mode = await resolveCookieCompatibilityMode(request);
-    return cloneResponseWithNormalizedNeonAuthCookies(response, mode);
+    return cloneResponseWithNormalizedNeonAuthCookies(cleanedResponse, mode);
   };
 }
 
