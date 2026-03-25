@@ -2026,6 +2026,14 @@ function ToolCallDisplay({
       >
         <FileText className="h-3.5 w-3.5 shrink-0 text-violet-500" />
         <div className="min-w-0 flex-1 truncate">{titleText}</div>
+        {range && (
+          <span
+            className="max-w-28 shrink-0 truncate rounded border border-(--card-border) bg-(--assistant-chip-hover) px-1.5 py-0.5 font-mono text-[10px] text-(--muted-foreground)"
+            title={`Range: ${range}`}
+          >
+            {range}
+          </span>
+        )}
         {explanation && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -2050,15 +2058,21 @@ function ToolCallDisplay({
         />
         <span className="h-3.5 w-px shrink-0 bg-(--card-border)" />
         {isComplete && canNavigateToRange && (
-          <button
-            type="button"
-            onClick={handleNavigateInlineClick}
-            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-emerald-700 transition-colors hover:bg-emerald-100"
-            aria-label="Go to range"
-            title="Go to range"
-          >
-            <Navigation className="h-3 w-3" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleNavigateInlineClick}
+                className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-(--muted-foreground) transition-colors hover:bg-(--assistant-chip-hover) hover:text-foreground"
+                aria-label="Go to range"
+              >
+                <Navigation className="h-3 w-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="center" className="text-xs">
+              Go to range
+            </TooltipContent>
+          </Tooltip>
         )}
         {isRunning ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-(--muted-foreground)" />
@@ -2069,21 +2083,11 @@ function ToolCallDisplay({
         )}
       </Collapsible.Trigger>
       <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
-        {(range || explanation) && (
-          <div className="mt-1">
-            {range && (
-              <div className="text-[11px] text-muted-foreground">
-                Range:{" "}
-                <span className="font-medium text-foreground">{range}</span>
-              </div>
-            )}
-            {explanation && (
-              <div className="mt-1.5 rounded-md border border-(--panel-border) bg-(--assistant-suggestion-bg) px-2 py-1.5">
-                <p className="mt-1 text-xs leading-relaxed text-foreground">
-                  {explanation}
-                </p>
-              </div>
-            )}
+        {explanation && (
+          <div className="mt-1.5 rounded-md border border-(--panel-border) bg-(--assistant-suggestion-bg) px-2 py-1.5">
+            <p className="text-xs leading-relaxed text-foreground">
+              {explanation}
+            </p>
           </div>
         )}
         {isError && (
