@@ -232,6 +232,10 @@ const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
         label: "Claude Sonnet 4.6",
       },
       {
+        value: "claude-sonnet-4-6-low",
+        label: "Claude Sonnet 4.6 (Low Effort)",
+      },
+      {
         value: "claude-sonnet-4-5-20250929",
         label: "Claude Sonnet 4.5",
       },

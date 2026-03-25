@@ -18,6 +18,7 @@ const MID_MODELS = [
   "gpt-4.1-mini",
   "o4-mini",
   "claude-haiku",
+  "claude-sonnet-4-6-low",
 ];
 
 const HEAVY_MODELS = [

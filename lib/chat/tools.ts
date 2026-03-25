@@ -378,6 +378,13 @@ CRITICAL RULES:
    Never leave formula errors unaddressed - always investigate and fix them.
 8. PREFER FORMULAS: When referencing data from other cells, creating financial models, or building tabular content, prefer using formulas over hardcoded values. Formulas ensure data stays in sync and calculations update automatically.
 9. BATCHING: Multiple tool calls are permitted and encouraged for large datasets. You can write data in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability and allows for incremental progress.
+10. USE APPLYFILL FOR SEQUENCES: When writing sequential patterns (1, 2, 3... or Jan, Feb, Mar... or dates), DO NOT manually list each value. Instead:
+    - Write only the first 1-2 values using changeBatch to establish the pattern
+    - Use spreadsheet_applyFill to extend the sequence automatically
+    Example: For "Fiscal Month 1, 2, 3...12" across B5:M5:
+      Step 1: changeBatch range "B5:C5" with cells [[{"value": 1}, {"value": 2}]]
+      Step 2: applyFill with sourceRange "B5:C5", fillRange "B5:M5"
+    This saves tokens and is more efficient than listing all 12 values.
 
 EXAMPLES:
 
@@ -2959,11 +2966,19 @@ This tool replicates Excel's fill functionality (drag-to-fill or Ctrl+D/Ctrl+R),
 • Formulas (adjusting cell references automatically)
 • Formatting from source cells to target cells
 
-WHEN TO USE THIS TOOL:
-- Extending number or date sequences
+WHEN TO USE THIS TOOL (PREFER THIS OVER changeBatch FOR SEQUENCES):
+- Extending number sequences (1, 2, 3... or 10, 20, 30... or fiscal months 1-12)
+- Extending date sequences (Jan, Feb, Mar... or Q1, Q2, Q3...)
 - Copying formulas down/across with auto-adjusted references
 - Replicating values or formatting patterns
 - Creating series like months, weekdays, or custom patterns
+
+TOKEN EFFICIENCY:
+Instead of writing 12 values with changeBatch like:
+  cells: [[{"value": 1}, {"value": 2}, {"value": 3}, ... {"value": 12}]]
+Use this approach:
+  1. changeBatch: Write first 2 values to establish pattern (e.g., 1, 2 in B5:C5)
+  2. applyFill: Extend to full range (sourceRange: "B5:C5", fillRange: "B5:M5")
 
 IMPORTANT:
 - This tool only works with Athena spreadsheets, not documents or other document types

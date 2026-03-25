@@ -86,6 +86,7 @@ const DEFAULT_ALLOWED_MODELS = new Set<string>([
   "o4-mini",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
+  "claude-sonnet-4-6-low",
   "claude-sonnet-4-5-20250929",
   "claude-opus-4-5-20251101",
   "claude-haiku-4-5-20251001",
@@ -123,7 +124,9 @@ const parseProvider = (
   return null;
 };
 
-const inferProviderFromModel = (model: string | undefined): ChatProvider | undefined => {
+const inferProviderFromModel = (
+  model: string | undefined,
+): ChatProvider | undefined => {
   if (!model) return undefined;
   return /^claude/i.test(model) ? "anthropic" : "openai";
 };
@@ -202,7 +205,11 @@ export const resolveChatRequest = (
   }
 
   const inferredProvider = inferProviderFromModel(model);
-  if (parsedProvider && inferredProvider && parsedProvider !== inferredProvider) {
+  if (
+    parsedProvider &&
+    inferredProvider &&
+    parsedProvider !== inferredProvider
+  ) {
     return {
       ok: false,
       error: {
@@ -260,7 +267,10 @@ export const resolveRunSystemInstructions = async (input: {
 
   return mergeSystemInstructions(
     mergeSystemInstructions(
-      mergeSystemInstructions(input.request.systemInstructions, contextInstructions),
+      mergeSystemInstructions(
+        input.request.systemInstructions,
+        contextInstructions,
+      ),
       skillsInstruction,
     ),
     input.defaultSystemInstructions,
@@ -392,7 +402,10 @@ export const executeChatRunStream = async (input: {
 
       if (event.type === "message.complete") {
         isCompleted = true;
-        messageCompleteChars = Math.max(messageCompleteChars, event.message.length);
+        messageCompleteChars = Math.max(
+          messageCompleteChars,
+          event.message.length,
+        );
       }
 
       input.emitEvent(

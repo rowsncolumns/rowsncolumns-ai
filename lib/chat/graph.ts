@@ -29,6 +29,7 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929";
 const DEFAULT_MODEL_TEMPERATURE = 0.2;
 const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096;
 const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 2048;
+const LOW_EFFORT_ANTHROPIC_THINKING_BUDGET_TOKENS = 1024;
 const DEFAULT_GRAPH_RECURSION_LIMIT = 75;
 const DEFAULT_LANGGRAPH_CHECKPOINT_SCHEMA = "public";
 const CLAUDE_MODEL_PATTERN = /^claude/i;
@@ -47,6 +48,9 @@ const isReasoningModel = (model: string) =>
   REASONING_MODEL_PATTERN.test(model.trim());
 const isClaudeModel = (model: string) =>
   CLAUDE_MODEL_PATTERN.test(model.trim());
+const isLowEffortModel = (model: string) => model.trim().endsWith("-low");
+const normalizeModelName = (model: string) =>
+  model.trim().replace(/-low$/, "");
 
 const getEnv = (name: string) => {
   const value = process.env[name]?.trim();
@@ -369,6 +373,10 @@ const getModel = (override?: {
       throw new Error("ANTHROPIC_API_KEY is not configured.");
     }
 
+    // Check if this is a low-effort model variant and normalize the model name
+    const lowEffort = isLowEffortModel(model);
+    const normalizedModel = normalizeModelName(model);
+
     const maxTokens = parsePositiveInt(
       getEnv("ANTHROPIC_MAX_TOKENS"),
       DEFAULT_ANTHROPIC_MAX_TOKENS,
@@ -382,9 +390,12 @@ const getModel = (override?: {
         : override?.reasoningEnabled === true
           ? ("enabled" as const)
           : configuredThinkingMode;
+    const defaultBudget = lowEffort
+      ? LOW_EFFORT_ANTHROPIC_THINKING_BUDGET_TOKENS
+      : DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS;
     const configuredThinkingBudget = parsePositiveInt(
       getEnv("ANTHROPIC_THINKING_BUDGET_TOKENS"),
-      DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS,
+      defaultBudget,
     );
     const thinkingBudget = Math.max(
       1024,
@@ -406,7 +417,7 @@ const getModel = (override?: {
 
     return new ChatAnthropic({
       apiKey,
-      model,
+      model: normalizedModel,
       maxTokens,
       thinking,
       ...(anthropicTemperature !== undefined
