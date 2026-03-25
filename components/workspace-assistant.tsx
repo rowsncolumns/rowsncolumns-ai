@@ -119,7 +119,6 @@ import type {
 } from "@/lib/chat/context";
 import { parseChatStream } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
-import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@rowsncolumns/ui";
 import { useSpreadsheetState } from "@rowsncolumns/spreadsheet-state";
@@ -278,6 +277,7 @@ const CHAT_EXTERNAL_API_PATH = (
   process.env.NEXT_PUBLIC_CHAT_API_PATH ?? "/chat"
 ).trim();
 const CHAT_EXTERNAL_API_ENABLED = CHAT_EXTERNAL_API_BASE_URL.length > 0;
+const CHAT_AUTH_TOKEN_ENDPOINT = "/api/auth/token";
 const ASSISTANT_CONTEXT_BY_DOCUMENT_ID = new Map<
   string,
   SpreadsheetAssistantContext
@@ -358,57 +358,56 @@ const normalizeNonEmptyToken = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const readTokenFromAuthSessionPayload = (payload: unknown): string | null => {
+const readTokenFromChatTokenPayload = (payload: unknown): string | null => {
   if (!payload || typeof payload !== "object") {
     return null;
   }
 
   const parsed = payload as {
-    session?: { token?: unknown };
-    data?: { session?: { token?: unknown } };
+    token?: unknown;
+    data?: { token?: unknown };
   };
-
   return (
-    normalizeNonEmptyToken(parsed.session?.token) ??
-    normalizeNonEmptyToken(parsed.data?.session?.token)
+    normalizeNonEmptyToken(parsed.token) ??
+    normalizeNonEmptyToken(parsed.data?.token)
   );
 };
 
-const getAuthBearerToken = async (options?: {
+const getExternalChatAccessToken = async (options?: {
   forceRefresh?: boolean;
 }): Promise<string | null> => {
-  const forceRefresh = options?.forceRefresh === true;
-
-  if (forceRefresh) {
-    try {
-      const response = await fetch(
-        "/api/auth/get-session?disableCookieCache=true",
-        {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-          },
+  try {
+    if (options?.forceRefresh) {
+      await fetch("/api/auth/get-session?disableCookieCache=true", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
         },
-      );
-
-      if (response.ok) {
-        const payload = await response.json().catch(() => null);
-        const freshToken = readTokenFromAuthSessionPayload(payload);
-        if (freshToken) {
-          return freshToken;
-        }
-      }
-    } catch {
-      // Ignore and continue to SDK session lookup.
+      }).catch(() => null);
     }
-  }
 
-  const sessionResult = await authClient.getSession();
-  const sessionToken = normalizeNonEmptyToken(sessionResult.data?.session?.token);
-  if (sessionToken) {
-    return sessionToken;
+    const response = await fetch(CHAT_AUTH_TOKEN_ENDPOINT, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json().catch(() => null);
+    const token = readTokenFromChatTokenPayload(payload);
+    if (token) {
+      return token;
+    }
+  } catch {
+    // Ignore and treat as missing token.
   }
 
   return null;
@@ -467,7 +466,7 @@ const requestAssistantChat = async (input: {
 
   let initialBearerToken: string | null = null;
   if (CHAT_EXTERNAL_API_ENABLED) {
-    const bearerToken = await getAuthBearerToken();
+    const bearerToken = await getExternalChatAccessToken();
     if (!bearerToken) {
       throw new Error("Your session expired. Please sign in again.");
     }
@@ -484,7 +483,9 @@ const requestAssistantChat = async (input: {
   });
 
   if (CHAT_EXTERNAL_API_ENABLED && response.status === 401) {
-    const refreshedToken = await getAuthBearerToken({ forceRefresh: true });
+    const refreshedToken = await getExternalChatAccessToken({
+      forceRefresh: true,
+    });
     if (refreshedToken && refreshedToken !== initialBearerToken) {
       response = await fetch(getChatRequestUrl(), {
         method: "POST",
@@ -1511,10 +1512,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
         console.error("[assistant] Failed to restore thread history", error);
       } finally {
-        if (
-          !controller.signal.aborted &&
-          hydrationRequestIdRef.current === requestId
-        ) {
+        if (hydrationRequestIdRef.current === requestId) {
           hydrationControllerRef.current = null;
           setIsHydratingSession(false);
         }

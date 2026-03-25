@@ -24,6 +24,7 @@ export const db: PostgresClient =
   postgres(databaseUrl, {
     prepare: false,
     ssl: "require",
+    onnotice: () => {}, // Suppress NOTICE messages (e.g., "relation already exists")
   });
 
 if (process.env.NODE_ENV !== "production") {
