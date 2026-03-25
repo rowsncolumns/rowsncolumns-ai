@@ -1827,13 +1827,13 @@ export function NewWorkspace({
                 <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-(--panel-border) bg-(--assistant-chip-bg) p-1">
                   <TabsTrigger
                     value="chat"
-                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)] data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground"
+                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground  data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground data[state=active]:shadow-lg"
                   >
                     Chat
                   </TabsTrigger>
                   <TabsTrigger
                     value="sheet"
-                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)] data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground"
+                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground data[state=active]:shadow-lg"
                   >
                     Sheet
                   </TabsTrigger>
