@@ -1766,9 +1766,9 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     failed: "Failed to update iterative mode",
   },
   spreadsheet_readDocument: {
-    running: "Reading data schema",
-    success: "Read data schema",
-    failed: "Failed to read data schema",
+    running: "Reading spreadsheet",
+    success: "Read spreadsheet",
+    failed: "Failed to spreadsheet",
   },
   spreadsheet_setRowColDimensions: {
     running: "Setting row/column dimensions",
