@@ -22,14 +22,30 @@ Alternative key names (all work):
 ## Architecture
 
 ```
+instrumentation-client.ts   # PostHog initialization (Next.js 15.3+)
 lib/analytics/
-├── index.ts              # Re-exports everything
-├── posthog-client.tsx    # Client-side (React components)
-├── posthog-server.ts     # Server-side (API routes, MCP tools)
-└── README.md             # This file
+├── index.ts                # Re-exports everything
+├── posthog-client.tsx      # Client-side React provider & helpers
+├── posthog-server.ts       # Server-side (API routes, MCP tools)
+└── README.md               # This file
 ```
 
 ## Client-Side Tracking (Website)
+
+### Initialization (Next.js 15.3+)
+
+PostHog is initialized in `instrumentation-client.ts` at the project root:
+
+```typescript
+import posthog from "posthog-js";
+
+posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
+  api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+  capture_pageview: true,
+  capture_pageleave: true,
+  autocapture: true,
+});
+```
 
 ### Provider Setup
 
@@ -236,17 +252,13 @@ identifyUserServer("user_123", {
 
 ## Development Mode
 
-Analytics is disabled in development by default:
+Analytics is enabled in all environments by default. To disable in development, add to `instrumentation-client.ts`:
 
 ```typescript
-loaded: (ph) => {
-  if (process.env.NODE_ENV === "development") {
-    ph.opt_out_capturing();
-  }
+if (process.env.NODE_ENV !== "development") {
+  posthog.init(...);
 }
 ```
-
-To enable in development, comment out the `opt_out_capturing()` call in `posthog-client.tsx`.
 
 ## Shutdown
 
