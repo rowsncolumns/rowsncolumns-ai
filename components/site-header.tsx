@@ -98,7 +98,7 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
           </a>
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-            <nav className="rnc-site-header-nav hidden items-center gap-1 rounded-xl p-1 md:!flex">
+            <nav className="rnc-site-header-nav hidden items-center gap-1 rounded-xl p-1 lg:flex!">
               {siteNavigation.map((item) => (
                 <a
                   key={item.label}
@@ -113,7 +113,7 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
             <ThemeToggleButton />
             <button
               type="button"
-              className="rnc-menu-toggle md:hidden"
+              className="rnc-menu-toggle lg:hidden"
               onClick={() => setIsDrawerOpen(true)}
               aria-label="Open navigation menu"
               title="Open navigation menu"
@@ -142,7 +142,7 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
         open={isDrawerOpen}
         onOpenChange={setIsDrawerOpen}
       >
-        <DrawerContent className="md:hidden">
+        <DrawerContent className="lg:hidden">
           <DrawerHeader>
             <DrawerTitle>Navigation</DrawerTitle>
             <DrawerClose asChild>

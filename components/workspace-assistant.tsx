@@ -4175,13 +4175,13 @@ function WorkspaceAssistantPanel({
         ref={assistantHeaderRef}
         className="rnc-assistant-divider border-b border-black/8 px-5 py-4"
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="display-font mt-1 text-2xl font-semibold tracking-[-0.03em]">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="display-font mt-1 text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
               Spreadsheet Agent
             </h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {onSelectSession && (
               <SessionPickerButton
                 iconOnly={isAssistantHeaderCompact}
