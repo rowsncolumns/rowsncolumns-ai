@@ -1,5 +1,7 @@
 import { tool } from "@langchain/core/tools";
 import {
+  DEFAULT_COLUMN_WIDTH,
+  DEFAULT_ROW_HEIGHT,
   addressToSelection,
   cellToAddress,
   desanitizeSheetName,
@@ -53,6 +55,8 @@ import {
   SpreadsheetUpdateSheetSchema,
   type SpreadsheetReadDocumentInput,
   SpreadsheetReadDocumentSchema,
+  type SpreadsheetGetRowColDimensionsInput,
+  SpreadsheetGetRowColDimensionsSchema,
   type SpreadsheetSetRowColDimensionsInput,
   SpreadsheetSetRowColDimensionsSchema,
   type SpreadsheetCreateTableInput,
@@ -104,6 +108,7 @@ import {
   type EmbeddedChart,
   type ChartSpec,
   type ConditionalFormatRule,
+  AXIS,
 } from "@rowsncolumns/spreadsheet";
 import type {
   SelectionArea,
@@ -2253,6 +2258,208 @@ const parseRange = (
   return null;
 };
 
+const inferAxisHintFromDimensionRange = (range: string): "x" | "y" | null => {
+  const scopedRange = range.split("!").pop()?.trim() ?? range.trim();
+  const normalized = scopedRange.replace(/\$/g, "");
+
+  if (/^[A-Za-z]+(?::[A-Za-z]+)?$/.test(normalized)) {
+    return "y";
+  }
+
+  if (/^\d+(?::\d+)?$/.test(normalized)) {
+    return "x";
+  }
+
+  return null;
+};
+
+/**
+ * Handler for the spreadsheet_getRowColDimensions tool
+ * Reads row heights or column widths from sheet metadata
+ */
+const handleSpreadsheetGetRowColDimensions = async (
+  input: SpreadsheetGetRowColDimensionsInput,
+): Promise<string> => {
+  const {
+    docId,
+    sheetId: inputSheetId,
+    range,
+    dimensionType: inputDimensionType,
+  } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to query row/column dimensions",
+      { field: "docId" },
+    );
+  }
+
+  const explicitAxisHint: AXIS | null =
+    inputDimensionType === "row"
+      ? "x"
+      : inputDimensionType === "column"
+        ? "y"
+        : null;
+  const inferredAxisHint = inferAxisHintFromDimensionRange(range);
+  const axisHint = explicitAxisHint ?? inferredAxisHint ?? undefined;
+
+  const parsedRange = parseRange(range, axisHint);
+  if (!parsedRange) {
+    return failTool(
+      "INVALID_OR_AMBIGUOUS_RANGE",
+      `Invalid or ambiguous range: ${range}. Use row ranges like '1:5', column ranges like 'A:G', or set dimensionType for ambiguous A1 ranges.`,
+      { range, dimensionType: inputDimensionType },
+    );
+  }
+
+  const { indexes, axis } = parsedRange;
+  const sheetId = inputSheetId ?? 1;
+
+  console.log("[spreadsheet_getRowColDimensions] Starting:", {
+    docId,
+    sheetId,
+    range,
+    axis,
+    indexCount: indexes.length,
+  });
+
+  try {
+    const { doc, close } = await getShareDBDocument(docId);
+
+    try {
+      const data = doc.data as ShareDBSpreadsheetDoc | null;
+      if (!data) {
+        return failTool("NO_DOCUMENT_DATA", "Document has no data");
+      }
+
+      const spreadsheet = createSpreadsheetInterface(data);
+      const sheet = spreadsheet.sheets.find((item) => item.sheetId === sheetId);
+
+      if (!sheet) {
+        return failTool(
+          "SHEET_NOT_FOUND",
+          `Sheet with ID ${sheetId} not found`,
+          {
+            sheetId,
+          },
+        );
+      }
+
+      const rawMetadata =
+        axis === "x" ? sheet.rowMetadata : sheet.columnMetadata;
+      const metadata = Array.isArray(rawMetadata) ? rawMetadata : [];
+      const defaultSize =
+        axis === "x" ? DEFAULT_ROW_HEIGHT : DEFAULT_COLUMN_WIDTH;
+      const resolvedDimensionType = axis === "x" ? "row" : "column";
+
+      const dimensions = indexes.map((index) => {
+        const item = metadata[index];
+        const size =
+          typeof item?.size === "number" && Number.isFinite(item.size)
+            ? item.size
+            : defaultSize;
+        const columnAddress = cellToAddress({ rowIndex: 1, columnIndex: index });
+        const columnLabel = columnAddress?.replace(/\d+/g, "") ?? String(index);
+        const a1Range =
+          resolvedDimensionType === "column"
+            ? `${columnLabel}:${columnLabel}`
+            : `${index}:${index}`;
+
+        return {
+          index,
+          a1Range,
+          size,
+          resizedByUser: Boolean(item?.resizedByUser),
+          hiddenByUser: Boolean(item?.hiddenByUser),
+          hiddenByFilter: Boolean(item?.hiddenByFilter),
+          isDefaultSize: !item || typeof item.size !== "number",
+        };
+      });
+
+      console.log("[spreadsheet_getRowColDimensions] Completed:", {
+        docId,
+        sheetId,
+        range,
+        dimensionType: resolvedDimensionType,
+        count: dimensions.length,
+      });
+
+      return JSON.stringify({
+        success: true,
+        sheetId,
+        range,
+        dimensionType: resolvedDimensionType,
+        indexBase: 1,
+        sizeUnit: "px",
+        defaultSize,
+        count: dimensions.length,
+        dimensions,
+      });
+    } finally {
+      close();
+    }
+  } catch (error) {
+    console.error("[spreadsheet_getRowColDimensions] Error:", error);
+    return failTool(
+      "GET_DIMENSIONS_FAILED",
+      error instanceof Error
+        ? error.message
+        : "Failed to get row/column dimensions",
+    );
+  }
+};
+
+/**
+ * The spreadsheet_getRowColDimensions tool for LangChain
+ */
+export const spreadsheetGetRowColDimensionsTool = tool(
+  handleSpreadsheetGetRowColDimensions,
+  {
+    name: "spreadsheet_getRowColDimensions",
+    description: `Get row heights or column widths from sheet metadata.
+
+OVERVIEW:
+This is a read-only tool that returns row/column dimension metadata for a range.
+Use this before resizing to inspect current sizes and visibility flags.
+
+DEFAULT SIZES:
+- Default row height: 21px
+- Default column width: 100px
+- Returned sizes use pixels (sizeUnit = "px")
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: The sheet ID (default: 1)
+- range: Row or column range (e.g., '1:5', 'A:G', 'A1:H1', 'B2:B20')
+- dimensionType: Optional disambiguation hint ('row' or 'column')
+
+RETURNS:
+{
+  "success": true,
+  "sheetId": 1,
+  "range": "A:C",
+  "dimensionType": "column",
+  "indexBase": 1,
+  "sizeUnit": "px",
+  "defaultSize": 100,
+  "count": 3,
+  "dimensions": [
+    {
+      "index": 1,
+      "a1Range": "A:A",
+      "size": 120,
+      "resizedByUser": true,
+      "hiddenByUser": false,
+      "hiddenByFilter": false,
+      "isDefaultSize": false
+    }
+  ]
+}`,
+    schema: SpreadsheetGetRowColDimensionsSchema,
+  },
+);
+
 /**
  * Handler for the spreadsheet_setRowColDimensions tool
  * Sets the width of columns or height of rows in a spreadsheet
@@ -2397,6 +2604,10 @@ export const spreadsheetSetRowColDimensionsTool = tool(
 
 Use this tool to adjust column widths or row heights. Supports autofit
 (automatically adjust to content) or fixed pixel sizes.
+
+DEFAULT SIZES:
+- Default row height: 21px
+- Default column width: 100px
 
 IMPORTANT - Context-Aware Sizing:
 Before setting column widths, EXAMINE ALL DATA in the column (not just headers).
@@ -6560,6 +6771,7 @@ export const spreadsheetTools = [
   spreadsheetQueryRangeTool,
   spreadsheetSetIterativeModeTool,
   spreadsheetReadDocumentTool,
+  spreadsheetGetRowColDimensionsTool,
   spreadsheetSetRowColDimensionsTool,
   spreadsheetDuplicateSheetTool,
   spreadsheetDeleteCellsTool,

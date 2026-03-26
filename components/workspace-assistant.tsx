@@ -1706,6 +1706,11 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Read spreadsheet",
     failed: "Failed to spreadsheet",
   },
+  spreadsheet_getRowColDimensions: {
+    running: "Reading row/column dimensions",
+    success: "Read row/column dimensions",
+    failed: "Failed to read row/column dimensions",
+  },
   spreadsheet_setRowColDimensions: {
     running: "Setting row/column dimensions",
     success: "Set row/column dimensions",
@@ -2223,6 +2228,7 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_queryRange",
   "spreadsheet_setIterativeMode",
   "spreadsheet_readDocument",
+  "spreadsheet_getRowColDimensions",
   "spreadsheet_setRowColDimensions",
   "spreadsheet_duplicateSheet",
   "spreadsheet_deleteCells",

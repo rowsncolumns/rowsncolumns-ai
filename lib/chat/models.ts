@@ -502,6 +502,28 @@ export type SpreadsheetSetRowColDimensionsInput = z.infer<
   typeof SpreadsheetSetRowColDimensionsSchema
 >;
 
+// Spreadsheet GetRowColDimensions
+export const SpreadsheetGetRowColDimensionsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
+  range: z
+    .string()
+    .describe(
+      "A1 notation for columns (e.g., 'A:G') or rows (e.g., '1:5'). Also supports A1 ranges like 'A1:H1' or 'B2:B20'.",
+    ),
+  dimensionType: z
+    .enum(["row", "column"])
+    .optional()
+    .describe(
+      "Optional hint to resolve ambiguous ranges. Use 'column' for width queries and 'row' for height queries.",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetGetRowColDimensionsInput = z.infer<
+  typeof SpreadsheetGetRowColDimensionsSchema
+>;
+
 // Spreadsheet DuplicateSheet
 export const SpreadsheetDuplicateSheetSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
