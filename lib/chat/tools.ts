@@ -68,21 +68,8 @@ import {
   SpreadsheetClearCellsSchema,
   // Legacy schemas kept for internal use
   type SpreadsheetCreateTableInput,
-  type SpreadsheetUpdateTableInput,
-  type SpreadsheetDeleteTableInput,
-  type SpreadsheetCreateChartInput,
-  type SpreadsheetUpdateChartInput,
-  type SpreadsheetDeleteChartInput,
   type SpreadsheetCreateDataValidationInput,
   type SpreadsheetUpdateDataValidationInput,
-  type SpreadsheetDeleteDataValidationInput,
-  type SpreadsheetCreateConditionalFormatInput,
-  type SpreadsheetUpdateConditionalFormatInput,
-  type SpreadsheetDeleteConditionalFormatInput,
-  type SpreadsheetQueryDataValidationsInput,
-  type SpreadsheetQueryConditionalFormatsInput,
-  type SpreadsheetDeleteCellsInput,
-  type SpreadsheetClearFormattingInput,
 } from "./models";
 import {
   cellsToCitations,
@@ -111,8 +98,6 @@ import type {
   ConditionType,
   DataValidationRuleRecord,
   CellFormat,
-  GridRange,
-  SheetRange,
 } from "@rowsncolumns/common-types";
 
 const failTool = (
@@ -216,7 +201,7 @@ const parseCells = (input: unknown): CellData[][] => {
             value === undefined
               ? undefined
               : (value as string | number | boolean | null),
-          formula,
+          formula: formula as string | undefined,
           citation: citation as string | undefined,
         });
       } else {
@@ -4200,35 +4185,35 @@ const handleSpreadsheetChart = async (
             );
           }
 
-          // Build chart spec
-          const domainRange: SheetRange = {
-            sheetId,
-            startRowIndex: domainSelection.range.startRowIndex,
-            endRowIndex: domainSelection.range.endRowIndex,
-            startColumnIndex: domainSelection.range.startColumnIndex,
-            endColumnIndex: domainSelection.range.endColumnIndex,
-          };
+          // Parse series ranges
+          const seriesSelections = rest.series!.map((seriesRange: string) => {
+            const sel = addressToSelection(seriesRange);
+            if (!sel?.range)
+              throw new Error(`Invalid series range: ${seriesRange}`);
+            return sel.range;
+          });
 
-          const seriesRanges: SheetRange[] = rest.series!.map(
-            (seriesRange: string) => {
-              const sel = addressToSelection(seriesRange);
-              if (!sel?.range)
-                throw new Error(`Invalid series range: ${seriesRange}`);
-              return {
-                sheetId,
-                startRowIndex: sel.range.startRowIndex,
-                endRowIndex: sel.range.endRowIndex,
-                startColumnIndex: sel.range.startColumnIndex,
-                endColumnIndex: sel.range.endColumnIndex,
-              };
-            },
-          );
-
-          // Build chart spec - using any to handle complex internal types
-          const chartSpec = {
-            chartType: rest.chartType!.toUpperCase(),
-            domain: domainRange,
-            series: seriesRanges,
+          // Build chart spec with proper structure
+          const chartSpec: Partial<ChartSpec> = {
+            chartType: rest.chartType as ChartSpec["chartType"],
+            domains: [
+              {
+                sources: [
+                  {
+                    sheetId,
+                    ...domainSelection.range,
+                  },
+                ],
+              },
+            ],
+            series: seriesSelections.map((s) => ({
+              sources: [
+                {
+                  sheetId,
+                  ...s,
+                },
+              ],
+            })),
             ...(rest.title ? { title: rest.title } : {}),
             ...(rest.subtitle ? { subtitle: rest.subtitle } : {}),
             ...(rest.xAxisTitle
@@ -4238,7 +4223,7 @@ const handleSpreadsheetChart = async (
             ...(rest.stackedType
               ? { stackedType: mapStackedType(rest.stackedType) }
               : {}),
-          } as unknown as ChartSpec;
+          };
 
           // Determine anchor position
           let anchorRowIndex = 1;
@@ -4273,13 +4258,10 @@ const handleSpreadsheetChart = async (
             rowIndex: anchorRowIndex,
             columnIndex: anchorColumnIndex,
           };
-          const selections = [{ bounds: domainSelection.range }];
-          spreadsheet.createChart(
-            sheetId,
-            activeCell,
-            selections as any,
-            chart,
-          );
+          const selections: SelectionArea[] = [
+            { range: domainSelection.range },
+          ];
+          spreadsheet.createChart(sheetId, activeCell, selections, chart);
           await persistSpreadsheetPatches(doc, spreadsheet);
 
           return JSON.stringify({

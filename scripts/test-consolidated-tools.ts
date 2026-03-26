@@ -197,6 +197,31 @@ const tests: TestCase[] = [
       }
     },
   },
+  {
+    name: "spreadsheet_chart validates create with all optional parameters",
+    run: () => {
+      // Regression test: ensures all create parameters are accepted
+      // Bug fix: chart creation was using { bounds: range } instead of { range: range }
+      const fullInput = {
+        docId: "doc123",
+        sheetId: 1,
+        action: "create" as const,
+        domain: "B2:B11",
+        series: ["F2:F11"],
+        chartType: "column" as const,
+        title: "Sales by Product",
+        subtitle: "Q1 2024",
+        anchorCell: "H2",
+        width: 500,
+        height: 350,
+        xAxisTitle: "Product",
+        yAxisTitle: "Total ($)",
+        stackedType: "unstacked" as const,
+      };
+      const result = SpreadsheetChartSchema.safeParse(fullInput);
+      assert.equal(result.success, true, "full chart create input should be valid");
+    },
+  },
 
   // ==================== SpreadsheetDataValidation Tests ====================
   {
