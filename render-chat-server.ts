@@ -371,7 +371,9 @@ const getBearerToken = (authorizationHeader: string | undefined) => {
   return token || null;
 };
 
-const parseCookies = (cookieHeader: string | undefined): Map<string, string> => {
+const parseCookies = (
+  cookieHeader: string | undefined,
+): Map<string, string> => {
   const cookies = new Map<string, string>();
   if (!cookieHeader) return cookies;
 
@@ -462,7 +464,8 @@ const writeSseEvent = (res: ServerResponse, event: unknown) => {
 const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
   // Try Bearer token first, then fall back to session cookie
   const bearerToken = getBearerToken(req.headers.authorization);
-  const sessionToken = bearerToken ?? getSessionTokenFromCookies(req.headers.cookie);
+  const sessionToken =
+    bearerToken ?? getSessionTokenFromCookies(req.headers.cookie);
 
   if (!sessionToken) {
     sendJson(req, res, 401, {

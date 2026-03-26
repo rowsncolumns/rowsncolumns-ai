@@ -1,3 +1,4 @@
+import { Sheet } from "@rowsncolumns/spreadsheet";
 import { selectionToAddress } from "@rowsncolumns/utils";
 
 export type TableSummary = {
@@ -292,15 +293,15 @@ export const sanitizeSpreadsheetAssistantContext = (
   const record = asRecord(value);
   if (!record) return undefined;
 
-  const sheetsRaw = Array.isArray(record.sheets) ? record.sheets : undefined;
+  const sheetsRaw: Sheet[] = Array.isArray(record.sheets) ? record.sheets : [];
   const sheets =
     sheetsRaw?.flatMap((entry) => {
-      const item = asRecord(entry);
+      const item = asRecord(entry) as Sheet;
       if (!item) return [];
       const title = asString(item.title);
       const sheetId = asNumber(item.sheetId);
       if (!title || sheetId === undefined) return [];
-      return [{ title, sheetId }];
+      return [{ ...item, title, sheetId }];
     }) ?? undefined;
 
   const activeCellRaw = asRecord(record.activeCell);
