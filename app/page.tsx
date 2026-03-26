@@ -65,12 +65,12 @@ const workflowSteps = [
   },
   {
     id: "02",
-    title: "Review the execution plan",
-    text: "It proposes the sheets to touch, formulas to generate, formatting rules, and potential risks before running.",
+    title: "Watch the execution plan",
+    text: "See the steps unfold in real time: sheets touched, formulas generated, formatting applied, and progress tracked.",
   },
   {
     id: "03",
-    title: "Approve and hand off",
+    title: "Review and hand off",
     text: "The finished workbook, change log, and reusable workflow are ready for your team in one pass.",
   },
 ];
