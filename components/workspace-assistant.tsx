@@ -284,30 +284,6 @@ const ASSISTANT_CONTEXT_BY_DOCUMENT_ID = new Map<
   SpreadsheetAssistantContext
 >();
 
-type PersistedThreadHistoryMessage = {
-  role: "user" | "assistant" | "system";
-  content:
-    | string
-    | Array<
-        | {
-            type: "text";
-            text: string;
-          }
-        | {
-            type: "reasoning";
-            text: string;
-          }
-        | {
-            type: "tool-call";
-            toolCallId?: string;
-            toolName: string;
-            args?: Record<string, unknown>;
-            result?: unknown;
-            isError?: boolean;
-          }
-      >;
-};
-
 type AssistantSkill = {
   id: string;
   name: string;

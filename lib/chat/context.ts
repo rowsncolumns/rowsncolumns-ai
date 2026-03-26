@@ -125,6 +125,13 @@ IMPORTANT INDEXING RULE:
   }
 
   if (context.viewport) {
+    // Get frozen row/column counts for active sheet
+    const activeSheet = context.sheets?.find(
+      (s) => s.sheetId === context.activeSheetId,
+    );
+    const frozenRowCount = activeSheet?.frozenRowCount ?? 0;
+    const frozenColumnCount = activeSheet?.frozenColumnCount ?? 0;
+
     const viewportA1 = selectionToAddress({
       range: {
         startRowIndex: context.viewport.visibleRowStartIndex,
@@ -133,12 +140,28 @@ IMPORTANT INDEXING RULE:
         endColumnIndex: context.viewport.visibleColumnStopIndex,
       },
     });
+
     if (viewportA1) {
+      // Build viewport description accounting for frozen rows/columns
+      const visibleParts: string[] = [`scrolled area: ${viewportA1}`];
+
+      if (frozenRowCount > 0) {
+        visibleParts.push(`frozen rows: ${frozenRowCount}`);
+      }
+      if (frozenColumnCount > 0) {
+        visibleParts.push(`frozen columns: ${frozenColumnCount}`);
+      }
+
+      const description =
+        frozenRowCount > 0 || frozenColumnCount > 0
+          ? `The user's current visible viewport includes frozen panes and scrolled area`
+          : `The user's current visible viewport (the range of cells currently visible on screen)`;
+
       lines.push(
         instructionLine(
-          `The user's current visible viewport (the range of cells currently visible on screen)
+          `${description}
 `,
-          viewportA1,
+          visibleParts.join(", "),
         ),
       );
     }
