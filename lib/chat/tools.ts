@@ -418,6 +418,10 @@ CRITICAL RULES:
 11. CITATIONS: Use the 'citation' field to track data sources. Citations MUST be accompanied by a 'value' or 'formula'.
     - Format: URL with optional 'excerpt' query param for scroll-to-text highlighting
     - Example: "https://example.com/report.pdf?excerpt=Q3%20revenue%20was%20%2412M"
+12. DISPLAYING RAW FORMULAS AS TEXT: To show a formula as literal text (not evaluated), prefix the value with an apostrophe.
+    - Use the 'value' field (not 'formula') with a leading apostrophe
+    - Example: {"value": "'=SUM(4,4)"} displays the text "=SUM(4,4)" instead of calculating 8
+    - The apostrophe is not displayed in the cell, it just prevents formula evaluation
 
 EXAMPLES:
 
