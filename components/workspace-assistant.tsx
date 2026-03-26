@@ -415,8 +415,9 @@ const useThreadIdFromUrl = () => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const sessionIdFromUrl = searchParams.get("session_id")?.trim() || null;
   const [initialSessionIdOnMount] = React.useState<string | null>(
-    () => searchParams.get("session_id")?.trim() || null,
+    () => sessionIdFromUrl,
   );
   const [threadId, setThreadId] = React.useState(
     () => initialSessionIdOnMount ?? uuidString(),
@@ -475,6 +476,7 @@ const useThreadIdFromUrl = () => {
 
   return {
     initialSessionId: initialSessionIdOnMount,
+    sessionIdFromUrl,
     threadId,
     markThreadStarted,
     startNewThread,
@@ -1221,8 +1223,9 @@ const fetchPersistedThreadHistory = async (
 export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const {
     initialSessionId,
+    sessionIdFromUrl,
     threadId,
-    markThreadStarted,
+    markThreadStarted: markThreadStartedInUrl,
     startNewThread: startNewThreadInUrl,
     selectThread: selectThreadInUrl,
   } = useThreadIdFromUrl();
@@ -1234,6 +1237,9 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const selectedModelRef = React.useRef(selectedModel);
   const reasoningEnabledRef = React.useRef(reasoningEnabled);
   const docIdRef = React.useRef(docId);
+  const pendingLocalSessionIdRef = React.useRef<string | null | undefined>(
+    undefined,
+  );
 
   React.useEffect(() => {
     docIdRef.current = docId;
@@ -1312,6 +1318,11 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     setIsModelPickerOpen(false);
   }, []);
 
+  const markThreadStarted = React.useCallback(() => {
+    pendingLocalSessionIdRef.current = threadId;
+    markThreadStartedInUrl();
+  }, [markThreadStartedInUrl, threadId]);
+
   const chatAdapter = React.useMemo<ChatModelAdapter>(
     () => ({
       async *run({ messages, abortSignal }) {
@@ -1378,6 +1389,9 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const hydrationControllerRef = React.useRef<AbortController | null>(null);
   const hydrationRequestIdRef = React.useRef(0);
   const didRestoreInitialSessionRef = React.useRef(false);
+  const previousSessionIdFromUrlRef = React.useRef<string | null>(
+    initialSessionId,
+  );
 
   const cancelHydration = React.useCallback(() => {
     hydrationControllerRef.current?.abort();
@@ -1449,7 +1463,42 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     void restoreThreadHistory(initialSessionId);
   }, [initialSessionId, restoreThreadHistory]);
 
+  React.useEffect(() => {
+    const previousSessionId = previousSessionIdFromUrlRef.current;
+    if (previousSessionId === sessionIdFromUrl) {
+      return;
+    }
+    previousSessionIdFromUrlRef.current = sessionIdFromUrl;
+
+    if (pendingLocalSessionIdRef.current === sessionIdFromUrl) {
+      pendingLocalSessionIdRef.current = undefined;
+      return;
+    }
+
+    if (sessionIdFromUrl === threadId) {
+      return;
+    }
+
+    cancelHydration();
+
+    if (sessionIdFromUrl) {
+      selectThreadInUrl(sessionIdFromUrl);
+      void restoreThreadHistory(sessionIdFromUrl);
+      return;
+    }
+
+    startNewThreadInUrl();
+  }, [
+    cancelHydration,
+    restoreThreadHistory,
+    selectThreadInUrl,
+    sessionIdFromUrl,
+    startNewThreadInUrl,
+    threadId,
+  ]);
+
   const startNewThread = React.useCallback(() => {
+    pendingLocalSessionIdRef.current = null;
     cancelHydration();
     startNewThreadInUrl();
   }, [cancelHydration, startNewThreadInUrl]);
@@ -1461,6 +1510,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         return;
       }
 
+      pendingLocalSessionIdRef.current = normalizedThreadId;
       cancelHydration();
       selectThreadInUrl(normalizedThreadId);
       await restoreThreadHistory(normalizedThreadId);
