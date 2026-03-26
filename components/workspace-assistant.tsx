@@ -2509,6 +2509,7 @@ export function SheetsInstructions({
   sheets,
   activeSheetId,
   activeCell,
+  viewport,
   cellXfs,
   tables,
   theme,
@@ -2520,6 +2521,12 @@ export function SheetsInstructions({
   sheets?: Sheet[];
   activeSheetId?: number;
   activeCell: CellInterface;
+  viewport?: {
+    startRowIndex: number;
+    endRowIndex: number;
+    startColumnIndex: number;
+    endColumnIndex: number;
+  };
   cellXfs?: CellXfs | null;
   tables?: TableView[] | null;
   theme?: SpreadsheetTheme;
@@ -2626,6 +2633,7 @@ export function SheetsInstructions({
         columnIndex: activeCell.columnIndex,
         a1Address: activeCellA1Address,
       },
+      viewport,
       cellXfs: cellXfs ? Object.fromEntries([...cellXfs]) : {},
       tables: tableSummaries,
       charts: chartSummaries,
@@ -2638,6 +2646,7 @@ export function SheetsInstructions({
       activeCell.rowIndex,
       activeCell.columnIndex,
       activeCellA1Address,
+      viewport,
       cellXfs,
       tableSummaries,
       chartSummaries,

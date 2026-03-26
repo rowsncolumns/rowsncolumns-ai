@@ -1,6 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createSpreadsheetMcpServer } from "@/mcp-server/create-server";
 import { loadEnvironment } from "@/mcp-server/env";
+import { getPostHogClient } from "@/lib/analytics/posthog-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,6 +111,8 @@ const handleMcpRequest = async (request: Request) => {
   } finally {
     await transport.close().catch(() => undefined);
     await server.close().catch(() => undefined);
+    // Flush PostHog events before connection closes
+    await getPostHogClient()?.flush().catch(() => undefined);
   }
 };
 

@@ -29,6 +29,12 @@ export type SpreadsheetAssistantContext = {
     columnIndex: number;
     a1Address?: string | null;
   };
+  viewport?: {
+    startRowIndex: number;
+    endRowIndex: number;
+    startColumnIndex: number;
+    endColumnIndex: number;
+  };
   cellXfs?: Record<string, unknown>;
   tables?: TableSummary[];
   charts?: ChartSummary[];
@@ -50,6 +56,12 @@ type SpreadsheetContextPayloadInput = {
     columnIndex: number;
     a1Address?: string | null;
   } | null;
+  viewport?: {
+    startRowIndex: number;
+    endRowIndex: number;
+    startColumnIndex: number;
+    endColumnIndex: number;
+  };
   cellXfs?: Record<string, unknown> | null;
   tables?: TableSummary[];
   charts?: ChartSummary[];
@@ -105,6 +117,16 @@ IMPORTANT INDEXING RULE:
 - Never interpret rowIndex=1,columnIndex=1 as B2
 `,
         context.activeCell,
+      ),
+    );
+  }
+
+  if (context.viewport) {
+    lines.push(
+      instructionLine(
+        `The user's current visible viewport (the range of cells currently visible on screen)
+`,
+        context.viewport,
       ),
     );
   }
@@ -182,6 +204,7 @@ export const buildSpreadsheetContextPayload = (
           },
         }
       : {}),
+    ...(input.viewport ? { viewport: input.viewport } : {}),
     ...(input.cellXfs ? { cellXfs: input.cellXfs } : {}),
     ...(input.tables && input.tables.length > 0
       ? { tables: input.tables }
@@ -256,6 +279,21 @@ export const sanitizeSpreadsheetAssistantContext = (
         }
       : undefined;
 
+  const viewportRaw = asRecord(record.viewport);
+  const viewport =
+    viewportRaw &&
+    asNumber(viewportRaw.startRowIndex) !== undefined &&
+    asNumber(viewportRaw.endRowIndex) !== undefined &&
+    asNumber(viewportRaw.startColumnIndex) !== undefined &&
+    asNumber(viewportRaw.endColumnIndex) !== undefined
+      ? {
+          startRowIndex: asNumber(viewportRaw.startRowIndex)!,
+          endRowIndex: asNumber(viewportRaw.endRowIndex)!,
+          startColumnIndex: asNumber(viewportRaw.startColumnIndex)!,
+          endColumnIndex: asNumber(viewportRaw.endColumnIndex)!,
+        }
+      : undefined;
+
   const cellXfs = asRecord(record.cellXfs) ?? undefined;
 
   const tablesRaw = Array.isArray(record.tables) ? record.tables : undefined;
@@ -319,6 +357,7 @@ export const sanitizeSpreadsheetAssistantContext = (
     sheets: sheets && sheets.length > 0 ? sheets : undefined,
     activeSheetId: asNumber(record.activeSheetId),
     activeCell,
+    viewport,
     cellXfs,
     tables,
     charts: charts && charts.length > 0 ? charts : undefined,
@@ -330,6 +369,7 @@ export const sanitizeSpreadsheetAssistantContext = (
     !context.sheets &&
     context.activeSheetId === undefined &&
     !context.activeCell &&
+    !context.viewport &&
     !context.cellXfs &&
     !context.tables &&
     !context.charts &&

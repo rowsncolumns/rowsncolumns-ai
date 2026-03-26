@@ -89,6 +89,12 @@ const uiStateByDocId = new Map<
   {
     activeSheetId?: number;
     activeCell?: { rowIndex: number; columnIndex: number };
+    viewport?: {
+      startRowIndex: number;
+      endRowIndex: number;
+      startColumnIndex: number;
+      endColumnIndex: number;
+    };
     selections?: Array<{
       startRowIndex: number;
       endRowIndex: number;
@@ -803,6 +809,7 @@ export const registerSpreadsheetTools = (
             durationMs,
             errorCode,
             inputSize: JSON.stringify(args).length,
+            host: options.uiHost ?? "unknown",
           });
         }
       },
@@ -888,6 +895,7 @@ export const registerSpreadsheetTools = (
       const currencyForContext = uiState?.currency ?? resolveWidgetCurrency();
       const activeCell = uiState?.activeCell ?? null;
       const activeCellA1 = cellToA1(activeCell);
+      const viewport = uiState?.viewport ?? null;
       const themeSummary = buildThemeSummary(
         (data as Record<string, unknown>).theme,
       );
@@ -904,6 +912,7 @@ export const registerSpreadsheetTools = (
                 a1Address: activeCellA1,
               }
             : null,
+          viewport: viewport ?? undefined,
           cellXfs: cellXfsRecord,
           tables,
           charts,
@@ -925,6 +934,7 @@ export const registerSpreadsheetTools = (
               a1Address: activeCellA1,
             }
           : null,
+        viewport,
         selections: uiState?.selections ?? [],
         cellXfs: cellXfsRecord ?? undefined,
         tables,
@@ -984,6 +994,14 @@ export const registerSpreadsheetTools = (
             columnIndex: z.number().int().nonnegative(),
           })
           .optional(),
+        viewport: z
+          .object({
+            startRowIndex: z.number().int().nonnegative(),
+            endRowIndex: z.number().int().nonnegative(),
+            startColumnIndex: z.number().int().nonnegative(),
+            endColumnIndex: z.number().int().nonnegative(),
+          })
+          .optional(),
         selections: z
           .array(
             z.object({
@@ -1018,6 +1036,14 @@ export const registerSpreadsheetTools = (
               columnIndex: z.number().int().nonnegative(),
             })
             .optional(),
+          viewport: z
+            .object({
+              startRowIndex: z.number().int().nonnegative(),
+              endRowIndex: z.number().int().nonnegative(),
+              startColumnIndex: z.number().int().nonnegative(),
+              endColumnIndex: z.number().int().nonnegative(),
+            })
+            .optional(),
           selections: z
             .array(
               z.object({
@@ -1038,6 +1064,7 @@ export const registerSpreadsheetTools = (
           ? { activeSheetId: parsed.activeSheetId }
           : {}),
         ...(parsed.activeCell ? { activeCell: parsed.activeCell } : {}),
+        ...(parsed.viewport ? { viewport: parsed.viewport } : {}),
         ...(parsed.selections ? { selections: parsed.selections } : {}),
         ...(parsed.locale ? { locale: parsed.locale } : {}),
         ...(parsed.currency ? { currency: parsed.currency.toUpperCase() } : {}),

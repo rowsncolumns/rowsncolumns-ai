@@ -49,6 +49,7 @@ type McpToolEvent = {
   errorCode?: string;
   inputSize?: number;
   outputSize?: number;
+  host?: "claude" | "openai" | "unknown";
 };
 
 type McpSessionEvent = {
