@@ -16,6 +16,7 @@
     "mcp:stdio": "tsx mcp-server/index.ts",
     "mcp:http": "tsx mcp-server/http.ts",
     "test:chat:regressions": "tsx scripts/test-chat-regressions.ts",
+    "test:consolidated-tools": "tsx scripts/test-consolidated-tools.ts",
     "test:changebatch:large": "tsx scripts/test-changebatch-large.ts",
     "db:migrate:skills": "tsx scripts/create-skills-table.ts",
     "db:migrate:credits": "tsx scripts/create-credit-tables.ts",

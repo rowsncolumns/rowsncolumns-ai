@@ -684,6 +684,53 @@ export type SpreadsheetDeleteColumnsInput = z.infer<
   typeof SpreadsheetDeleteColumnsSchema
 >;
 
+// Spreadsheet ModifyRowsCols - consolidated insert/delete rows/columns
+export const SpreadsheetModifyRowsColsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  action: z
+    .enum(["insert", "delete"])
+    .describe(
+      "Action to perform: 'insert' to add rows/columns, 'delete' to remove them",
+    ),
+  dimension: z
+    .enum(["row", "column"])
+    .describe("Whether to modify rows or columns"),
+  // For insert
+  index: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "For insert: the 1-based index where rows/columns will be inserted. Required when action is 'insert'.",
+    ),
+  count: z
+    .number()
+    .int()
+    .optional()
+    .default(1)
+    .describe("For insert: number of rows/columns to insert (default: 1)"),
+  // For delete rows
+  indexes: z
+    .array(z.number().int())
+    .optional()
+    .describe(
+      "For delete rows: list of 1-based row indexes to delete (e.g., [1, 3, 5])",
+    ),
+  // For delete columns
+  columns: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "For delete columns: list of column letters to delete (e.g., ['A', 'C', 'AA'])",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetModifyRowsColsInput = z.infer<
+  typeof SpreadsheetModifyRowsColsSchema
+>;
+
 // Table theme - simplified for LLM
 const TableThemeSchema = z
   .enum(["none", "light", "medium", "dark"])
@@ -1381,4 +1428,320 @@ export const SpreadsheetQueryConditionalFormatsSchema = z.object({
 
 export type SpreadsheetQueryConditionalFormatsInput = z.infer<
   typeof SpreadsheetQueryConditionalFormatsSchema
+>;
+
+// ==================== CONSOLIDATED SCHEMAS ====================
+
+// Spreadsheet Table - consolidated create/update/delete
+export const SpreadsheetTableSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID"),
+  action: z
+    .enum(["create", "update", "delete"])
+    .describe("Action to perform on the table"),
+
+  // For create/update - table identification
+  tableId: z
+    .string()
+    .optional()
+    .describe(
+      "The table ID. Required for 'update' and 'delete'. For 'update', provide either tableId or tableName.",
+    ),
+  tableName: z
+    .string()
+    .optional()
+    .describe(
+      "The table name/title. For 'update', can be used instead of tableId.",
+    ),
+
+  // For create
+  range: z
+    .string()
+    .optional()
+    .describe(
+      "For 'create': A1 notation range for the table (e.g., 'A1:D10'). First row becomes headers.",
+    ),
+  title: z
+    .string()
+    .optional()
+    .describe(
+      "For 'create': REQUIRED table name (must be unique per workbook). For 'update': new table name.",
+    ),
+  columns: z
+    .array(TableColumnSchema)
+    .optional()
+    .describe(
+      "Column definitions. Simple: [{ name: 'Price' }]. Calculated: [{ name: 'Total', formula: '=[Price]*[Qty]' }]",
+    ),
+  theme: TableThemeSchema,
+  headerRow: z
+    .boolean()
+    .optional()
+    .describe("Whether the table displays a header row. Default: true."),
+  showRowStripes: z
+    .boolean()
+    .optional()
+    .describe("Whether to show alternating row colors."),
+  showColumnStripes: z
+    .boolean()
+    .optional()
+    .describe("Whether to show alternating column colors."),
+  showFirstColumn: z
+    .boolean()
+    .optional()
+    .describe("Whether to highlight the first column."),
+  showLastColumn: z
+    .boolean()
+    .optional()
+    .describe("Whether to highlight the last column."),
+  filterButton: z
+    .boolean()
+    .optional()
+    .describe("Whether to show filter buttons on column headers."),
+  bandedRange: BandedRangeSchema.nullable().optional(),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetTableInput = z.infer<typeof SpreadsheetTableSchema>;
+
+// Spreadsheet Chart - consolidated create/update/delete
+export const SpreadsheetChartSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("The sheet ID. Required for 'create'."),
+  action: z
+    .enum(["create", "update", "delete"])
+    .describe("Action to perform on the chart"),
+
+  // For update/delete
+  chartId: z
+    .string()
+    .optional()
+    .describe("The chart ID. Required for 'update' and 'delete'."),
+
+  // Chart data
+  domain: z
+    .string()
+    .optional()
+    .describe(
+      "A1 notation range for X-axis categories (e.g., 'A2:A10'). Required for 'create'.",
+    ),
+  series: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Array of A1 notation ranges for data series (e.g., ['B2:B10', 'C2:C10']). Required for 'create'.",
+    ),
+  chartType: ChartTypeSchema.optional().describe(
+    "Chart type. Required for 'create'.",
+  ),
+
+  // Chart options
+  title: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Chart title. Set to null to clear."),
+  subtitle: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Chart subtitle. Set to null to clear."),
+  anchorCell: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Cell where chart's top-left corner is placed (e.g., 'F1')."),
+  width: z.number().int().optional().describe("Chart width in pixels."),
+  height: z.number().int().optional().describe("Chart height in pixels."),
+  stackedType: StackedTypeSchema,
+  xAxisTitle: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Title for horizontal axis."),
+  yAxisTitle: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Title for vertical axis."),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetChartInput = z.infer<typeof SpreadsheetChartSchema>;
+
+// Spreadsheet DataValidation - consolidated create/update/delete/query
+export const SpreadsheetDataValidationSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("The sheet ID. Required for create/update/delete."),
+  action: z
+    .enum(["create", "update", "delete", "query"])
+    .describe("Action to perform"),
+
+  // For update/delete
+  validationId: z
+    .string()
+    .optional()
+    .describe("The validation rule ID. Required for 'update' and 'delete'."),
+
+  // For create/update/query
+  range: z
+    .string()
+    .optional()
+    .describe(
+      "A1 notation range. Required for 'create'. Optional for 'query' to filter by range.",
+    ),
+  validationType: DataValidationTypeSchema.optional().describe(
+    "Type of validation. Required for 'create'.",
+  ),
+
+  // List validation
+  listValues: z
+    .array(z.string())
+    .optional()
+    .describe("For 'list' type: array of allowed values"),
+  listRange: z
+    .string()
+    .optional()
+    .describe("For 'list' type: A1 range reference for dropdown values"),
+
+  // Number validation
+  numberOperator: NumberOperatorSchema,
+  minValue: z.number().optional().describe("For number type: minimum value"),
+  maxValue: z.number().optional().describe("For number type: maximum value"),
+
+  // Date validation
+  dateOperator: DateOperatorSchema,
+  minDate: z.string().optional().describe("For date type: minimum date"),
+  maxDate: z.string().optional().describe("For date type: maximum date"),
+
+  // Custom formula
+  customFormula: z
+    .string()
+    .optional()
+    .describe("For 'custom' type: formula that returns TRUE for valid values"),
+
+  // Common options
+  allowBlank: z.boolean().optional().describe("Allow empty cells"),
+  showDropdown: z
+    .boolean()
+    .optional()
+    .describe("Show dropdown arrow for list validation"),
+  inputTitle: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Title shown when cell is selected"),
+  inputMessage: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Help message shown when cell is selected"),
+  errorStyle: z
+    .enum(["stop", "warning", "information"])
+    .optional()
+    .describe("Error behavior"),
+  errorTitle: z.string().nullable().optional().describe("Error dialog title"),
+  errorMessage: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Error dialog message"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetDataValidationInput = z.infer<
+  typeof SpreadsheetDataValidationSchema
+>;
+
+// Spreadsheet ConditionalFormat - consolidated create/update/delete/query
+export const SpreadsheetConditionalFormatSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("The sheet ID. Required for create/update/delete."),
+  action: z
+    .enum(["create", "update", "delete", "query"])
+    .describe("Action to perform"),
+
+  // For update/delete
+  ruleId: z
+    .string()
+    .optional()
+    .describe(
+      "The conditional format rule ID. Required for 'update' and 'delete'.",
+    ),
+
+  // For create/update/query
+  range: z
+    .string()
+    .optional()
+    .describe(
+      "A1 notation range. Required for 'create'. Optional for 'query' to filter by range.",
+    ),
+  ruleType: ConditionalFormatRuleTypeSchema.optional().describe(
+    "Type of conditional format. Required for 'create'.",
+  ),
+
+  // For "condition" rule type
+  conditionType: ConditionTypeForFormatSchema,
+  conditionValues: z
+    .array(z.union([z.string(), z.number()]))
+    .optional()
+    .describe("Values for condition"),
+  customFormula: z.string().optional().describe("Custom formula"),
+
+  // For "colorScale" rule type
+  colorScaleType: z.enum(["2color", "3color"]).optional(),
+  minColor: z.string().optional().describe("Color for minimum value"),
+  midColor: z.string().optional().describe("Color for midpoint value"),
+  maxColor: z.string().optional().describe("Color for maximum value"),
+
+  // For "topBottom" rule type
+  topBottomType: z.enum(["top", "bottom"]).optional(),
+  rank: z.number().int().optional().describe("Number of items or percentage"),
+  isPercent: z.boolean().optional().describe("If true, rank is percentage"),
+
+  // For "duplicates" rule type
+  duplicateType: z.enum(["duplicate", "unique"]).optional(),
+
+  // Format to apply
+  backgroundColor: z.string().optional().describe("Background color to apply"),
+  textColor: z.string().optional().describe("Text color to apply"),
+  bold: z.boolean().optional().describe("Make text bold"),
+  italic: z.boolean().optional().describe("Make text italic"),
+  enabled: z.boolean().optional().describe("Enable or disable the rule"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetConditionalFormatInput = z.infer<
+  typeof SpreadsheetConditionalFormatSchema
+>;
+
+// Spreadsheet ClearCells - consolidated deleteCells/clearFormatting
+export const SpreadsheetClearCellsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().describe("The sheet ID (1-based)"),
+  ranges: z
+    .array(z.string())
+    .describe("List of A1 notation ranges (e.g., ['A1:B5', 'D3:F10'])"),
+  clear: z
+    .enum(["values", "formatting", "all"])
+    .describe(
+      "'values' to clear cell contents only, 'formatting' to clear formatting only, 'all' to clear both",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetClearCellsInput = z.infer<
+  typeof SpreadsheetClearCellsSchema
 >;

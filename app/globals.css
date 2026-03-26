@@ -450,13 +450,17 @@ body.rnc-dark .hero-grid {
   line-height: 1.6;
 }
 
-.prose > *:first-child {
+.prose > [data-status] {
+  display: contents;
+}
+
+/* .prose > [data-status]:first-child > *:first-child {
   margin-top: 0;
 }
 
-.prose > *:last-child {
+.prose > [data-status]:last-child > *:last-child {
   margin-bottom: 0;
-}
+} */
 
 .prose p {
   margin: 0 0 0.75em 0;

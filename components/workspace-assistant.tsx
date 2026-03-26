@@ -1676,20 +1676,20 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Updated sheet settings",
     failed: "Failed to update sheet settings",
   },
+  spreadsheet_getSheetMetadata: {
+    running: "Reading sheet metadata",
+    success: "Read sheet metadata",
+    failed: "Failed to read sheet metadata",
+  },
   spreadsheet_formatRange: {
     running: "Applying formatting",
     success: "Applied formatting",
     failed: "Failed to apply formatting",
   },
-  spreadsheet_insertRows: {
-    running: "Inserting rows",
-    success: "Inserted rows",
-    failed: "Failed to insert rows",
-  },
-  spreadsheet_insertColumns: {
-    running: "Inserting columns",
-    success: "Inserted columns",
-    failed: "Failed to insert columns",
+  spreadsheet_modifyRowsCols: {
+    running: "Modifying rows/columns",
+    success: "Modified rows/columns",
+    failed: "Failed to modify rows/columns",
   },
   spreadsheet_queryRange: {
     running: "Reading spreadsheet data",
@@ -1706,10 +1706,10 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Read spreadsheet",
     failed: "Failed to spreadsheet",
   },
-  spreadsheet_getRowColDimensions: {
-    running: "Reading row/column dimensions",
-    success: "Read row/column dimensions",
-    failed: "Failed to read row/column dimensions",
+  spreadsheet_getRowColMetadata: {
+    running: "Reading row/column metadata",
+    success: "Read row/column metadata",
+    failed: "Failed to read row/column metadata",
   },
   spreadsheet_setRowColDimensions: {
     running: "Setting row/column dimensions",
@@ -1721,16 +1721,6 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Duplicated sheet",
     failed: "Failed to duplicate sheet",
   },
-  spreadsheet_deleteCells: {
-    running: "Deleting cells",
-    success: "Deleted cells",
-    failed: "Failed to delete cells",
-  },
-  spreadsheet_clearFormatting: {
-    running: "Clearing formatting",
-    success: "Cleared formatting",
-    failed: "Failed to clear formatting",
-  },
   spreadsheet_applyFill: {
     running: "Applying fill",
     success: "Applied fill",
@@ -1741,80 +1731,36 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Inserted note",
     failed: "Failed to insert note",
   },
-  spreadsheet_deleteRows: {
-    running: "Deleting rows",
-    success: "Deleted rows",
-    failed: "Failed to delete rows",
-  },
-  spreadsheet_deleteColumns: {
-    running: "Deleting columns",
-    success: "Deleted columns",
-    failed: "Failed to delete columns",
-  },
-  spreadsheet_createTable: {
-    running: "Creating table",
-    success: "Created table",
-    failed: "Failed to create table",
-  },
-  spreadsheet_updateTable: {
-    running: "Updating table",
-    success: "Updated table",
-    failed: "Failed to update table",
-  },
-  spreadsheet_createChart: {
-    running: "Creating chart",
-    success: "Created chart",
-    failed: "Failed to create chart",
-  },
-  spreadsheet_updateChart: {
-    running: "Updating chart",
-    success: "Updated chart",
-    failed: "Failed to update chart",
-  },
   spreadsheet_deleteSheet: {
     running: "Deleting sheet",
     success: "Deleted sheet",
     failed: "Failed to delete sheet",
   },
-  spreadsheet_deleteChart: {
-    running: "Deleting chart",
-    success: "Deleted chart",
-    failed: "Failed to delete chart",
+  // Consolidated tools
+  spreadsheet_clearCells: {
+    running: "Clearing cells",
+    success: "Cleared cells",
+    failed: "Failed to clear cells",
   },
-  spreadsheet_deleteTable: {
-    running: "Deleting table",
-    success: "Deleted table",
-    failed: "Failed to delete table",
+  spreadsheet_table: {
+    running: "Managing table",
+    success: "Table operation completed",
+    failed: "Failed table operation",
   },
-  spreadsheet_createDataValidation: {
-    running: "Creating data validation",
-    success: "Created data validation",
-    failed: "Failed to create data validation",
+  spreadsheet_chart: {
+    running: "Managing chart",
+    success: "Chart operation completed",
+    failed: "Failed chart operation",
   },
-  spreadsheet_updateDataValidation: {
-    running: "Updating data validation",
-    success: "Updated data validation",
-    failed: "Failed to update data validation",
+  spreadsheet_dataValidation: {
+    running: "Managing data validation",
+    success: "Data validation operation completed",
+    failed: "Failed data validation operation",
   },
-  spreadsheet_deleteDataValidation: {
-    running: "Deleting data validation",
-    success: "Deleted data validation",
-    failed: "Failed to delete data validation",
-  },
-  spreadsheet_createConditionalFormat: {
-    running: "Creating conditional format",
-    success: "Created conditional format",
-    failed: "Failed to create conditional format",
-  },
-  spreadsheet_updateConditionalFormat: {
-    running: "Updating conditional format",
-    success: "Updated conditional format",
-    failed: "Failed to update conditional format",
-  },
-  spreadsheet_deleteConditionalFormat: {
-    running: "Deleting conditional format",
-    success: "Deleted conditional format",
-    failed: "Failed to delete conditional format",
+  spreadsheet_conditionalFormat: {
+    running: "Managing conditional format",
+    success: "Conditional format operation completed",
+    failed: "Failed conditional format operation",
   },
 };
 
@@ -1824,7 +1770,170 @@ const formatToolNameFallback = (toolName: string) =>
     .replace(/_/g, " ")
     .trim();
 
-const getToolCopy = (toolName: string): ToolCopy => {
+// Dynamic copy generators for consolidated tools based on action
+const CONSOLIDATED_TOOL_COPY: Record<
+  string,
+  Record<string, { running: string; success: string; failed: string }>
+> = {
+  spreadsheet_table: {
+    create: {
+      running: "Creating table",
+      success: "Created table",
+      failed: "Failed to create table",
+    },
+    update: {
+      running: "Updating table",
+      success: "Updated table",
+      failed: "Failed to update table",
+    },
+    delete: {
+      running: "Deleting table",
+      success: "Deleted table",
+      failed: "Failed to delete table",
+    },
+  },
+  spreadsheet_chart: {
+    create: {
+      running: "Creating chart",
+      success: "Created chart",
+      failed: "Failed to create chart",
+    },
+    update: {
+      running: "Updating chart",
+      success: "Updated chart",
+      failed: "Failed to update chart",
+    },
+    delete: {
+      running: "Deleting chart",
+      success: "Deleted chart",
+      failed: "Failed to delete chart",
+    },
+  },
+  spreadsheet_dataValidation: {
+    create: {
+      running: "Creating data validation",
+      success: "Created data validation",
+      failed: "Failed to create data validation",
+    },
+    update: {
+      running: "Updating data validation",
+      success: "Updated data validation",
+      failed: "Failed to update data validation",
+    },
+    delete: {
+      running: "Deleting data validation",
+      success: "Deleted data validation",
+      failed: "Failed to delete data validation",
+    },
+    query: {
+      running: "Querying data validations",
+      success: "Queried data validations",
+      failed: "Failed to query data validations",
+    },
+  },
+  spreadsheet_conditionalFormat: {
+    create: {
+      running: "Creating conditional format",
+      success: "Created conditional format",
+      failed: "Failed to create conditional format",
+    },
+    update: {
+      running: "Updating conditional format",
+      success: "Updated conditional format",
+      failed: "Failed to update conditional format",
+    },
+    delete: {
+      running: "Deleting conditional format",
+      success: "Deleted conditional format",
+      failed: "Failed to delete conditional format",
+    },
+    query: {
+      running: "Querying conditional formats",
+      success: "Queried conditional formats",
+      failed: "Failed to query conditional formats",
+    },
+  },
+  spreadsheet_clearCells: {
+    values: {
+      running: "Clearing cell values",
+      success: "Cleared cell values",
+      failed: "Failed to clear cell values",
+    },
+    formatting: {
+      running: "Clearing cell formatting",
+      success: "Cleared cell formatting",
+      failed: "Failed to clear cell formatting",
+    },
+    all: {
+      running: "Clearing cells",
+      success: "Cleared cells",
+      failed: "Failed to clear cells",
+    },
+  },
+  spreadsheet_modifyRowsCols: {
+    insert_row: {
+      running: "Inserting rows",
+      success: "Inserted rows",
+      failed: "Failed to insert rows",
+    },
+    insert_column: {
+      running: "Inserting columns",
+      success: "Inserted columns",
+      failed: "Failed to insert columns",
+    },
+    delete_row: {
+      running: "Deleting rows",
+      success: "Deleted rows",
+      failed: "Failed to delete rows",
+    },
+    delete_column: {
+      running: "Deleting columns",
+      success: "Deleted columns",
+      failed: "Failed to delete columns",
+    },
+  },
+};
+
+const getToolCopy = (
+  toolName: string,
+  parsedArgs?: Record<string, unknown>,
+): ToolCopy => {
+  // Check for consolidated tools with dynamic copy based on action
+  const consolidatedCopy = CONSOLIDATED_TOOL_COPY[toolName];
+  if (consolidatedCopy && parsedArgs) {
+    // Args might be nested under 'input' property
+    const args =
+      typeof parsedArgs.input === "object" && parsedArgs.input !== null
+        ? (parsedArgs.input as Record<string, unknown>)
+        : parsedArgs;
+
+    // For spreadsheet_clearCells, use the 'clear' field
+    if (toolName === "spreadsheet_clearCells") {
+      const clear = args.clear as string | undefined;
+      if (clear && consolidatedCopy[clear]) {
+        return consolidatedCopy[clear];
+      }
+    }
+    // For spreadsheet_modifyRowsCols, combine action + dimension
+    else if (toolName === "spreadsheet_modifyRowsCols") {
+      const action = args.action as string | undefined;
+      const dimension = args.dimension as string | undefined;
+      if (action && dimension) {
+        const key = `${action}_${dimension}`;
+        if (consolidatedCopy[key]) {
+          return consolidatedCopy[key];
+        }
+      }
+    }
+    // For other consolidated tools, use 'action' field
+    else {
+      const action = args.action as string | undefined;
+      if (action && consolidatedCopy[action]) {
+        return consolidatedCopy[action];
+      }
+    }
+  }
+
   const mapped = TOOL_UI_COPY[toolName];
   if (mapped) {
     return mapped;
@@ -1947,13 +2056,16 @@ function ToolCallDisplay({
   const errorMessage = extractedResult?.error;
   const isComplete = hasResult && !isError;
   const isRunning = !hasResult;
-  const toolCopy = React.useMemo(() => getToolCopy(toolName), [toolName]);
+  const parsedArgs = React.useMemo(() => deepParseJsonValue(args), [args]);
+  const toolCopy = React.useMemo(
+    () => getToolCopy(toolName, parsedArgs as Record<string, unknown>),
+    [toolName, parsedArgs],
+  );
   const titleText = isRunning
     ? toolCopy.running
     : isError
       ? toolCopy.failed
       : toolCopy.success;
-  const parsedArgs = React.useMemo(() => deepParseJsonValue(args), [args]);
   const rangeFromArgs = getRangeFromParsedToolArgs(parsedArgs);
   const rangeFromResult =
     typeof extractedResult?.range === "string" ? extractedResult.range : null;
@@ -2222,34 +2334,24 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_changeBatch",
   "spreadsheet_createSheet",
   "spreadsheet_updateSheet",
+  "spreadsheet_getSheetMetadata",
   "spreadsheet_formatRange",
-  "spreadsheet_insertRows",
-  "spreadsheet_insertColumns",
+  "spreadsheet_modifyRowsCols",
   "spreadsheet_queryRange",
   "spreadsheet_setIterativeMode",
   "spreadsheet_readDocument",
-  "spreadsheet_getRowColDimensions",
+  "spreadsheet_getRowColMetadata",
   "spreadsheet_setRowColDimensions",
   "spreadsheet_duplicateSheet",
-  "spreadsheet_deleteCells",
-  "spreadsheet_clearFormatting",
   "spreadsheet_applyFill",
   "spreadsheet_insertNote",
-  "spreadsheet_deleteRows",
-  "spreadsheet_deleteColumns",
-  "spreadsheet_createTable",
-  "spreadsheet_updateTable",
-  "spreadsheet_createChart",
-  "spreadsheet_updateChart",
   "spreadsheet_deleteSheet",
-  "spreadsheet_deleteChart",
-  "spreadsheet_deleteTable",
-  "spreadsheet_createDataValidation",
-  "spreadsheet_updateDataValidation",
-  "spreadsheet_deleteDataValidation",
-  "spreadsheet_createConditionalFormat",
-  "spreadsheet_updateConditionalFormat",
-  "spreadsheet_deleteConditionalFormat",
+  // Consolidated tools
+  "spreadsheet_clearCells",
+  "spreadsheet_table",
+  "spreadsheet_chart",
+  "spreadsheet_dataValidation",
+  "spreadsheet_conditionalFormat",
 ] as const;
 
 function SpreadsheetToolUIRegistration({

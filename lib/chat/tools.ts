@@ -29,26 +29,16 @@ import {
   SpreadsheetApplyFillSchema,
   type SpreadsheetChangeBatchInput,
   SpreadsheetChangeBatchSchema,
-  type SpreadsheetClearFormattingInput,
-  SpreadsheetClearFormattingSchema,
   type SpreadsheetCreateSheetInput,
   SpreadsheetCreateSheetSchema,
-  type SpreadsheetDeleteCellsInput,
-  SpreadsheetDeleteCellsSchema,
-  type SpreadsheetDeleteColumnsInput,
-  SpreadsheetDeleteColumnsSchema,
-  type SpreadsheetDeleteRowsInput,
-  SpreadsheetDeleteRowsSchema,
   type SpreadsheetDuplicateSheetInput,
   SpreadsheetDuplicateSheetSchema,
   type SpreadsheetFormatRangeInput,
   SpreadsheetFormatRangeSchema,
-  type SpreadsheetInsertColumnsInput,
-  SpreadsheetInsertColumnsSchema,
   type SpreadsheetInsertNoteInput,
   SpreadsheetInsertNoteSchema,
-  type SpreadsheetInsertRowsInput,
-  SpreadsheetInsertRowsSchema,
+  type SpreadsheetModifyRowsColsInput,
+  SpreadsheetModifyRowsColsSchema,
   type SpreadsheetQueryRangeInput,
   SpreadsheetQueryRangeSchema,
   type SpreadsheetSetIterativeModeInput,
@@ -63,36 +53,36 @@ import {
   SpreadsheetGetRowColMetadataSchema,
   type SpreadsheetSetRowColDimensionsInput,
   SpreadsheetSetRowColDimensionsSchema,
-  type SpreadsheetCreateTableInput,
-  SpreadsheetCreateTableSchema,
-  type SpreadsheetUpdateTableInput,
-  SpreadsheetUpdateTableSchema,
-  type SpreadsheetCreateChartInput,
-  SpreadsheetCreateChartSchema,
-  type SpreadsheetUpdateChartInput,
-  SpreadsheetUpdateChartSchema,
   type SpreadsheetDeleteSheetInput,
   SpreadsheetDeleteSheetSchema,
-  type SpreadsheetDeleteChartInput,
-  SpreadsheetDeleteChartSchema,
+  // Consolidated schemas
+  type SpreadsheetTableInput,
+  SpreadsheetTableSchema,
+  type SpreadsheetChartInput,
+  SpreadsheetChartSchema,
+  type SpreadsheetDataValidationInput,
+  SpreadsheetDataValidationSchema,
+  type SpreadsheetConditionalFormatInput,
+  SpreadsheetConditionalFormatSchema,
+  type SpreadsheetClearCellsInput,
+  SpreadsheetClearCellsSchema,
+  // Legacy schemas kept for internal use
+  type SpreadsheetCreateTableInput,
+  type SpreadsheetUpdateTableInput,
   type SpreadsheetDeleteTableInput,
-  SpreadsheetDeleteTableSchema,
+  type SpreadsheetCreateChartInput,
+  type SpreadsheetUpdateChartInput,
+  type SpreadsheetDeleteChartInput,
   type SpreadsheetCreateDataValidationInput,
-  SpreadsheetCreateDataValidationSchema,
   type SpreadsheetUpdateDataValidationInput,
-  SpreadsheetUpdateDataValidationSchema,
   type SpreadsheetDeleteDataValidationInput,
-  SpreadsheetDeleteDataValidationSchema,
   type SpreadsheetCreateConditionalFormatInput,
-  SpreadsheetCreateConditionalFormatSchema,
   type SpreadsheetUpdateConditionalFormatInput,
-  SpreadsheetUpdateConditionalFormatSchema,
   type SpreadsheetDeleteConditionalFormatInput,
-  SpreadsheetDeleteConditionalFormatSchema,
   type SpreadsheetQueryDataValidationsInput,
-  SpreadsheetQueryDataValidationsSchema,
   type SpreadsheetQueryConditionalFormatsInput,
-  SpreadsheetQueryConditionalFormatsSchema,
+  type SpreadsheetDeleteCellsInput,
+  type SpreadsheetClearFormattingInput,
 } from "./models";
 import {
   cellsToCitations,
@@ -1513,127 +1503,65 @@ Example 3 — Format range with mixed styles (A1:B3):
 });
 
 /**
- * Handler for the spreadsheet_insertRows tool
+ * Handler for the spreadsheet_modifyRowsCols tool
+ * Consolidated tool for inserting/deleting rows and columns
  */
-const handleSpreadsheetInsertRows = async (
-  input: SpreadsheetInsertRowsInput,
+const handleSpreadsheetModifyRowsCols = async (
+  input: SpreadsheetModifyRowsColsInput,
 ): Promise<string> => {
   const {
     docId,
     sheetId: inputSheetId,
-    referenceRowIndex,
-    numRows = 1,
+    action,
+    dimension,
+    index,
+    count = 1,
+    indexes,
+    columns,
   } = input;
 
   if (!docId) {
     return JSON.stringify({
       success: false,
-      error: "docId is required to modify the spreadsheet",
+      error: "docId is required",
     });
   }
 
   const sheetId = inputSheetId ?? 1;
 
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_insertRows] Starting:", {
-      docId,
-      sheetId,
-      referenceRowIndex,
-      numRows,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return JSON.stringify({
-            success: false,
-            error: "Document has no data",
-          });
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Insert rows
-        spreadsheet.insertRow(sheetId, referenceRowIndex, numRows);
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_insertRows] Completed:", {
-          docId,
-          sheetId,
-          referenceRowIndex,
-          numRows,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully inserted ${numRows} row(s) at row index ${referenceRowIndex}`,
-          referenceRowIndex,
-          numRows,
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_insertRows] Error:", error);
-
+  // Validate parameters based on action
+  if (action === "insert") {
+    if (index === undefined) {
       return JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to insert rows",
+        error: "index is required for insert action",
       });
     }
-  });
-};
-
-/**
- * The spreadsheet_insertRows tool for LangChain
- */
-export const spreadsheetInsertRowsTool = tool(handleSpreadsheetInsertRows, {
-  name: "spreadsheet_insertRows",
-  description: `Inserts empty rows into a spreadsheet sheet or table.
-
-Args:
-  docId: The ID of the spreadsheet
-  sheetId: The sheet ID (default: 1)
-  referenceRowIndex: The 1-based starting row index where the row is being inserted. If user is inserting row after an index, then referenceRowIndex is the next row index.
-  numRows: Number of rows to insert (default: 1)`,
-  schema: SpreadsheetInsertRowsSchema,
-});
-
-/**
- * Handler for the spreadsheet_insertColumns tool
- */
-const handleSpreadsheetInsertColumns = async (
-  input: SpreadsheetInsertColumnsInput,
-): Promise<string> => {
-  const {
-    docId,
-    sheetId: inputSheetId,
-    referenceColumnIndex,
-    numColumns = 1,
-  } = input;
-
-  if (!docId) {
-    return JSON.stringify({
-      success: false,
-      error: "docId is required to modify the spreadsheet",
-    });
+  } else if (action === "delete") {
+    if (dimension === "row" && (!indexes || indexes.length === 0)) {
+      return JSON.stringify({
+        success: false,
+        error: "indexes is required for deleting rows",
+      });
+    }
+    if (dimension === "column" && (!columns || columns.length === 0)) {
+      return JSON.stringify({
+        success: false,
+        error: "columns is required for deleting columns",
+      });
+    }
   }
 
-  const sheetId = inputSheetId ?? 1;
-
   return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_insertColumns] Starting:", {
+    console.log("[spreadsheet_modifyRowsCols] Starting:", {
       docId,
       sheetId,
-      referenceColumnIndex,
-      numColumns,
+      action,
+      dimension,
+      index,
+      count,
+      indexes,
+      columns,
     });
 
     try {
@@ -1650,57 +1578,111 @@ const handleSpreadsheetInsertColumns = async (
         }
 
         const spreadsheet = createSpreadsheetInterface(data);
+        let message = "";
 
-        // Insert columns
-        spreadsheet.insertColumn(sheetId, referenceColumnIndex, numColumns);
+        if (action === "insert") {
+          if (dimension === "row") {
+            spreadsheet.insertRow(sheetId, index!, count);
+            message = `Successfully inserted ${count} row(s) at row ${index}`;
+          } else {
+            spreadsheet.insertColumn(sheetId, index!, count);
+            message = `Successfully inserted ${count} column(s) at column ${index}`;
+          }
+        } else {
+          // delete
+          if (dimension === "row") {
+            spreadsheet.deleteRow(sheetId, indexes!);
+            message = `Successfully deleted ${indexes!.length} row(s)`;
+          } else {
+            // Convert column letters to indexes
+            const columnIndexes = columns!.map((col) => alpha2number(col));
+            spreadsheet.deleteColumn(sheetId, columnIndexes);
+            message = `Successfully deleted ${columns!.length} column(s): ${columns!.join(", ")}`;
+          }
+        }
+
+        // Evaluate formulas if deleting
+        if (action === "delete") {
+          await evaluateFormulas(sheetId, spreadsheet);
+        }
 
         // Persist changes
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
-        console.log("[spreadsheet_insertColumns] Completed:", {
+        console.log("[spreadsheet_modifyRowsCols] Completed:", {
           docId,
           sheetId,
-          referenceColumnIndex,
-          numColumns,
+          action,
+          dimension,
           patchCount: patchTuples.length,
         });
 
         return JSON.stringify({
           success: true,
-          message: `Successfully inserted ${numColumns} column(s) at column index ${referenceColumnIndex}`,
-          referenceColumnIndex,
-          numColumns,
+          message,
+          action,
+          dimension,
         });
       } finally {
         close();
       }
     } catch (error) {
-      console.error("[spreadsheet_insertColumns] Error:", error);
+      console.error("[spreadsheet_modifyRowsCols] Error:", error);
 
       return JSON.stringify({
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to insert columns",
+          error instanceof Error
+            ? error.message
+            : "Failed to modify rows/columns",
       });
     }
   });
 };
 
 /**
- * The spreadsheet_insertColumns tool for LangChain
+ * The spreadsheet_modifyRowsCols tool for LangChain
  */
-export const spreadsheetInsertColumnsTool = tool(
-  handleSpreadsheetInsertColumns,
+export const spreadsheetModifyRowsColsTool = tool(
+  handleSpreadsheetModifyRowsCols,
   {
-    name: "spreadsheet_insertColumns",
-    description: `Inserts empty columns into a spreadsheet sheet or table.
+    name: "spreadsheet_modifyRowsCols",
+    description: `Insert or delete rows/columns in a spreadsheet.
 
-Args:
-  docId: The ID of the spreadsheet
-  sheetId: The sheet ID (default: 1)
-  referenceColumnIndex: the 1-based starting column index where the column is being inserted.
-  numColumns: Number of columns to insert (default: 1)`,
-    schema: SpreadsheetInsertColumnsSchema,
+OVERVIEW:
+Consolidated tool to insert or delete rows and columns. Use this instead of separate insert/delete tools.
+
+PARAMETERS:
+- action: "insert" or "delete"
+- dimension: "row" or "column"
+- For insert: provide index (where to insert) and count (how many, default 1)
+- For delete rows: provide indexes array of row numbers [1, 3, 5]
+- For delete columns: provide columns array of letters ["A", "C", "AA"]
+
+EXAMPLES:
+
+Example 1 — Insert 3 rows at row 5:
+  action: "insert"
+  dimension: "row"
+  index: 5
+  count: 3
+
+Example 2 — Insert 2 columns at column B (index 2):
+  action: "insert"
+  dimension: "column"
+  index: 2
+  count: 2
+
+Example 3 — Delete rows 1, 3, and 5:
+  action: "delete"
+  dimension: "row"
+  indexes: [1, 3, 5]
+
+Example 4 — Delete columns A and C:
+  action: "delete"
+  dimension: "column"
+  columns: ["A", "C"]`,
+    schema: SpreadsheetModifyRowsColsSchema,
   },
 );
 
@@ -3089,326 +3071,6 @@ Example 2 — Duplicate a specific sheet with a specific new ID:
 );
 
 /**
- * Handler for the spreadsheet_deleteCells tool
- * Deletes (clears) cell contents in multiple ranges
- */
-const handleSpreadsheetDeleteCells = async (
-  input: SpreadsheetDeleteCellsInput,
-): Promise<string> => {
-  const { docId, sheetId: inputSheetId, ranges } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to delete cells", {
-      field: "docId",
-    });
-  }
-
-  if (!ranges || ranges.length === 0) {
-    return failTool(
-      "MISSING_RANGES",
-      "At least one range is required to delete cells",
-      { field: "ranges" },
-    );
-  }
-
-  const sheetId = inputSheetId ?? 1;
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteCells] Starting:", {
-      docId,
-      sheetId,
-      itemCount: ranges.length,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Convert A1 ranges to selections and delete each
-        const deletedRanges: string[] = [];
-        const errors: Array<{ range: string; error: string }> = [];
-
-        for (const rangeStr of ranges) {
-          try {
-            const selection = addressToSelection(rangeStr);
-
-            if (!selection?.range) {
-              errors.push({
-                range: rangeStr,
-                error: `Invalid range: ${rangeStr}`,
-              });
-              continue;
-            }
-
-            // Create activeCell from the start of the selection
-            const activeCell = {
-              rowIndex: selection.range.startRowIndex,
-              columnIndex: selection.range.startColumnIndex,
-            };
-
-            // Create selections array with the range
-            const selections: SelectionArea[] = [{ range: selection.range }];
-
-            // Delete cells
-            spreadsheet.deleteCells(sheetId, activeCell, selections);
-            deletedRanges.push(rangeStr);
-          } catch (itemError) {
-            errors.push({
-              range: rangeStr,
-              error:
-                itemError instanceof Error
-                  ? itemError.message
-                  : "Failed to delete range",
-            });
-          }
-        }
-
-        // Evaluate formulas
-        const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_deleteCells] Completed:", {
-          docId,
-          sheetId,
-          deletedCount: deletedRanges.length,
-          errorCount: errors.length,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully deleted ${deletedRanges.length} range(s)`,
-          deletedRanges,
-          formulaResults,
-          ...(errors.length > 0 ? { errors } : {}),
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_deleteCells] Error:", error);
-
-      return failTool(
-        "DELETE_CELLS_FAILED",
-        error instanceof Error ? error.message : "Failed to delete cells",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_deleteCells tool for LangChain
- */
-export const spreadsheetDeleteCellsTool = tool(handleSpreadsheetDeleteCells, {
-  name: "spreadsheet_deleteCells",
-  description: `Delete (clear) cell contents in multiple ranges within a sheet.
-
-OVERVIEW:
-This tool clears the contents of cells in the specified ranges. It removes values and formulas from cells but does not delete rows or columns.
-
-WHEN TO USE THIS TOOL:
-- Clearing data from specific cell ranges
-- Removing values before writing new data
-- Cleaning up sections of a spreadsheet
-
-IMPORTANT:
-- All indices are 1-based
-- This clears cell contents, not the cells themselves (use delete rows/columns for structural changes)
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based, default: 1)
-- ranges: List of A1 notation ranges to delete (e.g., ['A1:B5', 'D3:F10'])
-
-EXAMPLES:
-
-Example 1 — Delete a single range:
-  docId: "abc123"
-  sheetId: 1
-  ranges: ["A1:C10"]
-
-Example 2 — Delete multiple ranges:
-  docId: "abc123"
-  sheetId: 1
-  ranges: ["A1:B5", "D3:F10", "H1:H20"]
-
-Example 3 — Delete a single cell:
-  docId: "abc123"
-  ranges: ["B5"]`,
-  schema: SpreadsheetDeleteCellsSchema,
-});
-
-/**
- * Handler for the spreadsheet_clearFormatting tool
- * Clears formatting from multiple cell ranges while preserving values
- */
-const handleSpreadsheetClearFormatting = async (
-  input: SpreadsheetClearFormattingInput,
-): Promise<string> => {
-  const { docId, sheetId: inputSheetId, ranges } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to clear formatting", {
-      field: "docId",
-    });
-  }
-
-  if (!ranges || ranges.length === 0) {
-    return failTool(
-      "MISSING_RANGES",
-      "At least one range is required to clear formatting",
-      { field: "ranges" },
-    );
-  }
-
-  const sheetId = inputSheetId ?? 1;
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_clearFormatting] Starting:", {
-      docId,
-      sheetId,
-      rangeCount: ranges.length,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Convert A1 ranges to selections and clear formatting for each
-        const clearedRanges: string[] = [];
-        const errors: Array<{ range: string; error: string }> = [];
-
-        for (const rangeStr of ranges) {
-          try {
-            const selection = addressToSelection(rangeStr);
-
-            if (!selection?.range) {
-              errors.push({
-                range: rangeStr,
-                error: `Invalid range: ${rangeStr}`,
-              });
-              continue;
-            }
-
-            // Create activeCell from the start of the selection
-            const activeCell = {
-              rowIndex: selection.range.startRowIndex,
-              columnIndex: selection.range.startColumnIndex,
-            };
-
-            // Create selections array with the range
-            const selections = [{ range: selection.range }];
-
-            // Clear formatting
-            spreadsheet.clearFormatting(sheetId, activeCell, selections);
-            clearedRanges.push(rangeStr);
-          } catch (itemError) {
-            errors.push({
-              range: rangeStr,
-              error:
-                itemError instanceof Error
-                  ? itemError.message
-                  : "Failed to clear formatting",
-            });
-          }
-        }
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_clearFormatting] Completed:", {
-          docId,
-          sheetId,
-          clearedCount: clearedRanges.length,
-          errorCount: errors.length,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully cleared formatting from ${clearedRanges.length} range(s)`,
-          clearedRanges,
-          ...(errors.length > 0 ? { errors } : {}),
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_clearFormatting] Error:", error);
-
-      return failTool(
-        "CLEAR_FORMATTING_FAILED",
-        error instanceof Error ? error.message : "Failed to clear formatting",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_clearFormatting tool for LangChain
- */
-export const spreadsheetClearFormattingTool = tool(
-  handleSpreadsheetClearFormatting,
-  {
-    name: "spreadsheet_clearFormatting",
-    description: `Clear formatting from multiple cell ranges within a sheet.
-
-OVERVIEW:
-This tool removes all visual formatting (colors, borders, fonts, number formats, etc.) from the specified ranges while preserving cell values and formulas.
-
-WHEN TO USE THIS TOOL:
-- Removing unwanted formatting from cells
-- Resetting cells to default appearance
-- Cleaning up imported data that has inconsistent formatting
-- Preparing cells before applying new uniform formatting
-
-IMPORTANT:
-- All indices are 1-based
-- Cell values and formulas are preserved - only visual formatting is removed
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based, default: 1)
-- ranges: List of A1 notation ranges to clear formatting from (e.g., ['A1:B5', 'D3:F10'])
-
-EXAMPLES:
-
-Example 1 — Clear formatting from a single range:
-  docId: "abc123"
-  sheetId: 1
-  ranges: ["A1:C10"]
-
-Example 2 — Clear formatting from multiple ranges:
-  docId: "abc123"
-  sheetId: 1
-  ranges: ["A1:B5", "D3:F10", "H1:H20"]
-
-Example 3 — Clear formatting from entire columns:
-  docId: "abc123"
-  ranges: ["A:C"]`,
-    schema: SpreadsheetClearFormattingSchema,
-  },
-);
-
-/**
  * Handler for the spreadsheet_applyFill tool
  * Applies Excel-style fill operation to extend data patterns
  */
@@ -3750,1138 +3412,6 @@ Example 3 — Remove a note from a cell:
 });
 
 /**
- * Handler for the spreadsheet_deleteRows tool
- * Deletes rows from a spreadsheet
- */
-const handleSpreadsheetDeleteRows = async (
-  input: SpreadsheetDeleteRowsInput,
-): Promise<string> => {
-  const { docId, sheetId: inputSheetId, rowIndexes } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to delete rows", {
-      field: "docId",
-    });
-  }
-
-  if (!rowIndexes || rowIndexes.length === 0) {
-    return failTool(
-      "MISSING_ROW_INDEXES",
-      "At least one row index is required",
-      { field: "rowIndexes" },
-    );
-  }
-
-  const sheetId = inputSheetId ?? 1;
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteRows] Starting:", {
-      docId,
-      sheetId,
-      rowIndexes,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Delete rows
-        spreadsheet.deleteRow(sheetId, rowIndexes);
-
-        // Evaluate formulas
-        const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_deleteRows] Completed:", {
-          docId,
-          sheetId,
-          rowIndexes,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully deleted ${rowIndexes.length} row(s)`,
-          deletedRows: rowIndexes,
-          formulaResults,
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_deleteRows] Error:", error);
-
-      return failTool(
-        "DELETE_ROWS_FAILED",
-        error instanceof Error ? error.message : "Failed to delete rows",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_deleteRows tool for LangChain
- */
-export const spreadsheetDeleteRowsTool = tool(handleSpreadsheetDeleteRows, {
-  name: "spreadsheet_deleteRows",
-  description: `Delete rows from a spreadsheet.
-
-OVERVIEW:
-This tool removes entire rows from a sheet. All data in the specified rows will be deleted, and rows below will shift up.
-
-WHEN TO USE THIS TOOL:
-- Removing unwanted data rows
-- Cleaning up empty rows
-- Deleting multiple rows at once
-
-IMPORTANT:
-- All indices are 1-based (row 1 is the first row)
-- Deleting rows will shift all rows below upward
-- This is a destructive operation - data cannot be recovered
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based, default: 1)
-- rowIndexes: Array of 1-based row indexes to delete (e.g., [1, 3, 5])
-
-EXAMPLES:
-
-Example 1 — Delete a single row:
-  docId: "abc123"
-  sheetId: 1
-  rowIndexes: [5]
-
-Example 2 — Delete multiple rows:
-  docId: "abc123"
-  sheetId: 1
-  rowIndexes: [2, 4, 6, 8]
-
-Example 3 — Delete a range of consecutive rows (rows 10-15):
-  docId: "abc123"
-  rowIndexes: [10, 11, 12, 13, 14, 15]`,
-  schema: SpreadsheetDeleteRowsSchema,
-});
-
-/**
- * Handler for the spreadsheet_deleteColumns tool
- * Deletes columns from a spreadsheet
- */
-const handleSpreadsheetDeleteColumns = async (
-  input: SpreadsheetDeleteColumnsInput,
-): Promise<string> => {
-  const { docId, sheetId: inputSheetId, columnIndexes } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to delete columns", {
-      field: "docId",
-    });
-  }
-
-  if (!columnIndexes || columnIndexes.length === 0) {
-    return failTool(
-      "MISSING_COLUMN_INDEXES",
-      "At least one column index is required",
-      { field: "columnIndexes" },
-    );
-  }
-
-  const sheetId = inputSheetId ?? 1;
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteColumns] Starting:", {
-      docId,
-      sheetId,
-      columnIndexes,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Delete columns
-        spreadsheet.deleteColumn(sheetId, columnIndexes);
-
-        // Evaluate formulas
-        const formulaResults = await evaluateFormulas(sheetId, spreadsheet);
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_deleteColumns] Completed:", {
-          docId,
-          sheetId,
-          columnIndexes,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully deleted ${columnIndexes.length} column(s)`,
-          deletedColumns: columnIndexes,
-          formulaResults,
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_deleteColumns] Error:", error);
-
-      return failTool(
-        "DELETE_COLUMNS_FAILED",
-        error instanceof Error ? error.message : "Failed to delete columns",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_deleteColumns tool for LangChain
- */
-export const spreadsheetDeleteColumnsTool = tool(
-  handleSpreadsheetDeleteColumns,
-  {
-    name: "spreadsheet_deleteColumns",
-    description: `Delete columns from a spreadsheet.
-
-OVERVIEW:
-This tool removes entire columns from a sheet. All data in the specified columns will be deleted, and columns to the right will shift left.
-
-WHEN TO USE THIS TOOL:
-- Removing unwanted data columns
-- Cleaning up empty columns
-- Deleting multiple columns at once
-
-IMPORTANT:
-- All indices are 1-based (A=1, B=2, C=3, etc.)
-- Deleting columns will shift all columns to the right leftward
-- This is a destructive operation - data cannot be recovered
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based, default: 1)
-- columnIndexes: Array of 1-based column indexes to delete (A=1, B=2, C=3, etc.)
-
-EXAMPLES:
-
-Example 1 — Delete column A:
-  docId: "abc123"
-  sheetId: 1
-  columnIndexes: [1]
-
-Example 2 — Delete columns B and D:
-  docId: "abc123"
-  sheetId: 1
-  columnIndexes: [2, 4]
-
-Example 3 — Delete columns A through C:
-  docId: "abc123"
-  columnIndexes: [1, 2, 3]`,
-    schema: SpreadsheetDeleteColumnsSchema,
-  },
-);
-
-/**
- * Map simplified theme to actual TableTheme value
- */
-const mapTableTheme = (
-  theme: "none" | "light" | "medium" | "dark" | undefined,
-): TableTheme | undefined => {
-  switch (theme) {
-    case "none":
-      return "None";
-    case "light":
-      return "TableStyleLight9";
-    case "medium":
-      return "TableStyleMedium2";
-    case "dark":
-      return "TableStyleDark1";
-    default:
-      return undefined;
-  }
-};
-
-/**
- * Handler for the spreadsheet_createTable tool
- */
-const handleSpreadsheetCreateTable = async (
-  input: SpreadsheetCreateTableInput,
-): Promise<string> => {
-  const {
-    docId,
-    sheetId,
-    range,
-    title,
-    columns,
-    theme,
-    bandedRange,
-    ...options
-  } = input;
-
-  // Create table ID
-  const tableId = uuidString();
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to create a table", {
-      field: "docId",
-    });
-  }
-
-  if (!title || title.trim().length === 0) {
-    return failTool("MISSING_TITLE", "title is required for creating a table", {
-      field: "title",
-    });
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_createTable] Starting:", {
-      docId,
-      sheetId,
-      range,
-      title,
-    });
-
-    try {
-      const selection = addressToSelection(range);
-      if (!selection?.range) {
-        return failTool("INVALID_RANGE", `Invalid range: ${range}`, { range });
-      }
-
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Build table spec
-        const tableSpec = {
-          id: tableId,
-          title,
-          sheetId,
-          columns: columns.map((col) => ({
-            name: col.name,
-            ...(col.formula ? { formula: col.formula } : {}),
-            ...(col.filterButton !== undefined
-              ? { filterButton: col.filterButton }
-              : {}),
-          })),
-          ...options,
-          ...(bandedRange ? { bandedRange } : {}),
-        };
-
-        // Map simplified theme to actual theme
-        const mappedTheme = mapTableTheme(theme);
-
-        // Create the table
-        const activeCell = {
-          rowIndex: selection.range.startRowIndex,
-          columnIndex: selection.range.startColumnIndex,
-        };
-        const selections: SelectionArea[] = [{ range: selection.range }];
-
-        spreadsheet.createTable(
-          sheetId,
-          activeCell,
-          selections,
-          tableSpec as Partial<TableView>,
-          mappedTheme as TableTheme | undefined,
-          bandedRange as BandedDefinition | undefined,
-        );
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_createTable] Completed:", {
-          docId,
-          title,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully created table "${title}" at ${range}`,
-          tableName: title,
-          tableId,
-          range,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_createTable] Error:", error);
-      return failTool(
-        "CREATE_TABLE_FAILED",
-        error instanceof Error ? error.message : "Failed to create table",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_createTable tool for LangChain
- */
-export const spreadsheetCreateTableTool = tool(handleSpreadsheetCreateTable, {
-  name: "spreadsheet_createTable",
-  description: `Create a formatted table from a range of cells.
-
-OVERVIEW:
-This tool converts a cell range into a structured table with headers, optional styling, and filtering capabilities. Tables support structured references in formulas (e.g., TableName[Column]).
-
-WHEN TO USE THIS TOOL:
-- Converting raw data into a formatted table
-- Adding filter buttons to column headers
-- Applying alternating row colors (banding)
-- Creating calculated columns with formulas
-
-IMPORTANT:
-- The first row of the range becomes the header row
-- Table names must be unique within the workbook
-- When showRowStripes is true, you MUST also provide bandedRange
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- range: A1 notation range (e.g., 'A1:D10')
-- title: Table name (required, must be unique)
-- columns: Column definitions with name, optional formula, optional filterButton
-- theme: 'none', 'light', 'medium', or 'dark'
-- headerRow: Whether to show header row (default: true)
-- totalRow: Whether to show totals row (default: false)
-- showRowStripes: Enable alternating row colors (requires bandedRange)
-- bandedRange: Color definitions for row/column banding
-
-EXAMPLES:
-
-Example 1 — Simple table:
-  docId: "abc123"
-  sheetId: 1
-  range: "A1:C10"
-  title: "SalesData"
-  columns: [{ name: "Product" }, { name: "Price" }, { name: "Quantity" }]
-
-Example 2 — Table with calculated column:
-  docId: "abc123"
-  sheetId: 1
-  range: "A1:D10"
-  title: "Invoice"
-  columns: [
-    { name: "Item" },
-    { name: "Price" },
-    { name: "Qty" },
-    { name: "Total", formula: "=[Price]*[Qty]" }
-  ]
-  theme: "medium"`,
-  schema: SpreadsheetCreateTableSchema,
-});
-
-/**
- * Handler for the spreadsheet_updateTable tool
- */
-const handleSpreadsheetUpdateTable = async (
-  input: SpreadsheetUpdateTableInput,
-): Promise<string> => {
-  const {
-    docId,
-    sheetId,
-    tableId,
-    tableName,
-    theme,
-    columns,
-    bandedRange,
-    ...updates
-  } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to update a table", {
-      field: "docId",
-    });
-  }
-
-  if (!tableId && !tableName) {
-    return failTool(
-      "MISSING_TABLE_IDENTIFIER",
-      "Either tableId or tableName is required to update a table",
-      {
-        fields: ["tableId", "tableName"],
-      },
-    );
-  }
-
-  const tableIdentifier = tableId || tableName;
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_updateTable] Starting:", {
-      docId,
-      sheetId,
-      tableId,
-      tableName,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Find the table by ID or name
-        const tables = spreadsheet.tables || [];
-        const table = tables.find(
-          (t) => t.id === tableId || t.title === tableName,
-        );
-
-        if (!table) {
-          return failTool(
-            "TABLE_NOT_FOUND",
-            `Table "${tableIdentifier}" not found`,
-            { tableId, tableName },
-          );
-        }
-
-        // Build update spec
-        const updateSpec: Record<string, unknown> = {
-          ...updates,
-        };
-
-        // Map simplified theme to actual theme
-        if (theme) {
-          updateSpec.theme = mapTableTheme(theme);
-        }
-
-        // Map columns if provided
-        if (columns) {
-          updateSpec.columns = columns.map((col) => ({
-            name: col.name,
-            ...(col.formula ? { formula: col.formula } : {}),
-            ...(col.filterButton !== undefined
-              ? { filterButton: col.filterButton }
-              : {}),
-          }));
-        }
-
-        // Handle bandedRange - include null to remove existing banding
-        if (bandedRange !== undefined) {
-          updateSpec.bandedRange = bandedRange;
-        }
-
-        spreadsheet.updateTable(sheetId, table.id, updateSpec);
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_updateTable] Completed:", {
-          docId,
-          tableId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully updated table "${tableId}"`,
-          tableId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_updateTable] Error:", error);
-      return failTool(
-        "UPDATE_TABLE_FAILED",
-        error instanceof Error ? error.message : "Failed to update table",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_updateTable tool for LangChain
- */
-export const spreadsheetUpdateTableTool = tool(handleSpreadsheetUpdateTable, {
-  name: "spreadsheet_updateTable",
-  description: `Update properties of an existing table.
-
-OVERVIEW:
-This tool modifies an existing table's properties such as name, theme, column definitions, and display options.
-
-WHEN TO USE THIS TOOL:
-- Renaming a table
-- Changing table theme/style
-- Adding or removing totals row
-- Modifying column headers or calculated columns
-- Toggling row/column stripes
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- tableId: The table ID to update (provide either tableId or tableName)
-- tableName: The table name to update (provide either tableId or tableName)
-- title: New table name (for renaming)
-- columns: Updated column definitions
-- theme: 'none', 'light', 'medium', or 'dark'
-- headerRow: Whether to show header row
-- totalRow: Whether to show totals row
-- showRowStripes: Enable alternating row colors
-- showColumnStripes: Enable alternating column colors
-- bandedRange: Color definitions for banding (set to null to remove)
-
-EXAMPLES:
-
-Example 1 — Change table theme by name:
-  docId: "abc123"
-  sheetId: 1
-  tableName: "SalesData"
-  theme: "dark"
-
-Example 2 — Add totals row:
-  docId: "abc123"
-  sheetId: 1
-  tableName: "Invoice"
-  totalRow: true
-
-Example 3 — Remove banding:
-  docId: "abc123"
-  sheetId: 1
-  tableName: "SalesData"
-  bandedRange: null
-  showRowStripes: false`,
-  schema: SpreadsheetUpdateTableSchema,
-});
-
-/**
- * Map simplified stacked type to library stacked type
- */
-const mapStackedType = (
-  stackedType: "stacked" | "percentStacked" | "unstacked" | undefined,
-): "STACKED" | "PERCENT_STACKED" | "UNSTACKED" | undefined => {
-  switch (stackedType) {
-    case "stacked":
-      return "STACKED";
-    case "percentStacked":
-      return "PERCENT_STACKED";
-    case "unstacked":
-      return "UNSTACKED";
-    default:
-      return undefined;
-  }
-};
-
-/**
- * Handler for the spreadsheet_createChart tool
- */
-const handleSpreadsheetCreateChart = async (
-  input: SpreadsheetCreateChartInput,
-): Promise<string> => {
-  const {
-    docId,
-    sheetId,
-    domain,
-    series,
-    chartType,
-    title,
-    subtitle,
-    anchorCell,
-    width = 400,
-    height = 300,
-    stackedType,
-    xAxisTitle,
-    yAxisTitle,
-  } = input;
-
-  const chartId = uuidString();
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to create a chart", {
-      field: "docId",
-    });
-  }
-
-  if (!domain) {
-    return failTool(
-      "MISSING_DOMAIN",
-      "domain is required for creating a chart (X-axis categories)",
-      { field: "domain" },
-    );
-  }
-
-  if (!series || series.length === 0) {
-    return failTool(
-      "MISSING_SERIES",
-      "series is required for creating a chart (at least one data series)",
-      { field: "series" },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_createChart] Starting:", {
-      docId,
-      sheetId,
-      domain,
-      series,
-      chartType,
-    });
-
-    try {
-      // Parse domain range
-      const domainSelection = addressToSelection(domain);
-      if (!domainSelection?.range) {
-        return failTool("INVALID_DOMAIN", `Invalid domain range: ${domain}`, {
-          domain,
-        });
-      }
-
-      // Parse series ranges
-      const seriesSelections = series
-        .map((s, i) => {
-          const sel = addressToSelection(s);
-          return sel?.range;
-        })
-        .filter((el) => !isNil(el));
-
-      // Parse anchor cell if provided
-      let anchorCellParsed = {
-        rowIndex: domainSelection.range.startRowIndex,
-        columnIndex: domainSelection.range.endColumnIndex + 2, // Default: 2 columns right of domain
-      };
-      if (anchorCell) {
-        const anchorSelection = addressToSelection(anchorCell);
-        if (anchorSelection?.range) {
-          anchorCellParsed = {
-            rowIndex: anchorSelection.range.startRowIndex,
-            columnIndex: anchorSelection.range.startColumnIndex,
-          };
-        }
-      }
-
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Build chart spec with explicit domain and series
-        const chartSpec: Partial<ChartSpec> = {
-          chartType,
-          title,
-          subtitle,
-          horizontalAxisTitle: xAxisTitle,
-          verticalAxisTitle: yAxisTitle,
-          stackedType: mapStackedType(stackedType),
-          domains: [
-            {
-              sources: [
-                {
-                  sheetId,
-                  ...domainSelection.range,
-                },
-              ],
-            },
-          ],
-          series: seriesSelections.map((s) => ({
-            sources: [
-              {
-                ...s,
-                sheetId,
-              },
-            ],
-          })),
-        };
-
-        const activeCell = {
-          rowIndex: domainSelection.range.startRowIndex,
-          columnIndex: domainSelection.range.startColumnIndex,
-        };
-        const selections = [{ range: domainSelection.range }];
-
-        // Build embedded chart with position
-        const embeddedChart: Partial<EmbeddedChart> = {
-          chartId,
-          spec: chartSpec as ChartSpec,
-          position: {
-            sheetId,
-            overlayPosition: {
-              anchorCell: anchorCellParsed,
-              widthPixels: width,
-              heightPixels: height,
-              offsetXPixels: 0,
-              offsetYPixels: 0,
-            },
-          },
-        };
-
-        spreadsheet.createChart(
-          sheetId,
-          activeCell,
-          selections,
-          embeddedChart as EmbeddedChart,
-        );
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_createChart] Completed:", {
-          docId,
-          chartType,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully created ${chartType} chart with ${series.length} series`,
-          chartType,
-          domain,
-          series,
-          chartId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_createChart] Error:", error);
-      return failTool(
-        "CREATE_CHART_FAILED",
-        error instanceof Error ? error.message : "Failed to create chart",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_createChart tool for LangChain
- */
-export const spreadsheetCreateChartTool = tool(handleSpreadsheetCreateChart, {
-  name: "spreadsheet_createChart",
-  description: `Create a chart from spreadsheet data with explicit domain and series.
-
-OVERVIEW:
-This tool creates a chart visualization. You specify the domain (X-axis categories) and series (Y-axis data) explicitly.
-
-IMPORTANT - DATA RANGES:
-- domain: Range for X-axis labels/categories (e.g., 'A2:A10'). Usually a single column. DO NOT include header row.
-- series: Array of ranges for data series (e.g., ['B2:B10', 'C2:C10']). Each range becomes a separate line/bar. DO NOT include header rows.
-
-WHEN TO USE THIS TOOL:
-- Creating bar, column, line, pie, or area charts
-- Visualizing tabular data
-- Adding charts next to data tables
-
-CHART TYPES:
-- 'bar': Horizontal bars
-- 'column': Vertical bars (most common)
-- 'line': Line chart with points
-- 'pie': Circular pie chart
-- 'area': Filled area chart
-- 'scatter': XY scatter plot
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- domain: A1 notation range for X-axis categories, excluding header (e.g., 'A2:A10') (required)
-- series: Array of A1 notation ranges for data series, excluding headers (e.g., ['B2:B10', 'C2:C10']) (required)
-- chartType: Type of chart (required)
-- title: Chart title
-- subtitle: Chart subtitle
-- anchorCell: Where to place chart (e.g., 'F1')
-- width: Chart width in pixels (default: 400)
-- height: Chart height in pixels (default: 300)
-- stackedType: 'stacked', 'percentStacked', or 'unstacked' (for bar/column/area)
-- xAxisTitle: Horizontal axis title
-- yAxisTitle: Vertical axis title
-
-EXAMPLES:
-
-Given data in A1:C5:
-  | Month | Sales | Profit |
-  | Jan   | 100   | 20     |
-  | Feb   | 150   | 35     |
-  | Mar   | 120   | 25     |
-  | Apr   | 180   | 45     |
-
-Example 1 — Column chart with two series:
-  docId: "abc123"
-  sheetId: 1
-  domain: "A2:A5"
-  series: ["B2:B5", "C2:C5"]
-  chartType: "column"
-  title: "Monthly Performance"
-
-Example 2 — Line chart with single series:
-  docId: "abc123"
-  sheetId: 1
-  domain: "A2:A5"
-  series: ["B2:B5"]
-  chartType: "line"
-  title: "Sales Trend"
-  anchorCell: "E1"`,
-  schema: SpreadsheetCreateChartSchema,
-});
-
-/**
- * Handler for the spreadsheet_updateChart tool
- */
-const handleSpreadsheetUpdateChart = async (
-  input: SpreadsheetUpdateChartInput,
-): Promise<string> => {
-  const {
-    docId,
-    sheetId,
-    chartId,
-    title,
-    subtitle,
-    domain,
-    series,
-    chartType,
-    stackedType,
-    xAxisTitle,
-    yAxisTitle,
-    anchorCell,
-    width,
-    height,
-  } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to update a chart", {
-      field: "docId",
-    });
-  }
-
-  if (!chartId) {
-    return failTool(
-      "MISSING_CHART_ID",
-      "chartId is required to update a chart",
-      {
-        field: "chartId",
-      },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_updateChart] Starting:", {
-      docId,
-      sheetId,
-      chartId,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Find the chart by ID
-        const charts = spreadsheet.charts || [];
-        const chart = charts.find((c) => String(c.chartId) === chartId);
-
-        if (!chart) {
-          return failTool("CHART_NOT_FOUND", `Chart "${chartId}" not found`, {
-            chartId,
-          });
-        }
-
-        // Build updated chart
-        const updatedChart: EmbeddedChart = { ...chart };
-
-        // Update spec properties
-        if (title !== undefined) updatedChart.spec.title = title;
-        if (subtitle !== undefined) updatedChart.spec.subtitle = subtitle;
-        if (chartType !== undefined) {
-          (updatedChart.spec as { chartType: string }).chartType = chartType;
-        }
-        if (stackedType !== undefined) {
-          (updatedChart.spec as { stackedType?: string }).stackedType =
-            mapStackedType(stackedType);
-        }
-        if (xAxisTitle !== undefined)
-          updatedChart.spec.horizontalAxisTitle = xAxisTitle;
-        if (yAxisTitle !== undefined)
-          updatedChart.spec.verticalAxisTitle = yAxisTitle;
-
-        // Update domain if provided
-        if (domain) {
-          const domainSelection = addressToSelection(domain);
-          if (domainSelection?.range) {
-            (updatedChart.spec as { domains: unknown[] }).domains = [
-              {
-                sources: [
-                  {
-                    sheetId,
-                    ...domainSelection.range,
-                  },
-                ],
-              },
-            ];
-          }
-        }
-
-        // Update series if provided
-        if (series && series.length > 0) {
-          const seriesSelections = series
-            .map((s) => addressToSelection(s))
-            .filter(
-              (sel): sel is NonNullable<typeof sel> => sel?.range != null,
-            );
-
-          if (seriesSelections.length > 0) {
-            (updatedChart.spec as { series: unknown[] }).series =
-              seriesSelections.map((sel) => ({
-                sources: [
-                  {
-                    sheetId,
-                    ...sel.range,
-                  },
-                ],
-              }));
-          }
-        }
-
-        // Update position if provided
-        if (anchorCell) {
-          const anchorSelection = addressToSelection(anchorCell);
-          if (anchorSelection?.range) {
-            updatedChart.position.overlayPosition.anchorCell = {
-              rowIndex: anchorSelection.range.startRowIndex,
-              columnIndex: anchorSelection.range.startColumnIndex,
-            };
-          }
-        }
-        if (width !== undefined) {
-          updatedChart.position.overlayPosition.widthPixels = width;
-        }
-        if (height !== undefined) {
-          updatedChart.position.overlayPosition.heightPixels = height;
-        }
-
-        spreadsheet.updateChart(updatedChart);
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_updateChart] Completed:", {
-          docId,
-          chartId: chart.chartId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully updated chart "${chart.spec.title}"`,
-          chartId: chart.chartId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_updateChart] Error:", error);
-      return failTool(
-        "UPDATE_CHART_FAILED",
-        error instanceof Error ? error.message : "Failed to update chart",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_updateChart tool for LangChain
- */
-export const spreadsheetUpdateChartTool = tool(handleSpreadsheetUpdateChart, {
-  name: "spreadsheet_updateChart",
-  description: `Update properties of an existing chart.
-
-OVERVIEW:
-This tool modifies an existing chart's properties such as title, type, data sources, and position.
-
-WHEN TO USE THIS TOOL:
-- Changing chart title or subtitle
-- Switching chart type (e.g., bar to line)
-- Updating domain (X-axis categories) or series (Y-axis data)
-- Moving or resizing the chart
-
-IMPORTANT - DATA RANGES:
-- domain: Range for X-axis labels/categories (e.g., 'A2:A10'). DO NOT include header row.
-- series: Array of ranges for data series (e.g., ['B2:B10', 'C2:C10']). DO NOT include header rows.
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- chartId: The chart ID to update (required)
-- title: New chart title (set to null to clear)
-- subtitle: New chart subtitle (set to null to clear)
-- domain: New A1 notation range for X-axis categories, excluding header (e.g., 'A2:A20')
-- series: New array of A1 notation ranges for data series, excluding headers (e.g., ['B2:B20', 'C2:C20'])
-- chartType: Change to different chart type
-- stackedType: 'stacked', 'percentStacked', or 'unstacked'
-- xAxisTitle: New horizontal axis title
-- yAxisTitle: New vertical axis title
-- anchorCell: Move chart to this cell
-- width: New width in pixels
-- height: New height in pixels
-
-EXAMPLES:
-
-Example 1 — Change chart title:
-  docId: "abc123"
-  sheetId: 1
-  chartId: "chart_1"
-  title: "Q1 Sales Report"
-
-Example 2 — Convert to line chart and resize:
-  docId: "abc123"
-  sheetId: 1
-  chartId: "chart_2"
-  chartType: "line"
-  width: 600
-  height: 400
-
-Example 3 — Update data sources (extend range):
-  docId: "abc123"
-  sheetId: 1
-  chartId: "chart_1"
-  domain: "A2:A50"
-  series: ["B2:B50", "C2:C50"]`,
-  schema: SpreadsheetUpdateChartSchema,
-});
-
-/**
  * Handler for the spreadsheet_deleteSheet tool
  */
 const handleSpreadsheetDeleteSheet = async (
@@ -4893,14 +3423,6 @@ const handleSpreadsheetDeleteSheet = async (
     return failTool("MISSING_DOC_ID", "docId is required to delete a sheet", {
       field: "docId",
     });
-  }
-
-  if (sheetId === undefined || sheetId === null) {
-    return failTool(
-      "MISSING_SHEET_ID",
-      "sheetId is required to delete a sheet",
-      { field: "sheetId" },
-    );
   }
 
   return withDocumentWriteLock(docId, async () => {
@@ -4927,31 +3449,26 @@ const handleSpreadsheetDeleteSheet = async (
         }
 
         // Don't allow deleting the last sheet
-        if (spreadsheet.sheets.length <= 1) {
+        if (spreadsheet.sheets.length === 1) {
           return failTool(
             "CANNOT_DELETE_LAST_SHEET",
-            "Cannot delete the last sheet in the document",
-            { sheetId },
+            "Cannot delete the last sheet in a workbook",
           );
         }
 
-        const sheetTitle = sheet.title;
         spreadsheet.deleteSheet(sheetId);
-
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
         console.log("[spreadsheet_deleteSheet] Completed:", {
           docId,
           sheetId,
-          sheetTitle,
           patchCount: patchTuples.length,
         });
 
         return JSON.stringify({
           success: true,
-          message: `Successfully deleted sheet "${sheetTitle}"`,
+          message: `Successfully deleted sheet ${sheetId}`,
           sheetId,
-          sheetTitle,
         });
       } finally {
         queueMicrotask(() => {
@@ -4968,25 +3485,22 @@ const handleSpreadsheetDeleteSheet = async (
   });
 };
 
-/**
- * The spreadsheet_deleteSheet tool for LangChain
- */
 export const spreadsheetDeleteSheetTool = tool(handleSpreadsheetDeleteSheet, {
   name: "spreadsheet_deleteSheet",
   description: `Delete a sheet from the spreadsheet.
 
 OVERVIEW:
-This tool permanently removes a sheet/tab from the document.
+This tool permanently removes a sheet and all its contents from the workbook.
 
 WHEN TO USE THIS TOOL:
 - Removing unwanted sheets
 - Cleaning up temporary sheets
-- Reorganizing a workbook
+- Reorganizing workbook structure
 
-IMPORTANT:
-- Cannot delete the last remaining sheet
-- All data in the sheet will be permanently lost
-- Charts and tables on the sheet will also be deleted
+WARNING:
+- This action is permanent and cannot be undone
+- All data, formatting, and charts on the sheet will be lost
+- Cannot delete the last remaining sheet in a workbook
 
 PARAMETERS:
 - docId: The document ID (required)
@@ -4999,220 +3513,42 @@ EXAMPLE:
 });
 
 /**
- * Handler for the spreadsheet_deleteChart tool
+ * Map simplified theme to actual TableTheme value
  */
-const handleSpreadsheetDeleteChart = async (
-  input: SpreadsheetDeleteChartInput,
-): Promise<string> => {
-  const { docId, chartId } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to delete a chart", {
-      field: "docId",
-    });
+const mapTableTheme = (
+  theme: "none" | "light" | "medium" | "dark" | undefined,
+): TableTheme | undefined => {
+  switch (theme) {
+    case "none":
+      return "None";
+    case "light":
+      return "TableStyleLight9";
+    case "medium":
+      return "TableStyleMedium2";
+    case "dark":
+      return "TableStyleDark1";
+    default:
+      return undefined;
   }
-
-  if (!chartId) {
-    return failTool(
-      "MISSING_CHART_ID",
-      "chartId is required to delete a chart",
-      { field: "chartId" },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteChart] Starting:", { docId, chartId });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Check if chart exists
-        const charts = spreadsheet.charts || [];
-        const chart = charts.find((c) => String(c.chartId) === chartId);
-        if (!chart) {
-          return failTool("CHART_NOT_FOUND", `Chart "${chartId}" not found`, {
-            chartId,
-          });
-        }
-
-        spreadsheet.deleteChart(chartId);
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_deleteChart] Completed:", {
-          docId,
-          chartId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully deleted chart`,
-          chartId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_deleteChart] Error:", error);
-      return failTool(
-        "DELETE_CHART_FAILED",
-        error instanceof Error ? error.message : "Failed to delete chart",
-      );
-    }
-  });
 };
 
 /**
- * The spreadsheet_deleteChart tool for LangChain
+ * Map simplified stacked type to library stacked type
  */
-export const spreadsheetDeleteChartTool = tool(handleSpreadsheetDeleteChart, {
-  name: "spreadsheet_deleteChart",
-  description: `Delete a chart from the spreadsheet.
-
-OVERVIEW:
-This tool permanently removes a chart from the document.
-
-WHEN TO USE THIS TOOL:
-- Removing unwanted charts
-- Replacing a chart with a new one
-- Cleaning up visualizations
-
-PARAMETERS:
-- docId: The document ID (required)
-- chartId: The chart ID to delete (required)
-
-EXAMPLE:
-  docId: "abc123"
-  chartId: "chart_abc123"`,
-  schema: SpreadsheetDeleteChartSchema,
-});
-
-/**
- * Handler for the spreadsheet_deleteTable tool
- */
-const handleSpreadsheetDeleteTable = async (
-  input: SpreadsheetDeleteTableInput,
-): Promise<string> => {
-  const { docId, sheetId, tableId } = input;
-
-  if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to delete a table", {
-      field: "docId",
-    });
+const mapStackedType = (
+  stackedType: "stacked" | "percentStacked" | "unstacked" | undefined,
+): "STACKED" | "PERCENT_STACKED" | "UNSTACKED" | undefined => {
+  switch (stackedType) {
+    case "stacked":
+      return "STACKED";
+    case "percentStacked":
+      return "PERCENT_STACKED";
+    case "unstacked":
+      return "UNSTACKED";
+    default:
+      return undefined;
   }
-
-  if (!tableId) {
-    return failTool(
-      "MISSING_TABLE_ID",
-      "tableId is required to delete a table",
-      { field: "tableId" },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteTable] Starting:", {
-      docId,
-      sheetId,
-      tableId,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Find the table
-        const tables = spreadsheet.tables || [];
-        const table = tables.find(
-          (t) => t.id === tableId && t.sheetId === sheetId,
-        );
-        if (!table) {
-          return failTool(
-            "TABLE_NOT_FOUND",
-            `Table "${tableId}" not found on sheet ${sheetId}`,
-            { tableId, sheetId },
-          );
-        }
-
-        spreadsheet.removeTable(table);
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_deleteTable] Completed:", {
-          docId,
-          sheetId,
-          tableId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully deleted table`,
-          tableId,
-          sheetId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_deleteTable] Error:", error);
-      return failTool(
-        "DELETE_TABLE_FAILED",
-        error instanceof Error ? error.message : "Failed to delete table",
-      );
-    }
-  });
 };
-
-/**
- * The spreadsheet_deleteTable tool for LangChain
- */
-export const spreadsheetDeleteTableTool = tool(handleSpreadsheetDeleteTable, {
-  name: "spreadsheet_deleteTable",
-  description: `Delete a table from the spreadsheet.
-
-OVERVIEW:
-This tool removes a table definition from the document. The underlying cell data remains; only the table formatting and structure is removed.
-
-WHEN TO USE THIS TOOL:
-- Converting a table back to plain cells
-- Removing table formatting
-- Reorganizing data structure
-
-NOTE: This removes the table definition only. Cell values and basic formatting remain intact.
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID containing the table (required)
-- tableId: The table ID to delete (required)
-
-EXAMPLE:
-  docId: "abc123"
-  sheetId: 1
-  tableId: "table_abc123"`,
-  schema: SpreadsheetDeleteTableSchema,
-});
 
 /**
  * Map simplified validation type + operator to ConditionType
@@ -5328,921 +3664,6 @@ const buildConditionValues = (
 };
 
 /**
- * Handler for the spreadsheet_createDataValidation tool
- */
-const handleSpreadsheetCreateDataValidation = async (
-  input: SpreadsheetCreateDataValidationInput,
-): Promise<string> => {
-  const {
-    docId,
-    sheetId,
-    range,
-    validationType,
-    allowBlank = true,
-    showDropdown = true,
-    inputTitle,
-    inputMessage,
-    errorStyle = "stop",
-    errorTitle,
-    errorMessage,
-  } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to create data validation",
-      { field: "docId" },
-    );
-  }
-
-  if (!range) {
-    return failTool("MISSING_RANGE", "range is required for data validation", {
-      field: "range",
-    });
-  }
-
-  if (!validationType) {
-    return failTool("MISSING_VALIDATION_TYPE", "validationType is required", {
-      field: "validationType",
-    });
-  }
-
-  // Validate list type has values
-  if (
-    validationType === "list" &&
-    !input.listValues?.length &&
-    !input.listRange
-  ) {
-    return failTool(
-      "MISSING_LIST_VALUES",
-      "listValues or listRange is required for list validation",
-      { field: "listValues" },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_createDataValidation] Starting:", {
-      docId,
-      sheetId,
-      range,
-      validationType,
-    });
-
-    try {
-      const selection = addressToSelection(range);
-      if (!selection?.range) {
-        return failTool("INVALID_RANGE", `Invalid range: ${range}`, { range });
-      }
-
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        const validationId = uuidString();
-        const conditionType = mapValidationCondition(
-          validationType,
-          input.numberOperator || input.dateOperator,
-        );
-        const conditionValues = buildConditionValues(input);
-
-        const rule: DataValidationRuleRecord = {
-          id: validationId,
-          ranges: [
-            {
-              sheetId,
-              ...selection.range,
-            },
-          ],
-          condition: {
-            type: conditionType,
-            values: conditionValues,
-          },
-          allowBlank,
-          displayStyle: showDropdown ? "arrow" : "plain",
-          inputMessage:
-            inputTitle || inputMessage
-              ? { title: inputTitle, message: inputMessage }
-              : undefined,
-          alert:
-            errorTitle || errorMessage
-              ? {
-                  style: errorStyle,
-                  message: { title: errorTitle, message: errorMessage },
-                }
-              : { style: errorStyle },
-        };
-
-        spreadsheet.createDataValidationRule(rule);
-
-        // trigger calc?
-        await spreadsheet.calculatePending();
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_createDataValidation] Completed:", {
-          docId,
-          validationId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully created ${validationType} validation on ${range}`,
-          validationId,
-          range,
-          validationType,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_createDataValidation] Error:", error);
-      return failTool(
-        "CREATE_DATA_VALIDATION_FAILED",
-        error instanceof Error
-          ? error.message
-          : "Failed to create data validation",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_createDataValidation tool for LangChain
- */
-export const spreadsheetCreateDataValidationTool = tool(
-  handleSpreadsheetCreateDataValidation,
-  {
-    name: "spreadsheet_createDataValidation",
-    description: `Create data validation rules for cells.
-
-OVERVIEW:
-This tool adds input validation to cells, such as dropdown lists, number ranges, or custom formulas.
-
-VALIDATION TYPES:
-
-1. LIST - Dropdown with predefined values:
-   validationType: "list"
-   listValues: ["Option1", "Option2", "Option3"]
-   OR
-   listRange: "Sheet2!A1:A10"  (reference another range)
-
-2. NUMBER - Numeric validation:
-   validationType: "number" (decimals allowed) or "wholeNumber" (integers only)
-   numberOperator: "between" | "greaterThan" | "lessThan" | etc.
-   minValue: 0
-   maxValue: 100
-
-3. DATE - Date validation:
-   validationType: "date"
-   dateOperator: "between" | "after" | "before" | etc.
-   minDate: "2024-01-01"
-   maxDate: "2024-12-31"
-
-4. CUSTOM - Formula-based validation:
-   validationType: "custom"
-   customFormula: "=A1>0"  (must return TRUE for valid values)
-
-COMMON OPTIONS:
-- allowBlank: Allow empty cells (default: true)
-- showDropdown: Show dropdown arrow for lists (default: true)
-- errorStyle: "stop" (reject) | "warning" | "information"
-- errorTitle/errorMessage: Custom error dialog
-- inputTitle/inputMessage: Help text when cell is selected
-
-IMPORTANT: Use EXACTLY the range the user specifies. If they say "E1", use "E1" - do NOT expand to "E1:E100".
-
-EXAMPLES:
-
-Example 1 — Dropdown for a single cell:
-  docId: "abc123"
-  sheetId: 1
-  range: "E1"
-  validationType: "list"
-  listValues: ["Option1", "Option2"]
-
-Example 2 — Dropdown for a column range:
-  docId: "abc123"
-  sheetId: 1
-  range: "B2:B50"
-  validationType: "list"
-  listValues: ["Pending", "In Progress", "Done"]
-
-Example 3 — Number validation:
-  docId: "abc123"
-  sheetId: 1
-  range: "C5"
-  validationType: "number"
-  numberOperator: "between"
-  minValue: 1
-  maxValue: 100`,
-    schema: SpreadsheetCreateDataValidationSchema,
-  },
-);
-
-/**
- * Handler for the spreadsheet_updateDataValidation tool
- */
-const handleSpreadsheetUpdateDataValidation = async (
-  input: SpreadsheetUpdateDataValidationInput,
-): Promise<string> => {
-  const { docId, sheetId, validationId } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to update data validation",
-      { field: "docId" },
-    );
-  }
-
-  if (!validationId) {
-    return failTool(
-      "MISSING_VALIDATION_ID",
-      "validationId is required to update data validation",
-      { field: "validationId" },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_updateDataValidation] Starting:", {
-      docId,
-      sheetId,
-      validationId,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Find existing rule
-        const dataValidations =
-          (spreadsheet.dataValidations as DataValidationRuleRecord[]) || [];
-        const existingRule = dataValidations.find(
-          (r) => String(r.id) === validationId,
-        );
-
-        if (!existingRule) {
-          return failTool(
-            "VALIDATION_NOT_FOUND",
-            `Data validation rule "${validationId}" not found`,
-            { validationId },
-          );
-        }
-
-        // Build updated rule
-        const updatedRule: DataValidationRuleRecord = { ...existingRule };
-
-        // Update range if provided
-        if (input.range) {
-          const selection = addressToSelection(input.range);
-          if (selection?.range) {
-            updatedRule.ranges = [
-              {
-                sheetId,
-                ...selection.range,
-              },
-            ];
-          }
-        }
-
-        // Update condition if validation type changed
-        if (input.validationType) {
-          const conditionType = mapValidationCondition(
-            input.validationType,
-            input.numberOperator || input.dateOperator,
-          );
-          const conditionValues = buildConditionValues(input);
-          updatedRule.condition = {
-            type: conditionType,
-            values: conditionValues,
-          };
-        }
-
-        // Update other properties
-        if (input.allowBlank !== undefined) {
-          updatedRule.allowBlank = input.allowBlank;
-        }
-        if (input.showDropdown !== undefined) {
-          updatedRule.displayStyle = input.showDropdown ? "arrow" : "plain";
-        }
-        if (
-          input.inputTitle !== undefined ||
-          input.inputMessage !== undefined
-        ) {
-          updatedRule.inputMessage = {
-            title: input.inputTitle ?? existingRule.inputMessage?.title,
-            message: input.inputMessage ?? existingRule.inputMessage?.message,
-          };
-        }
-        if (
-          input.errorStyle !== undefined ||
-          input.errorTitle !== undefined ||
-          input.errorMessage !== undefined
-        ) {
-          updatedRule.alert = {
-            style: input.errorStyle ?? existingRule.alert?.style ?? "stop",
-            message: {
-              title: input.errorTitle ?? existingRule.alert?.message?.title,
-              message:
-                input.errorMessage ?? existingRule.alert?.message?.message,
-            },
-          };
-        }
-
-        spreadsheet.updateDataValidationRule(updatedRule, existingRule);
-
-        // trigger calc?
-        await spreadsheet.calculatePending();
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_updateDataValidation] Completed:", {
-          docId,
-          validationId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully updated data validation`,
-          validationId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_updateDataValidation] Error:", error);
-      return failTool(
-        "UPDATE_DATA_VALIDATION_FAILED",
-        error instanceof Error
-          ? error.message
-          : "Failed to update data validation",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_updateDataValidation tool for LangChain
- */
-export const spreadsheetUpdateDataValidationTool = tool(
-  handleSpreadsheetUpdateDataValidation,
-  {
-    name: "spreadsheet_updateDataValidation",
-    description: `Update an existing data validation rule.
-
-OVERVIEW:
-This tool modifies an existing data validation rule's properties.
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- validationId: The validation rule ID to update (required)
-- All other parameters from createDataValidation are optional
-
-EXAMPLE:
-  docId: "abc123"
-  sheetId: 1
-  validationId: "validation_xyz"
-  listValues: ["New Option 1", "New Option 2"]
-  errorMessage: "Updated error message"`,
-    schema: SpreadsheetUpdateDataValidationSchema,
-  },
-);
-
-/**
- * Handler for the spreadsheet_deleteDataValidation tool
- */
-const handleSpreadsheetDeleteDataValidation = async (
-  input: SpreadsheetDeleteDataValidationInput,
-): Promise<string> => {
-  const { docId, sheetId, validationId } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to delete data validation",
-      { field: "docId" },
-    );
-  }
-
-  if (!validationId) {
-    return failTool(
-      "MISSING_VALIDATION_ID",
-      "validationId is required to delete data validation",
-      { field: "validationId" },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteDataValidation] Starting:", {
-      docId,
-      sheetId,
-      validationId,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Find existing rule
-        const dataValidations =
-          (spreadsheet.dataValidations as DataValidationRuleRecord[]) || [];
-        const existingRule = dataValidations.find(
-          (r) => String(r.id) === validationId,
-        );
-
-        if (!existingRule) {
-          return failTool(
-            "VALIDATION_NOT_FOUND",
-            `Data validation rule "${validationId}" not found`,
-            { validationId },
-          );
-        }
-
-        spreadsheet.deleteDataValidationRule(existingRule);
-
-        // trigger calc?
-        await spreadsheet.calculatePending();
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_deleteDataValidation] Completed:", {
-          docId,
-          validationId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully deleted data validation`,
-          validationId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_deleteDataValidation] Error:", error);
-      return failTool(
-        "DELETE_DATA_VALIDATION_FAILED",
-        error instanceof Error
-          ? error.message
-          : "Failed to delete data validation",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_deleteDataValidation tool for LangChain
- */
-export const spreadsheetDeleteDataValidationTool = tool(
-  handleSpreadsheetDeleteDataValidation,
-  {
-    name: "spreadsheet_deleteDataValidation",
-    description: `Delete a data validation rule.
-
-OVERVIEW:
-This tool removes a data validation rule from the spreadsheet.
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- validationId: The validation rule ID to delete (required)
-
-EXAMPLE:
-  docId: "abc123"
-  sheetId: 1
-  validationId: "validation_xyz"`,
-    schema: SpreadsheetDeleteDataValidationSchema,
-  },
-);
-
-/**
- * Helper to convert a grid range to A1 notation
- */
-const gridRangeToA1 = (range: SheetRange, sheetName?: string): string => {
-  const address = selectionToAddress(
-    {
-      range: {
-        startRowIndex: range.startRowIndex,
-        endRowIndex: range.endRowIndex,
-        startColumnIndex: range.startColumnIndex,
-        endColumnIndex: range.endColumnIndex,
-      },
-    },
-    sheetName,
-  );
-  return address || "Unknown";
-};
-
-/**
- * Handler for the spreadsheet_queryDataValidations tool
- */
-const handleSpreadsheetQueryDataValidations = async (
-  input: SpreadsheetQueryDataValidationsInput,
-): Promise<string> => {
-  const { docId, sheetId, range } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to query data validations",
-      { field: "docId" },
-    );
-  }
-
-  console.log("[spreadsheet_queryDataValidations] Starting:", {
-    docId,
-    sheetId,
-    range,
-  });
-
-  try {
-    const { doc, close } = await getShareDBDocument(docId);
-
-    try {
-      const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-      if (!data) {
-        return failTool("NO_DOCUMENT_DATA", "Document has no data");
-      }
-
-      const spreadsheet = createSpreadsheetInterface(data);
-
-      // Build sheet name lookup
-      const sheetNameById = new Map<number, string>();
-      for (const sheet of spreadsheet.sheets) {
-        sheetNameById.set(sheet.sheetId, sheet.title);
-      }
-
-      // Parse filter range if provided
-      let filterRange:
-        | ({
-            sheetId?: number;
-          } & GridRange)
-        | undefined;
-      if (range) {
-        const selection = addressToSelection(range);
-        if (selection?.range) {
-          filterRange = selection.range;
-        }
-      }
-
-      const dataValidations =
-        (spreadsheet.dataValidations as DataValidationRuleRecord[]) || [];
-
-      // Filter and transform validations
-      const results = dataValidations.flatMap((rule) => {
-        // Check if any range matches the filter criteria
-        const matchingRanges = rule.ranges.filter((r) => {
-          // Filter by sheetId if specified
-          if (sheetId !== undefined && r.sheetId !== sheetId) {
-            return false;
-          }
-          // Filter by range overlap if specified
-          if (filterRange && !areaIntersects(r, filterRange)) {
-            return false;
-          }
-          return true;
-        });
-
-        if (matchingRanges.length === 0) {
-          return [];
-        }
-
-        // Determine validation type from condition
-        let validationType = "unknown";
-        const conditionType = rule.condition?.type;
-        if (conditionType === "ONE_OF_LIST") {
-          validationType = "list";
-        } else if (conditionType === "CUSTOM_FORMULA") {
-          validationType = "custom";
-        } else if (
-          conditionType?.startsWith("NUMBER_") ||
-          conditionType === "DATE_IS_VALID"
-        ) {
-          validationType = conditionType.includes("DATE") ? "date" : "number";
-        } else if (conditionType?.startsWith("DATE_")) {
-          validationType = "date";
-        }
-
-        return [
-          {
-            validationId: String(rule.id),
-            validationType,
-            ranges: matchingRanges.map((r) => ({
-              ...r,
-              sheetName: sheetNameById.get(r.sheetId) || `Sheet${r.sheetId}`,
-              a1Range: gridRangeToA1(r, sheetNameById.get(r.sheetId)),
-            })),
-            condition: rule.condition,
-            allowBlank: rule.allowBlank,
-            displayStyle: rule.displayStyle,
-            inputMessage: rule.inputMessage,
-            alert: rule.alert,
-          },
-        ];
-      });
-
-      console.log("[spreadsheet_queryDataValidations] Completed:", {
-        docId,
-        totalValidations: dataValidations.length,
-        matchingValidations: results.length,
-      });
-
-      return JSON.stringify({
-        success: true,
-        totalCount: dataValidations.length,
-        matchingCount: results.length,
-        validations: results,
-        ...(sheetId !== undefined ? { filteredBySheetId: sheetId } : {}),
-        ...(range ? { filteredByRange: range } : {}),
-      });
-    } finally {
-      close();
-    }
-  } catch (error) {
-    console.error("[spreadsheet_queryDataValidations] Error:", error);
-    return failTool(
-      "QUERY_DATA_VALIDATIONS_FAILED",
-      error instanceof Error
-        ? error.message
-        : "Failed to query data validations",
-    );
-  }
-};
-
-/**
- * The spreadsheet_queryDataValidations tool for LangChain
- */
-export const spreadsheetQueryDataValidationsTool = tool(
-  handleSpreadsheetQueryDataValidations,
-  {
-    name: "spreadsheet_queryDataValidations",
-    description: `Query existing data validation rules in a spreadsheet.
-
-OVERVIEW:
-This tool retrieves all data validation rules, optionally filtered by sheet or range.
-Use this BEFORE creating new validations to check for existing rules and avoid duplicates.
-
-IMPORTANT - AVOIDING DUPLICATES:
-- Always query existing validations before creating new ones
-- If a validation already exists for a range, UPDATE it instead of creating a new one
-- Overlapping validations (e.g., A1 already has validation, then creating A1:A10) should be avoided
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: Optional sheet ID to filter by
-- range: Optional A1 range to find validations that overlap with it (e.g., 'A1:B10')
-
-RETURNS:
-{
-  "success": true,
-  "totalCount": 5,
-  "matchingCount": 2,
-  "validations": [
-    {
-      "validationId": "abc123",
-      "validationType": "list",
-      "ranges": [{ "sheetId": 1, "sheetName": "Sheet1", "a1Range": "A1:A10", ... }],
-      "condition": { "type": "ONE_OF_LIST", "values": [...] },
-      "allowBlank": true,
-      "displayStyle": "arrow"
-    }
-  ]
-}
-
-EXAMPLE WORKFLOW:
-1. Query: spreadsheet_queryDataValidations(docId, sheetId=1, range="A1")
-2. If validation exists for A1 → use spreadsheet_updateDataValidation with the validationId
-3. If no validation exists → use spreadsheet_createDataValidation`,
-    schema: SpreadsheetQueryDataValidationsSchema,
-  },
-);
-
-/**
- * Handler for the spreadsheet_queryConditionalFormats tool
- */
-const handleSpreadsheetQueryConditionalFormats = async (
-  input: SpreadsheetQueryConditionalFormatsInput,
-): Promise<string> => {
-  const { docId, sheetId, range } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to query conditional formats",
-      { field: "docId" },
-    );
-  }
-
-  console.log("[spreadsheet_queryConditionalFormats] Starting:", {
-    docId,
-    sheetId,
-    range,
-  });
-
-  try {
-    const { doc, close } = await getShareDBDocument(docId);
-
-    try {
-      const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-      if (!data) {
-        return failTool("NO_DOCUMENT_DATA", "Document has no data");
-      }
-
-      const spreadsheet = createSpreadsheetInterface(data);
-
-      // Build sheet name lookup
-      const sheetNameById = new Map<number, string>();
-      for (const sheet of spreadsheet.sheets) {
-        sheetNameById.set(sheet.sheetId, sheet.title);
-      }
-
-      // Parse filter range if provided
-      let filterRange: GridRange;
-      if (range) {
-        const selection = addressToSelection(range);
-        if (selection?.range) {
-          filterRange = selection.range;
-        }
-      }
-
-      const conditionalFormats =
-        (spreadsheet.conditionalFormats as ConditionalFormatRule[]) || [];
-
-      // Filter and transform conditional formats
-      const results = conditionalFormats.flatMap((rule, index) => {
-        // Check if any range matches the filter criteria
-        const matchingRanges = (rule.ranges || []).filter((r) => {
-          // Filter by sheetId if specified
-          if (sheetId !== undefined && r.sheetId !== sheetId) {
-            return false;
-          }
-          // Filter by range overlap if specified
-          if (filterRange && !areaIntersects(r, filterRange)) {
-            return false;
-          }
-          return true;
-        });
-
-        if (matchingRanges.length === 0) {
-          return [];
-        }
-
-        // Determine rule type
-        let ruleType = "unknown";
-        if (rule.booleanRule) {
-          ruleType = "condition";
-        } else if (rule.gradientRule) {
-          ruleType = "colorScale";
-        } else if (rule.topBottomRule) {
-          ruleType = "topBottom";
-        } else if (rule.distinctRule) {
-          ruleType = "duplicates";
-        }
-
-        return [
-          {
-            ruleId: String(rule.id),
-            priority: index,
-            ruleType,
-            ranges: matchingRanges.map((r) => ({
-              ...r,
-              sheetName: sheetNameById.get(r.sheetId) || `Sheet${r.sheetId}`,
-              a1Range: gridRangeToA1(r, sheetNameById.get(r.sheetId)),
-            })),
-            ...(rule.booleanRule
-              ? {
-                  condition: rule.booleanRule.condition,
-                  format: rule.booleanRule.format,
-                }
-              : {}),
-            ...(rule.gradientRule ? { gradientRule: rule.gradientRule } : {}),
-            ...(rule.topBottomRule
-              ? { topBottomRule: rule.topBottomRule }
-              : {}),
-            ...(rule.distinctRule ? { distinctRule: rule.distinctRule } : {}),
-          },
-        ];
-      });
-
-      console.log("[spreadsheet_queryConditionalFormats] Completed:", {
-        docId,
-        totalFormats: conditionalFormats.length,
-        matchingFormats: results.length,
-      });
-
-      return JSON.stringify({
-        success: true,
-        totalCount: conditionalFormats.length,
-        matchingCount: results.length,
-        conditionalFormats: results,
-        ...(sheetId !== undefined ? { filteredBySheetId: sheetId } : {}),
-        ...(range ? { filteredByRange: range } : {}),
-      });
-    } finally {
-      close();
-    }
-  } catch (error) {
-    console.error("[spreadsheet_queryConditionalFormats] Error:", error);
-    return failTool(
-      "QUERY_CONDITIONAL_FORMATS_FAILED",
-      error instanceof Error
-        ? error.message
-        : "Failed to query conditional formats",
-    );
-  }
-};
-
-/**
- * The spreadsheet_queryConditionalFormats tool for LangChain
- */
-export const spreadsheetQueryConditionalFormatsTool = tool(
-  handleSpreadsheetQueryConditionalFormats,
-  {
-    name: "spreadsheet_queryConditionalFormats",
-    description: `Query existing conditional formatting rules in a spreadsheet.
-
-OVERVIEW:
-This tool retrieves all conditional formatting rules, optionally filtered by sheet or range.
-Use this BEFORE creating new conditional formats to check for existing rules and avoid duplicates.
-
-IMPORTANT - AVOIDING DUPLICATES:
-- Always query existing conditional formats before creating new ones
-- Same range + same condition type = UPDATE the existing rule, don't create duplicate
-- Multiple different conditions on the same range is OK (they stack by priority)
-- Priority is determined by order (lower index = higher priority)
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: Optional sheet ID to filter by
-- range: Optional A1 range to find rules that overlap with it (e.g., 'A1:B10')
-
-RETURNS:
-{
-  "success": true,
-  "totalCount": 3,
-  "matchingCount": 1,
-  "conditionalFormats": [
-    {
-      "ruleId": "xyz789",
-      "priority": 0,
-      "ruleType": "condition",
-      "ranges": [{ "sheetId": 1, "sheetName": "Sheet1", "a1Range": "B2:B50", ... }],
-      "condition": { "type": "NUMBER_GREATER", "values": [...] },
-      "format": { "backgroundColor": "#FFCCCC" }
-    }
-  ]
-}
-
-RULE TYPES:
-- "condition": Value-based formatting (greaterThan, lessThan, textContains, etc.)
-- "colorScale": Gradient formatting (2-color or 3-color scales)
-- "topBottom": Top/bottom N items or percentage
-- "duplicates": Highlight duplicate or unique values
-
-EXAMPLE WORKFLOW:
-1. Query: spreadsheet_queryConditionalFormats(docId, sheetId=1, range="B2:B50")
-2. If matching rule exists with same condition → use spreadsheet_updateConditionalFormat
-3. If no matching rule → use spreadsheet_createConditionalFormat`,
-    schema: SpreadsheetQueryConditionalFormatsSchema,
-  },
-);
-
-/**
  * Map simplified condition type to ConditionType for conditional formatting
  */
 const mapConditionalFormatCondition = (
@@ -6284,580 +3705,34 @@ const mapConditionalFormatCondition = (
   }
 };
 
-/**
- * Build CellFormat from simplified format options
- */
-const buildConditionalFormat = (input: {
-  backgroundColor?: string;
-  textColor?: string;
-  bold?: boolean;
-  italic?: boolean;
-}): CellFormat => {
-  const format: CellFormat = {};
-
-  if (input.backgroundColor) {
-    format.backgroundColor = input.backgroundColor;
-  }
-
-  if (
-    input.textColor ||
-    input.bold !== undefined ||
-    input.italic !== undefined
-  ) {
-    format.textFormat = {
-      ...(input.textColor ? { color: input.textColor } : {}),
-      ...(input.bold !== undefined ? { bold: input.bold } : {}),
-      ...(input.italic !== undefined ? { italic: input.italic } : {}),
-    };
-  }
-
-  return format;
-};
+// ==================== CONSOLIDATED TOOLS ====================
 
 /**
- * Handler for the spreadsheet_createConditionalFormat tool
+ * Consolidated handler for clearing cells (values, formatting, or both)
  */
-const handleSpreadsheetCreateConditionalFormat = async (
-  input: SpreadsheetCreateConditionalFormatInput,
+const handleSpreadsheetClearCells = async (
+  input: SpreadsheetClearCellsInput,
 ): Promise<string> => {
-  const {
-    docId,
-    sheetId,
-    range,
-    ruleType,
-    conditionType,
-    conditionValues,
-    customFormula,
-    colorScaleType,
-    minColor,
-    midColor,
-    maxColor,
-    topBottomType,
-    rank,
-    isPercent,
-    duplicateType,
-    backgroundColor,
-    textColor,
-    bold,
-    italic,
-  } = input;
+  const { docId, sheetId: inputSheetId, ranges, clear } = input;
 
   if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to create conditional format",
-      { field: "docId" },
-    );
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
   }
 
-  if (!range) {
-    return failTool(
-      "MISSING_RANGE",
-      "range is required for conditional format",
-      { field: "range" },
-    );
-  }
-
-  if (!ruleType) {
-    return failTool("MISSING_RULE_TYPE", "ruleType is required", {
-      field: "ruleType",
+  if (!ranges || ranges.length === 0) {
+    return failTool("MISSING_RANGES", "At least one range is required", {
+      field: "ranges",
     });
   }
 
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_createConditionalFormat] Starting:", {
-      docId,
-      sheetId,
-      range,
-      ruleType,
-    });
-
-    try {
-      const selection = addressToSelection(range);
-      if (!selection?.range) {
-        return failTool("INVALID_RANGE", `Invalid range: ${range}`, { range });
-      }
-
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool(
-            "NO_CFRULE_EXISTS",
-            "Conditional format rule ID does not exist",
-          );
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-        const ruleId = uuidString();
-
-        const baseRule: ConditionalFormatRule = {
-          id: ruleId,
-          ranges: [
-            {
-              sheetId,
-              ...selection.range,
-            },
-          ],
-        };
-
-        let rule: ConditionalFormatRule;
-
-        if (ruleType === "condition") {
-          if (!conditionType) {
-            return failTool(
-              "MISSING_CONDITION_TYPE",
-              "conditionType is required for condition rule",
-              { field: "conditionType" },
-            );
-          }
-
-          const format = buildConditionalFormat({
-            backgroundColor,
-            textColor,
-            bold,
-            italic,
-          });
-
-          rule = {
-            ...baseRule,
-            booleanRule: {
-              condition: {
-                type: mapConditionalFormatCondition(conditionType),
-                values:
-                  conditionType === "custom" && customFormula
-                    ? [{ userEnteredValue: customFormula }]
-                    : conditionValues?.map((v) => ({
-                        userEnteredValue: String(v),
-                      })),
-              },
-              format,
-            },
-          };
-        } else if (ruleType === "colorScale") {
-          const minPointColor = minColor || "#FF0000";
-          const maxPointColor = maxColor || "#00FF00";
-          const midPointColor =
-            colorScaleType === "3color" ? midColor || "#FFFF00" : undefined;
-
-          rule = {
-            ...baseRule,
-            gradientRule: {
-              minpoint: {
-                color: minPointColor,
-                type: "MIN",
-              },
-              ...(colorScaleType === "3color" && midPointColor
-                ? {
-                    midpoint: {
-                      color: midPointColor,
-                      type: "PERCENTILE",
-                      value: 50,
-                    },
-                  }
-                : {}),
-              maxpoint: {
-                color: maxPointColor,
-                type: "MAX",
-              },
-            },
-          };
-        } else if (ruleType === "topBottom") {
-          if (!topBottomType || rank === undefined) {
-            return failTool(
-              "MISSING_TOP_BOTTOM_PARAMS",
-              "topBottomType and rank are required for topBottom rule",
-              { field: "topBottomType" },
-            );
-          }
-
-          const format = buildConditionalFormat({
-            backgroundColor,
-            textColor,
-            bold,
-            italic,
-          });
-
-          rule = {
-            ...baseRule,
-            topBottomRule: {
-              type: topBottomType === "top" ? "TOP" : "BOTTOM",
-              rank,
-              isPercent: isPercent ?? false,
-              format,
-            },
-          };
-        } else if (ruleType === "duplicates") {
-          if (!duplicateType) {
-            return failTool(
-              "MISSING_DUPLICATE_TYPE",
-              "duplicateType is required for duplicates rule",
-              { field: "duplicateType" },
-            );
-          }
-
-          const format = buildConditionalFormat({
-            backgroundColor,
-            textColor,
-            bold,
-            italic,
-          });
-
-          rule = {
-            ...baseRule,
-            distinctRule: {
-              type: duplicateType === "duplicate" ? "DUPLICATE" : "UNIQUE",
-              format,
-            },
-          };
-        } else {
-          return failTool(
-            "INVALID_RULE_TYPE",
-            `Unknown rule type: ${ruleType}`,
-            {
-              ruleType,
-            },
-          );
-        }
-
-        spreadsheet.createConditionalFormattingRule(rule);
-
-        // trigger calc?
-        await spreadsheet.calculatePending();
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_createConditionalFormat] Completed:", {
-          docId,
-          ruleId,
-          ruleType,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully created ${ruleType} conditional format on ${range}`,
-          ruleId,
-          range,
-          ruleType,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_createConditionalFormat] Error:", error);
-      return failTool(
-        "CREATE_CONDITIONAL_FORMAT_FAILED",
-        error instanceof Error
-          ? error.message
-          : "Failed to create conditional format",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_createConditionalFormat tool for LangChain
- */
-export const spreadsheetCreateConditionalFormatTool = tool(
-  handleSpreadsheetCreateConditionalFormat,
-  {
-    name: "spreadsheet_createConditionalFormat",
-    description: `Create conditional formatting rules for cells.
-
-OVERVIEW:
-This tool applies visual formatting based on cell values or conditions.
-
-RULE TYPES:
-
-1. CONDITION - Format cells based on value conditions:
-   ruleType: "condition"
-   conditionType: "greaterThan" | "lessThan" | "between" | "equal" | "textContains" | "blank" | "custom"
-   conditionValues: [50] or [10, 90] for between
-   customFormula: "=A1>B1" (for custom type)
-   backgroundColor: "#FFCCCC"
-
-2. COLOR SCALE - Gradient colors based on values:
-   ruleType: "colorScale"
-   colorScaleType: "2color" or "3color"
-   minColor: "#FF0000" (red for low)
-   midColor: "#FFFF00" (yellow for mid, only for 3color)
-   maxColor: "#00FF00" (green for high)
-
-3. TOP/BOTTOM - Highlight top or bottom values:
-   ruleType: "topBottom"
-   topBottomType: "top" or "bottom"
-   rank: 10
-   isPercent: true (top 10%) or false (top 10 items)
-   backgroundColor: "#90EE90"
-
-4. DUPLICATES - Highlight duplicate or unique values:
-   ruleType: "duplicates"
-   duplicateType: "duplicate" or "unique"
-   backgroundColor: "#FFB6C1"
-
-FORMAT OPTIONS (for condition, topBottom, duplicates):
-- backgroundColor: Hex color (e.g., "#FFCCCC")
-- textColor: Hex color (e.g., "#FF0000")
-- bold: true/false
-- italic: true/false
-
-IMPORTANT: Use EXACTLY the range the user specifies.
-
-EXAMPLES:
-
-Example 1 — Highlight cells > 100:
-  docId: "abc123"
-  sheetId: 1
-  range: "C2:C50"
-  ruleType: "condition"
-  conditionType: "greaterThan"
-  conditionValues: [100]
-  backgroundColor: "#FFCCCC"
-
-Example 2 — 3-color scale (red → yellow → green):
-  docId: "abc123"
-  sheetId: 1
-  range: "D2:D50"
-  ruleType: "colorScale"
-  colorScaleType: "3color"
-  minColor: "#FF0000"
-  midColor: "#FFFF00"
-  maxColor: "#00FF00"
-
-Example 3 — Highlight top 10%:
-  docId: "abc123"
-  sheetId: 1
-  range: "E2:E50"
-  ruleType: "topBottom"
-  topBottomType: "top"
-  rank: 10
-  isPercent: true
-  backgroundColor: "#90EE90"
-
-Example 4 — Highlight duplicates:
-  docId: "abc123"
-  sheetId: 1
-  range: "A2:A100"
-  ruleType: "duplicates"
-  duplicateType: "duplicate"
-  backgroundColor: "#FFB6C1"`,
-    schema: SpreadsheetCreateConditionalFormatSchema,
-  },
-);
-
-/**
- * Handler for the spreadsheet_updateConditionalFormat tool
- */
-const handleSpreadsheetUpdateConditionalFormat = async (
-  input: SpreadsheetUpdateConditionalFormatInput,
-): Promise<string> => {
-  const { docId, sheetId, ruleId } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to update conditional format",
-      { field: "docId" },
-    );
-  }
-
-  if (!ruleId) {
-    return failTool(
-      "MISSING_RULE_ID",
-      "ruleId is required to update conditional format",
-      { field: "ruleId" },
-    );
-  }
+  const sheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_updateConditionalFormat] Starting:", {
+    console.log("[spreadsheet_clearCells] Starting:", {
       docId,
       sheetId,
-      ruleId,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool(
-            "NO_CFRULE_EXISTS",
-            "Conditional format rule ID does not exist",
-          );
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data);
-
-        // Find existing rule
-        const conditionalFormats =
-          (spreadsheet.conditionalFormats as ConditionalFormatRule[]) || [];
-        const existingRule = conditionalFormats.find(
-          (r) => String(r.id) === ruleId,
-        );
-
-        if (!existingRule) {
-          return failTool(
-            "RULE_NOT_FOUND",
-            `Conditional format rule "${ruleId}" not found`,
-            { ruleId },
-          );
-        }
-
-        // Build updated rule
-        const updatedRule: ConditionalFormatRule = { ...existingRule };
-
-        // Update range if provided
-        if (input.range) {
-          const selection = addressToSelection(input.range);
-          if (selection?.range) {
-            updatedRule.ranges = [
-              {
-                sheetId,
-                ...selection.range,
-              },
-            ];
-          }
-        }
-
-        // Update enabled status
-        if (input.enabled !== undefined) {
-          updatedRule.enabled = input.enabled;
-        }
-
-        // Update format properties if provided
-        if (
-          input.backgroundColor !== undefined ||
-          input.textColor !== undefined ||
-          input.bold !== undefined ||
-          input.italic !== undefined
-        ) {
-          const format = buildConditionalFormat({
-            backgroundColor: input.backgroundColor,
-            textColor: input.textColor,
-            bold: input.bold,
-            italic: input.italic,
-          });
-
-          if (updatedRule.booleanRule) {
-            updatedRule.booleanRule = {
-              ...updatedRule.booleanRule,
-              format: format as typeof updatedRule.booleanRule.format,
-            };
-          } else if (updatedRule.topBottomRule) {
-            updatedRule.topBottomRule = {
-              ...updatedRule.topBottomRule,
-              format: format as typeof updatedRule.topBottomRule.format,
-            };
-          } else if (updatedRule.distinctRule) {
-            updatedRule.distinctRule = {
-              ...updatedRule.distinctRule,
-              format: format as typeof updatedRule.distinctRule.format,
-            };
-          }
-        }
-
-        spreadsheet.updateConditionalFormattingRule(updatedRule, existingRule);
-
-        // trigger calc?
-        await spreadsheet.calculatePending();
-
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_updateConditionalFormat] Completed:", {
-          docId,
-          ruleId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully updated conditional format`,
-          ruleId,
-        });
-      } finally {
-        queueMicrotask(() => {
-          close();
-        });
-      }
-    } catch (error) {
-      console.error("[spreadsheet_updateConditionalFormat] Error:", error);
-      return failTool(
-        "UPDATE_CONDITIONAL_FORMAT_FAILED",
-        error instanceof Error
-          ? error.message
-          : "Failed to update conditional format",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_updateConditionalFormat tool for LangChain
- */
-export const spreadsheetUpdateConditionalFormatTool = tool(
-  handleSpreadsheetUpdateConditionalFormat,
-  {
-    name: "spreadsheet_updateConditionalFormat",
-    description: `Update an existing conditional formatting rule.
-
-OVERVIEW:
-This tool modifies an existing conditional formatting rule's properties.
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- ruleId: The conditional format rule ID to update (required)
-- range: New range for the rule
-- enabled: Enable or disable the rule
-- backgroundColor/textColor/bold/italic: Update format properties
-
-EXAMPLE:
-  docId: "abc123"
-  sheetId: 1
-  ruleId: "rule_xyz"
-  backgroundColor: "#CCFFCC"
-  enabled: true`,
-    schema: SpreadsheetUpdateConditionalFormatSchema,
-  },
-);
-
-/**
- * Handler for the spreadsheet_deleteConditionalFormat tool
- */
-const handleSpreadsheetDeleteConditionalFormat = async (
-  input: SpreadsheetDeleteConditionalFormatInput,
-): Promise<string> => {
-  const { docId, sheetId, ruleId } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to delete conditional format",
-      { field: "docId" },
-    );
-  }
-
-  if (!ruleId) {
-    return failTool(
-      "MISSING_RULE_ID",
-      "ruleId is required to delete conditional format",
-      { field: "ruleId" },
-    );
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteConditionalFormat] Starting:", {
-      docId,
-      sheetId,
-      ruleId,
+      rangeCount: ranges.length,
+      clear,
     });
 
     try {
@@ -6871,79 +3746,1702 @@ const handleSpreadsheetDeleteConditionalFormat = async (
         }
 
         const spreadsheet = createSpreadsheetInterface(data);
+        const processedRanges: string[] = [];
+        const errors: Array<{ range: string; error: string }> = [];
 
-        // Find existing rule
-        const conditionalFormats =
-          (spreadsheet.conditionalFormats as ConditionalFormatRule[]) || [];
-        const existingRule = conditionalFormats.find(
-          (r) => String(r.id) === ruleId,
-        );
+        for (const rangeStr of ranges) {
+          try {
+            const selection = addressToSelection(rangeStr);
+            if (!selection?.range) {
+              errors.push({ range: rangeStr, error: `Invalid range` });
+              continue;
+            }
 
-        if (!existingRule) {
-          return failTool(
-            "RULE_NOT_FOUND",
-            `Conditional format rule "${ruleId}" not found`,
-            { ruleId },
-          );
+            const activeCell = {
+              rowIndex: selection.range.startRowIndex,
+              columnIndex: selection.range.startColumnIndex,
+            };
+            const selections: SelectionArea[] = [{ range: selection.range }];
+
+            if (clear === "values" || clear === "all") {
+              spreadsheet.deleteCells(sheetId, activeCell, selections);
+            }
+            if (clear === "formatting" || clear === "all") {
+              spreadsheet.clearFormatting(sheetId, activeCell, selections);
+            }
+
+            processedRanges.push(rangeStr);
+          } catch (itemError) {
+            errors.push({
+              range: rangeStr,
+              error: itemError instanceof Error ? itemError.message : "Failed",
+            });
+          }
         }
 
-        spreadsheet.deleteConditionalFormattingRule(existingRule);
-
-        // trigger calc?
-        await spreadsheet.calculatePending();
+        // Evaluate formulas if values were cleared
+        let formulaResults;
+        if (clear === "values" || clear === "all") {
+          formulaResults = await evaluateFormulas(sheetId, spreadsheet);
+        }
 
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
-        console.log("[spreadsheet_deleteConditionalFormat] Completed:", {
+        console.log("[spreadsheet_clearCells] Completed:", {
           docId,
-          ruleId,
+          sheetId,
+          clear,
+          processedCount: processedRanges.length,
           patchCount: patchTuples.length,
         });
 
         return JSON.stringify({
           success: true,
-          message: `Successfully deleted conditional format`,
-          ruleId,
+          message: `Successfully cleared ${clear} from ${processedRanges.length} range(s)`,
+          processedRanges,
+          ...(formulaResults ? { formulaResults } : {}),
+          ...(errors.length > 0 ? { errors } : {}),
         });
       } finally {
-        queueMicrotask(() => {
-          close();
-        });
+        close();
       }
     } catch (error) {
-      console.error("[spreadsheet_deleteConditionalFormat] Error:", error);
+      console.error("[spreadsheet_clearCells] Error:", error);
       return failTool(
-        "DELETE_CONDITIONAL_FORMAT_FAILED",
-        error instanceof Error
-          ? error.message
-          : "Failed to delete conditional format",
+        "CLEAR_CELLS_FAILED",
+        error instanceof Error ? error.message : "Failed to clear cells",
       );
     }
   });
 };
 
-/**
- * The spreadsheet_deleteConditionalFormat tool for LangChain
- */
-export const spreadsheetDeleteConditionalFormatTool = tool(
-  handleSpreadsheetDeleteConditionalFormat,
-  {
-    name: "spreadsheet_deleteConditionalFormat",
-    description: `Delete a conditional formatting rule.
+export const spreadsheetClearCellsTool = tool(handleSpreadsheetClearCells, {
+  name: "spreadsheet_clearCells",
+  description: `Clear cell values, formatting, or both from specified ranges.
 
 OVERVIEW:
-This tool removes a conditional formatting rule from the spreadsheet.
+This tool clears contents and/or formatting from cells without deleting rows or columns. Choose what to clear: values only, formatting only, or both.
+
+WHEN TO USE:
+- Deleting data while preserving formatting (clear: "values")
+- Resetting formatting while keeping values (clear: "formatting")
+- Completely clearing ranges including both (clear: "all")
+- Removing unwanted formatting from imported data
+- Preparing cells before writing new data
+
+IMPORTANT:
+- This clears cell contents, not the cells themselves (use delete rows/columns for structural changes)
+- Cell values and formulas are removed when clearing "values" or "all"
+- Cell formatting (colors, borders, fonts, number formats) is removed when clearing "formatting" or "all"
 
 PARAMETERS:
 - docId: The document ID (required)
 - sheetId: The sheet ID (required)
-- ruleId: The conditional format rule ID to delete (required)
+- ranges: Array of A1 notation ranges (e.g., ['A1:B5', 'D3:F10'])
+- clear: 'values' | 'formatting' | 'all'
 
-EXAMPLE:
-  docId: "abc123"
-  sheetId: 1
-  ruleId: "rule_xyz"`,
-    schema: SpreadsheetDeleteConditionalFormatSchema,
+EXAMPLES:
+
+Example 1 — Clear values only (keep formatting):
+  sheetId: 1, ranges: ["A1:C10"], clear: "values"
+
+Example 2 — Clear formatting only (keep values):
+  sheetId: 1, ranges: ["A1:B5"], clear: "formatting"
+
+Example 3 — Clear everything:
+  sheetId: 1, ranges: ["A1:Z100"], clear: "all"
+
+Example 4 — Clear multiple ranges:
+  sheetId: 1, ranges: ["A1:B5", "D3:F10", "H1:H20"], clear: "values"`,
+  schema: SpreadsheetClearCellsSchema,
+});
+
+/**
+ * Consolidated handler for table operations (create/update/delete)
+ */
+const handleSpreadsheetTable = async (
+  input: SpreadsheetTableInput,
+): Promise<string> => {
+  const { docId, sheetId, action, tableId, tableName, ...rest } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  if (action === "create") {
+    // Forward to create logic
+    const createInput: SpreadsheetCreateTableInput = {
+      docId,
+      sheetId,
+      range: rest.range!,
+      title: rest.title!,
+      columns: rest.columns!,
+      theme: rest.theme,
+      headerRow: rest.headerRow,
+      showRowStripes: rest.showRowStripes,
+      showColumnStripes: rest.showColumnStripes,
+      showFirstColumn: rest.showFirstColumn,
+      showLastColumn: rest.showLastColumn,
+      filterButton: rest.filterButton,
+      bandedRange: rest.bandedRange ?? undefined,
+    };
+
+    if (!createInput.range) {
+      return failTool("MISSING_RANGE", "range is required for create", {
+        field: "range",
+      });
+    }
+    if (!createInput.title) {
+      return failTool("MISSING_TITLE", "title is required for create", {
+        field: "title",
+      });
+    }
+    if (!createInput.columns) {
+      return failTool("MISSING_COLUMNS", "columns is required for create", {
+        field: "columns",
+      });
+    }
+
+    const newTableId = uuidString();
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const selection = addressToSelection(createInput.range);
+        if (!selection?.range) {
+          return failTool(
+            "INVALID_RANGE",
+            `Invalid range: ${createInput.range}`,
+          );
+        }
+
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+
+          const tableSpec = {
+            id: newTableId,
+            title: createInput.title,
+            sheetId,
+            columns: createInput.columns.map((col) => ({
+              name: col.name,
+              ...(col.formula ? { formula: col.formula } : {}),
+              ...(col.filterButton !== undefined
+                ? { filterButton: col.filterButton }
+                : {}),
+            })),
+            headerRow: createInput.headerRow,
+            showRowStripes: createInput.showRowStripes,
+            showColumnStripes: createInput.showColumnStripes,
+            showFirstColumn: createInput.showFirstColumn,
+            showLastColumn: createInput.showLastColumn,
+            filterButton: createInput.filterButton,
+            ...(createInput.bandedRange
+              ? { bandedRange: createInput.bandedRange }
+              : {}),
+          };
+
+          const mappedTheme = mapTableTheme(createInput.theme);
+          const activeCell = {
+            rowIndex: selection.range.startRowIndex,
+            columnIndex: selection.range.startColumnIndex,
+          };
+          const selections: SelectionArea[] = [{ range: selection.range }];
+
+          spreadsheet.createTable(
+            sheetId,
+            activeCell,
+            selections,
+            tableSpec as Partial<TableView>,
+            mappedTheme as TableTheme | undefined,
+            createInput.bandedRange as BandedDefinition | undefined,
+          );
+
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully created table "${createInput.title}"`,
+            tableId: newTableId,
+            tableName: createInput.title,
+          });
+        } finally {
+          queueMicrotask(() => close());
+        }
+      } catch (error) {
+        return failTool(
+          "CREATE_TABLE_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "update") {
+    if (!tableId && !tableName) {
+      return failTool(
+        "MISSING_TABLE_IDENTIFIER",
+        "tableId or tableName required for update",
+      );
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const tables = spreadsheet.tables || [];
+          const table = tables.find(
+            (t) => t.id === tableId || t.title === tableName,
+          );
+
+          if (!table) {
+            return failTool("TABLE_NOT_FOUND", `Table not found`);
+          }
+
+          const updateSpec: Record<string, unknown> = {};
+          if (rest.title) updateSpec.title = rest.title;
+          if (rest.theme) updateSpec.theme = mapTableTheme(rest.theme);
+          if (rest.columns) {
+            updateSpec.columns = rest.columns.map((col) => ({
+              name: col.name,
+              ...(col.formula ? { formula: col.formula } : {}),
+              ...(col.filterButton !== undefined
+                ? { filterButton: col.filterButton }
+                : {}),
+            }));
+          }
+          if (rest.headerRow !== undefined)
+            updateSpec.headerRow = rest.headerRow;
+          if (rest.showRowStripes !== undefined)
+            updateSpec.showRowStripes = rest.showRowStripes;
+          if (rest.showColumnStripes !== undefined)
+            updateSpec.showColumnStripes = rest.showColumnStripes;
+          if (rest.showFirstColumn !== undefined)
+            updateSpec.showFirstColumn = rest.showFirstColumn;
+          if (rest.showLastColumn !== undefined)
+            updateSpec.showLastColumn = rest.showLastColumn;
+          if (rest.filterButton !== undefined)
+            updateSpec.filterButton = rest.filterButton;
+          if (rest.bandedRange !== undefined)
+            updateSpec.bandedRange = rest.bandedRange;
+
+          spreadsheet.updateTable(sheetId, table.id, updateSpec);
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully updated table`,
+            tableId: table.id,
+          });
+        } finally {
+          queueMicrotask(() => close());
+        }
+      } catch (error) {
+        return failTool(
+          "UPDATE_TABLE_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "delete") {
+    if (!tableId) {
+      return failTool("MISSING_TABLE_ID", "tableId is required for delete");
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const tables = spreadsheet.tables || [];
+          const table = tables.find(
+            (t) => t.id === tableId && t.sheetId === sheetId,
+          );
+
+          if (!table) {
+            return failTool("TABLE_NOT_FOUND", `Table not found`);
+          }
+
+          spreadsheet.removeTable(table);
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully deleted table`,
+            tableId,
+          });
+        } finally {
+          queueMicrotask(() => close());
+        }
+      } catch (error) {
+        return failTool(
+          "DELETE_TABLE_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  return failTool("INVALID_ACTION", `Invalid action: ${action}`);
+};
+
+export const spreadsheetTableTool = tool(handleSpreadsheetTable, {
+  name: "spreadsheet_table",
+  description: `Create, update, or delete tables in the spreadsheet.
+
+OVERVIEW:
+This tool converts a cell range into a structured table with headers, optional styling, and filtering capabilities. Tables support structured references in formulas (e.g., TableName[Column]).
+
+WHEN TO USE:
+- Converting raw data into a formatted table
+- Adding filter buttons to column headers
+- Applying alternating row colors (banding)
+- Creating calculated columns with formulas
+- Updating table properties or deleting tables
+
+ACTIONS:
+- create: sheetId, range, title (unique), columns required
+- update: sheetId, tableId or tableName required, plus properties to change
+- delete: sheetId, tableId required
+
+IMPORTANT:
+- The first row of the range becomes the header row
+- Table names must be unique within the workbook
+- When showRowStripes is true, you MUST also provide bandedRange
+
+PARAMETERS:
+- range: A1 notation range (e.g., 'A1:D10')
+- title: Table name (required for create, must be unique)
+- columns: Column definitions [{name, formula?, filterButton?}]
+- theme: 'none' | 'light' | 'medium' | 'dark'
+- headerRow: Show header row (default: true)
+- totalRow: Show totals row (default: false)
+- showRowStripes: Enable alternating row colors (requires bandedRange)
+- bandedRange: Color definitions for row/column banding
+
+EXAMPLES:
+
+Example 1 — Simple table:
+  action: "create", sheetId: 1, range: "A1:C10", title: "SalesData", columns: [{name: "Product"}, {name: "Price"}, {name: "Quantity"}]
+
+Example 2 — Table with calculated column:
+  action: "create", sheetId: 1, range: "A1:D10", title: "Invoice", columns: [{name: "Item"}, {name: "Price"}, {name: "Qty"}, {name: "Total", formula: "=[Price]*[Qty]"}], theme: "medium"
+
+Example 3 — Update table theme:
+  action: "update", sheetId: 1, tableName: "Sales", theme: "dark"
+
+Example 4 — Delete table:
+  action: "delete", sheetId: 1, tableId: "tbl_123"`,
+  schema: SpreadsheetTableSchema,
+});
+
+/**
+ * Consolidated handler for chart operations (create/update/delete)
+ */
+const handleSpreadsheetChart = async (
+  input: SpreadsheetChartInput,
+): Promise<string> => {
+  const { docId, sheetId, action, chartId, ...rest } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  if (action === "create") {
+    if (!sheetId) {
+      return failTool("MISSING_SHEET_ID", "sheetId is required for create");
+    }
+    if (!rest.domain) {
+      return failTool("MISSING_DOMAIN", "domain is required for create");
+    }
+    if (!rest.series || rest.series.length === 0) {
+      return failTool("MISSING_SERIES", "series is required for create");
+    }
+    if (!rest.chartType) {
+      return failTool("MISSING_CHART_TYPE", "chartType is required for create");
+    }
+
+    const newChartId = uuidString();
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+
+          // Parse domain range - use ! since we validated above
+          const domainSelection = addressToSelection(rest.domain!);
+          if (!domainSelection?.range) {
+            return failTool(
+              "INVALID_DOMAIN",
+              `Invalid domain range: ${rest.domain}`,
+            );
+          }
+
+          // Build chart spec
+          const domainRange: SheetRange = {
+            sheetId,
+            startRowIndex: domainSelection.range.startRowIndex,
+            endRowIndex: domainSelection.range.endRowIndex,
+            startColumnIndex: domainSelection.range.startColumnIndex,
+            endColumnIndex: domainSelection.range.endColumnIndex,
+          };
+
+          const seriesRanges: SheetRange[] = rest.series!.map(
+            (seriesRange: string) => {
+              const sel = addressToSelection(seriesRange);
+              if (!sel?.range)
+                throw new Error(`Invalid series range: ${seriesRange}`);
+              return {
+                sheetId,
+                startRowIndex: sel.range.startRowIndex,
+                endRowIndex: sel.range.endRowIndex,
+                startColumnIndex: sel.range.startColumnIndex,
+                endColumnIndex: sel.range.endColumnIndex,
+              };
+            },
+          );
+
+          // Build chart spec - using any to handle complex internal types
+          const chartSpec = {
+            chartType: rest.chartType!.toUpperCase(),
+            domain: domainRange,
+            series: seriesRanges,
+            ...(rest.title ? { title: rest.title } : {}),
+            ...(rest.subtitle ? { subtitle: rest.subtitle } : {}),
+            ...(rest.xAxisTitle
+              ? { horizontalAxisTitle: rest.xAxisTitle }
+              : {}),
+            ...(rest.yAxisTitle ? { verticalAxisTitle: rest.yAxisTitle } : {}),
+            ...(rest.stackedType
+              ? { stackedType: mapStackedType(rest.stackedType) }
+              : {}),
+          } as unknown as ChartSpec;
+
+          // Determine anchor position
+          let anchorRowIndex = 1;
+          let anchorColumnIndex = domainSelection.range.endColumnIndex + 2;
+
+          if (rest.anchorCell) {
+            const anchorSel = addressToSelection(rest.anchorCell);
+            if (anchorSel?.range) {
+              anchorRowIndex = anchorSel.range.startRowIndex;
+              anchorColumnIndex = anchorSel.range.startColumnIndex;
+            }
+          }
+
+          const chart = {
+            chartId: newChartId,
+            spec: chartSpec,
+            position: {
+              sheetId,
+              overlayPosition: {
+                anchorCell: {
+                  rowIndex: anchorRowIndex,
+                  columnIndex: anchorColumnIndex,
+                },
+                widthPixels: rest.width ?? 400,
+                heightPixels: rest.height ?? 300,
+              },
+            },
+          } as EmbeddedChart;
+
+          // createChart expects: sheetId, activeCell, selections, chartSpec
+          const activeCell = {
+            rowIndex: anchorRowIndex,
+            columnIndex: anchorColumnIndex,
+          };
+          const selections = [{ bounds: domainSelection.range }];
+          spreadsheet.createChart(
+            sheetId,
+            activeCell,
+            selections as any,
+            chart,
+          );
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully created chart`,
+            chartId: newChartId,
+          });
+        } finally {
+          queueMicrotask(() => close());
+        }
+      } catch (error) {
+        return failTool(
+          "CREATE_CHART_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "update") {
+    if (!chartId) {
+      return failTool("MISSING_CHART_ID", "chartId is required for update");
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const charts = spreadsheet.charts || [];
+          const chart = charts.find((c) => String(c.chartId) === chartId);
+
+          if (!chart) {
+            return failTool("CHART_NOT_FOUND", `Chart not found`);
+          }
+
+          // Handle spec updates - using Record<string, unknown> for flexibility
+          const specUpdates: Record<string, unknown> = {};
+          if (rest.title !== undefined)
+            specUpdates.title = rest.title ?? undefined;
+          if (rest.subtitle !== undefined)
+            specUpdates.subtitle = rest.subtitle ?? undefined;
+          if (rest.chartType)
+            specUpdates.chartType = rest.chartType.toUpperCase();
+          if (rest.xAxisTitle !== undefined)
+            specUpdates.horizontalAxisTitle = rest.xAxisTitle ?? undefined;
+          if (rest.yAxisTitle !== undefined)
+            specUpdates.verticalAxisTitle = rest.yAxisTitle ?? undefined;
+          if (rest.stackedType)
+            specUpdates.stackedType = mapStackedType(rest.stackedType);
+
+          if (rest.domain) {
+            const domainSel = addressToSelection(rest.domain);
+            if (domainSel?.range) {
+              specUpdates.domain = {
+                sheetId: (chart.spec as Record<string, unknown>).domain
+                  ? (
+                      (chart.spec as Record<string, unknown>).domain as Record<
+                        string,
+                        unknown
+                      >
+                    ).sheetId
+                  : (sheetId ?? 1),
+                startRowIndex: domainSel.range.startRowIndex,
+                endRowIndex: domainSel.range.endRowIndex,
+                startColumnIndex: domainSel.range.startColumnIndex,
+                endColumnIndex: domainSel.range.endColumnIndex,
+              };
+            }
+          }
+
+          if (rest.series) {
+            const chartSheetId = (chart.spec as Record<string, unknown>).domain
+              ? ((
+                  (chart.spec as Record<string, unknown>).domain as Record<
+                    string,
+                    unknown
+                  >
+                ).sheetId as number)
+              : (sheetId ?? 1);
+            specUpdates.series = rest.series.map((seriesRange: string) => {
+              const sel = addressToSelection(seriesRange);
+              if (!sel?.range)
+                throw new Error(`Invalid series range: ${seriesRange}`);
+              return {
+                sheetId: chartSheetId,
+                startRowIndex: sel.range.startRowIndex,
+                endRowIndex: sel.range.endRowIndex,
+                startColumnIndex: sel.range.startColumnIndex,
+                endColumnIndex: sel.range.endColumnIndex,
+              };
+            });
+          }
+
+          const updates: Partial<EmbeddedChart> = {};
+          if (Object.keys(specUpdates).length > 0) {
+            updates.spec = { ...chart.spec, ...specUpdates } as ChartSpec;
+          }
+
+          // Handle position updates
+          if (rest.anchorCell || rest.width || rest.height) {
+            const currentPosition = chart.position?.overlayPosition;
+            const newPosition: Record<string, unknown> = { ...currentPosition };
+
+            if (rest.anchorCell) {
+              const anchorSel = addressToSelection(rest.anchorCell);
+              if (anchorSel?.range) {
+                newPosition.anchorCell = {
+                  rowIndex: anchorSel.range.startRowIndex,
+                  columnIndex: anchorSel.range.startColumnIndex,
+                };
+              }
+            }
+            if (rest.width) newPosition.widthPixels = rest.width;
+            if (rest.height) newPosition.heightPixels = rest.height;
+
+            updates.position = {
+              sheetId: sheetId ?? 1,
+              overlayPosition: newPosition,
+            } as EmbeddedChart["position"];
+          }
+
+          // updateChart expects the full chart object
+          const updatedChart = { ...chart, ...updates } as EmbeddedChart;
+          spreadsheet.updateChart(updatedChart);
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully updated chart`,
+            chartId,
+          });
+        } finally {
+          queueMicrotask(() => close());
+        }
+      } catch (error) {
+        return failTool(
+          "UPDATE_CHART_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "delete") {
+    if (!chartId) {
+      return failTool("MISSING_CHART_ID", "chartId is required for delete");
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const charts = spreadsheet.charts || [];
+          const chart = charts.find((c) => String(c.chartId) === chartId);
+
+          if (!chart) {
+            return failTool("CHART_NOT_FOUND", `Chart not found`);
+          }
+
+          spreadsheet.deleteChart(chartId);
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully deleted chart`,
+            chartId,
+          });
+        } finally {
+          queueMicrotask(() => close());
+        }
+      } catch (error) {
+        return failTool(
+          "DELETE_CHART_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  return failTool("INVALID_ACTION", `Invalid action: ${action}`);
+};
+
+export const spreadsheetChartTool = tool(handleSpreadsheetChart, {
+  name: "spreadsheet_chart",
+  description: `Create, update, or delete charts in the spreadsheet.
+
+OVERVIEW:
+This tool creates chart visualizations. You specify the domain (X-axis categories) and series (Y-axis data) explicitly.
+
+WHEN TO USE:
+- Creating bar, column, line, pie, or area charts
+- Visualizing tabular data
+- Updating chart titles, data ranges, or styling
+- Removing existing charts
+
+ACTIONS:
+- create: sheetId, domain, series, chartType required
+- update: chartId required, plus properties to change
+- delete: chartId required
+
+IMPORTANT - DATA RANGES:
+- domain: Range for X-axis labels/categories (e.g., 'A2:A10'). Usually a single column. DO NOT include header row.
+- series: Array of ranges for data series (e.g., ['B2:B10', 'C2:C10']). Each range becomes a separate line/bar. DO NOT include header rows.
+
+CHART TYPES:
+1. 'bar' - Horizontal bars
+2. 'column' - Vertical bars (most common)
+3. 'line' - Line chart with points
+4. 'pie' - Circular pie chart
+5. 'area' - Filled area chart
+6. 'scatter' - XY scatter plot
+
+PARAMETERS:
+- domain: A1 notation range for X-axis categories, excluding header (required)
+- series: Array of A1 notation ranges for data series, excluding headers (required)
+- chartType: Type of chart (required)
+- title: Chart title
+- subtitle: Chart subtitle
+- anchorCell: Where to place chart (e.g., 'F1')
+- width: Chart width in pixels (default: 400)
+- height: Chart height in pixels (default: 300)
+- stackedType: 'stacked' | 'percentStacked' | 'unstacked' (for bar/column/area, default: unstacked)
+- xAxisTitle: Horizontal axis title
+- yAxisTitle: Vertical axis title
+
+EXAMPLES:
+
+Given data in A1:C5:
+  | Month | Sales | Profit |
+  | Jan   | 100   | 20     |
+  | Feb   | 150   | 35     |
+
+Example 1 — Column chart with two series:
+  action: "create", sheetId: 1, domain: "A2:A5", series: ["B2:B5", "C2:C5"], chartType: "column", title: "Monthly Performance"
+
+Example 2 — Line chart with single series:
+  action: "create", sheetId: 1, domain: "A2:A5", series: ["B2:B5"], chartType: "line", title: "Sales Trend", anchorCell: "E1"
+
+Example 3 — Update chart title:
+  action: "update", chartId: "chart_123", title: "New Title"
+
+Example 4 — Delete chart:
+  action: "delete", chartId: "chart_123"`,
+  schema: SpreadsheetChartSchema,
+});
+
+/**
+ * Consolidated handler for data validation operations (create/update/delete/query)
+ */
+const handleSpreadsheetDataValidation = async (
+  input: SpreadsheetDataValidationInput,
+): Promise<string> => {
+  const { docId, sheetId, action, validationId, ...rest } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  if (action === "query") {
+    // Query validations
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          let validations = spreadsheet.dataValidations || [];
+
+          // Filter by sheetId if provided - use type assertion
+          if (sheetId) {
+            validations = validations.filter(
+              (v) => (v as Record<string, unknown>).sheetId === sheetId,
+            );
+          }
+
+          // Filter by range if provided
+          if (rest.range) {
+            const filterSel = addressToSelection(rest.range);
+            if (filterSel?.range) {
+              validations = validations.filter((v) => {
+                const vRange = v.ranges?.[0];
+                if (!vRange) return false;
+                return areaIntersects(filterSel.range!, vRange);
+              });
+            }
+          }
+
+          // Format output - use type assertion for sheetId since it's stored at rule level
+          const results = validations.map((v) => ({
+            validationId: v.id,
+            sheetId: (v as Record<string, unknown>).sheetId,
+            ranges: v.ranges?.map((r) => selectionToAddress({ range: r })),
+            condition: v.condition,
+          }));
+
+          return JSON.stringify({
+            success: true,
+            validations: results,
+            count: results.length,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "QUERY_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "create") {
+    if (!sheetId) {
+      return failTool("MISSING_SHEET_ID", "sheetId is required for create");
+    }
+    if (!rest.range) {
+      return failTool("MISSING_RANGE", "range is required for create");
+    }
+    if (!rest.validationType) {
+      return failTool("MISSING_VALIDATION_TYPE", "validationType is required");
+    }
+
+    // Validate list type has values
+    if (
+      rest.validationType === "list" &&
+      !rest.listValues?.length &&
+      !rest.listRange
+    ) {
+      return failTool(
+        "MISSING_LIST_VALUES",
+        "listValues or listRange required for list type",
+      );
+    }
+
+    const newValidationId = uuidString();
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const selection = addressToSelection(rest.range!);
+        if (!selection?.range) {
+          return failTool("INVALID_RANGE", `Invalid range: ${rest.range}`);
+        }
+
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+
+          const conditionType = mapValidationCondition(
+            rest.validationType!,
+            rest.numberOperator || rest.dateOperator,
+          );
+
+          const conditionValues = buildConditionValues({
+            validationType: rest.validationType!,
+            listValues: rest.listValues,
+            listRange: rest.listRange,
+            customFormula: rest.customFormula,
+            minValue: rest.minValue,
+            maxValue: rest.maxValue,
+            minDate: rest.minDate,
+            maxDate: rest.maxDate,
+          } as SpreadsheetCreateDataValidationInput);
+
+          const validationRule = {
+            id: newValidationId,
+            sheetId,
+            ranges: [
+              {
+                sheetId,
+                startRowIndex: selection.range.startRowIndex,
+                endRowIndex: selection.range.endRowIndex,
+                startColumnIndex: selection.range.startColumnIndex,
+                endColumnIndex: selection.range.endColumnIndex,
+              },
+            ],
+            condition: {
+              type: conditionType,
+              values: conditionValues,
+            },
+            strict:
+              rest.errorStyle !== "warning" &&
+              rest.errorStyle !== "information",
+            showDropdown: rest.showDropdown ?? true,
+            inputMessage: rest.inputMessage
+              ? {
+                  message: rest.inputMessage,
+                  title: rest.inputTitle ?? undefined,
+                }
+              : undefined,
+            errorMessage: rest.errorMessage
+              ? {
+                  message: rest.errorMessage,
+                  title: rest.errorTitle ?? undefined,
+                }
+              : undefined,
+          } as DataValidationRuleRecord;
+
+          spreadsheet.createDataValidationRule(validationRule);
+
+          // trigger calc
+          await spreadsheet.calculatePending();
+
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully created data validation`,
+            validationId: newValidationId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "CREATE_VALIDATION_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "update") {
+    if (!validationId) {
+      return failTool(
+        "MISSING_VALIDATION_ID",
+        "validationId is required for update",
+      );
+    }
+    if (!sheetId) {
+      return failTool("MISSING_SHEET_ID", "sheetId is required for update");
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const validations = spreadsheet.dataValidations || [];
+          const validation = validations.find((v) => v.id === validationId);
+
+          if (!validation) {
+            return failTool("VALIDATION_NOT_FOUND", `Validation not found`);
+          }
+
+          const updates: Record<string, unknown> = {};
+
+          if (rest.range) {
+            const selection = addressToSelection(rest.range);
+            if (selection?.range) {
+              updates.ranges = [
+                {
+                  sheetId,
+                  startRowIndex: selection.range.startRowIndex,
+                  endRowIndex: selection.range.endRowIndex,
+                  startColumnIndex: selection.range.startColumnIndex,
+                  endColumnIndex: selection.range.endColumnIndex,
+                },
+              ];
+            }
+          }
+
+          if (rest.validationType) {
+            const conditionType = mapValidationCondition(
+              rest.validationType,
+              rest.numberOperator || rest.dateOperator,
+            );
+            const conditionValues = buildConditionValues({
+              validationType: rest.validationType,
+              listValues: rest.listValues,
+              listRange: rest.listRange,
+              customFormula: rest.customFormula,
+              minValue: rest.minValue,
+              maxValue: rest.maxValue,
+              minDate: rest.minDate,
+              maxDate: rest.maxDate,
+            } as SpreadsheetCreateDataValidationInput);
+
+            updates.condition = {
+              type: conditionType,
+              values: conditionValues,
+            };
+          }
+
+          if (rest.showDropdown !== undefined)
+            updates.showDropdown = rest.showDropdown;
+          if (rest.errorStyle !== undefined) {
+            updates.strict =
+              rest.errorStyle !== "warning" &&
+              rest.errorStyle !== "information";
+          }
+          if (
+            rest.inputMessage !== undefined ||
+            rest.inputTitle !== undefined
+          ) {
+            const existingInput = (validation as Record<string, unknown>)
+              .inputMessage as { message?: string; title?: string } | undefined;
+            updates.inputMessage = {
+              message: rest.inputMessage ?? existingInput?.message ?? "",
+              title: rest.inputTitle ?? existingInput?.title,
+            };
+          }
+          if (
+            rest.errorMessage !== undefined ||
+            rest.errorTitle !== undefined
+          ) {
+            const existingError = (validation as Record<string, unknown>)
+              .errorMessage as { message?: string; title?: string } | undefined;
+            updates.errorMessage = {
+              message: rest.errorMessage ?? existingError?.message ?? "",
+              title: rest.errorTitle ?? existingError?.title,
+            };
+          }
+
+          // updateDataValidationRule expects (updatedRule, previousRule)
+          const updatedRule = {
+            ...validation,
+            ...updates,
+          } as DataValidationRuleRecord;
+          spreadsheet.updateDataValidationRule(updatedRule, validation);
+
+          // trigger calc
+          await spreadsheet.calculatePending();
+
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully updated data validation`,
+            validationId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "UPDATE_VALIDATION_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "delete") {
+    if (!validationId) {
+      return failTool(
+        "MISSING_VALIDATION_ID",
+        "validationId is required for delete",
+      );
+    }
+    if (!sheetId) {
+      return failTool("MISSING_SHEET_ID", "sheetId is required for delete");
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const validations = spreadsheet.dataValidations || [];
+          const validation = validations.find((v) => v.id === validationId);
+
+          if (!validation) {
+            return failTool("VALIDATION_NOT_FOUND", `Validation not found`);
+          }
+
+          spreadsheet.deleteDataValidationRule(validation);
+
+          // trigger calc
+          await spreadsheet.calculatePending();
+
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully deleted data validation`,
+            validationId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "DELETE_VALIDATION_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  return failTool("INVALID_ACTION", `Invalid action: ${action}`);
+};
+
+export const spreadsheetDataValidationTool = tool(
+  handleSpreadsheetDataValidation,
+  {
+    name: "spreadsheet_dataValidation",
+    description: `Create, update, delete, or query data validation rules.
+
+OVERVIEW:
+This tool adds input validation to cells, such as dropdown lists, number ranges, or custom formulas. Use action parameter for create/update/delete/query.
+
+WHEN TO USE:
+- Creating dropdown lists for user selection
+- Restricting input to numbers, dates, or custom formulas
+- Finding existing validation rules on a sheet
+- Updating or removing existing validation rules
+
+ACTIONS:
+- create: sheetId, range, validationType required
+- update: sheetId, validationId required, plus properties to change
+- delete: sheetId, validationId required
+- query: optional sheetId/range filters to find existing rules
+
+VALIDATION TYPES:
+
+1. LIST - Dropdown with predefined values:
+   validationType: "list"
+   listValues: ["Option1", "Option2", "Option3"]
+   OR
+   listRange: "Sheet2!A1:A10" (reference another range)
+
+2. NUMBER - Numeric validation:
+   validationType: "number" (decimals allowed) or "wholeNumber" (integers only)
+   numberOperator: "between" | "notBetween" | "equal" | "notEqual" | "greaterThan" | "greaterThanOrEqual" | "lessThan" | "lessThanOrEqual"
+   minValue: 0
+   maxValue: 100
+
+3. DATE - Date validation:
+   validationType: "date"
+   dateOperator: "between" | "notBetween" | "equal" | "notEqual" | "before" | "onOrBefore" | "after" | "onOrAfter"
+   minDate: "2024-01-01"
+   maxDate: "2024-12-31"
+
+4. CUSTOM - Formula-based validation:
+   validationType: "custom"
+   customFormula: "=A1>0" (must return TRUE for valid values)
+
+COMMON OPTIONS:
+- allowBlank: Allow empty cells (default: true)
+- showDropdown: Show dropdown arrow for lists (default: true)
+- errorStyle: "stop" (reject) | "warning" | "information"
+- errorTitle/errorMessage: Custom error dialog
+- inputTitle/inputMessage: Help text when cell is selected
+
+IMPORTANT: Use EXACTLY the range the user specifies. If they say "E1", use "E1" - do NOT expand to "E1:E100".
+
+EXAMPLES:
+
+Example 1 — Dropdown for a single cell:
+  action: "create", sheetId: 1, range: "E1", validationType: "list", listValues: ["Option1", "Option2"]
+
+Example 2 — Dropdown for a column range:
+  action: "create", sheetId: 1, range: "B2:B50", validationType: "list", listValues: ["Pending", "In Progress", "Done"]
+
+Example 3 — Number validation between range:
+  action: "create", sheetId: 1, range: "C5", validationType: "number", numberOperator: "between", minValue: 1, maxValue: 100
+
+Example 4 — Date validation:
+  action: "create", sheetId: 1, range: "D2:D50", validationType: "date", dateOperator: "between", minDate: "2024-01-01", maxDate: "2024-12-31"
+
+Example 5 — Custom formula validation:
+  action: "create", sheetId: 1, range: "A1:A10", validationType: "custom", customFormula: "=LEN(A1)<=50"
+
+Example 6 — Query existing validations:
+  action: "query", sheetId: 1
+
+Example 7 — Update validation:
+  action: "update", sheetId: 1, validationId: "val_123", listValues: ["New Option1", "New Option2"]
+
+Example 8 — Delete validation:
+  action: "delete", sheetId: 1, validationId: "val_123"`,
+    schema: SpreadsheetDataValidationSchema,
+  },
+);
+
+/**
+ * Consolidated handler for conditional format operations (create/update/delete/query)
+ */
+const handleSpreadsheetConditionalFormat = async (
+  input: SpreadsheetConditionalFormatInput,
+): Promise<string> => {
+  const { docId, sheetId, action, ruleId, ...rest } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  if (action === "query") {
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          let rules = spreadsheet.conditionalFormats || [];
+
+          if (sheetId) {
+            rules = rules.filter(
+              (r) => (r as Record<string, unknown>).sheetId === sheetId,
+            );
+          }
+
+          if (rest.range) {
+            const filterSel = addressToSelection(rest.range);
+            if (filterSel?.range) {
+              rules = rules.filter((r) => {
+                const rRange = r.ranges?.[0];
+                if (!rRange) return false;
+                return areaIntersects(filterSel.range!, rRange);
+              });
+            }
+          }
+
+          const results = rules.map((r) => ({
+            ruleId: r.id,
+            sheetId: (r as Record<string, unknown>).sheetId,
+            ranges: r.ranges?.map((range) => selectionToAddress({ range })),
+            booleanRule: r.booleanRule,
+            gradientRule: r.gradientRule,
+            enabled: r.enabled,
+          }));
+
+          return JSON.stringify({
+            success: true,
+            conditionalFormats: results,
+            count: results.length,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "QUERY_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "create") {
+    if (!sheetId) {
+      return failTool("MISSING_SHEET_ID", "sheetId is required for create");
+    }
+    if (!rest.range) {
+      return failTool("MISSING_RANGE", "range is required for create");
+    }
+    if (!rest.ruleType) {
+      return failTool("MISSING_RULE_TYPE", "ruleType is required for create");
+    }
+
+    const newRuleId = uuidString();
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const selection = addressToSelection(rest.range!);
+        if (!selection?.range) {
+          return failTool("INVALID_RANGE", `Invalid range: ${rest.range}`);
+        }
+
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+
+          const rule = {
+            id: newRuleId,
+            sheetId,
+            ranges: [
+              {
+                sheetId,
+                startRowIndex: selection.range.startRowIndex,
+                endRowIndex: selection.range.endRowIndex,
+                startColumnIndex: selection.range.startColumnIndex,
+                endColumnIndex: selection.range.endColumnIndex,
+              },
+            ],
+            enabled: true,
+          } as ConditionalFormatRule;
+
+          // Build the rule based on type
+          if (rest.ruleType === "colorScale") {
+            rule.gradientRule = {
+              minpoint: {
+                type: "MIN",
+                color: rest.minColor || "#FF0000",
+              },
+              maxpoint: {
+                type: "MAX",
+                color: rest.maxColor || "#00FF00",
+              },
+              ...(rest.colorScaleType === "3color" && rest.midColor
+                ? {
+                    midpoint: {
+                      type: "PERCENTILE",
+                      value: "50",
+                      color: rest.midColor,
+                    },
+                  }
+                : {}),
+            };
+          } else {
+            // Build format
+            const format: CellFormat = {};
+            if (rest.backgroundColor)
+              format.backgroundColor = rest.backgroundColor;
+            if (rest.textColor) format.textFormat = { color: rest.textColor };
+            if (rest.bold)
+              format.textFormat = { ...format.textFormat, bold: true };
+            if (rest.italic)
+              format.textFormat = { ...format.textFormat, italic: true };
+
+            // Build condition based on ruleType - using string type to handle all condition types
+            let condition: {
+              type: string;
+              values?: Array<{ userEnteredValue: string }>;
+            };
+
+            if (rest.ruleType === "condition") {
+              const conditionType = mapConditionalFormatCondition(
+                rest.conditionType || "greaterThan",
+              );
+              condition = {
+                type: conditionType,
+                values: rest.conditionValues?.map((v) => ({
+                  userEnteredValue: String(v),
+                })),
+              };
+              if (rest.customFormula) {
+                condition = {
+                  type: "CUSTOM_FORMULA",
+                  values: [{ userEnteredValue: rest.customFormula }],
+                };
+              }
+            } else if (rest.ruleType === "topBottom") {
+              condition = {
+                type:
+                  rest.topBottomType === "bottom"
+                    ? rest.isPercent
+                      ? "BOTTOM_PERCENT"
+                      : "BOTTOM"
+                    : rest.isPercent
+                      ? "TOP_PERCENT"
+                      : "TOP",
+                values: rest.rank
+                  ? [{ userEnteredValue: String(rest.rank) }]
+                  : undefined,
+              };
+            } else if (rest.ruleType === "duplicates") {
+              condition = {
+                type: rest.duplicateType === "unique" ? "UNIQUE" : "DUPLICATE",
+              };
+            } else {
+              condition = { type: "CUSTOM_FORMULA" };
+            }
+
+            (rule as Record<string, unknown>).booleanRule = {
+              condition,
+              format,
+            };
+          }
+
+          spreadsheet.createConditionalFormattingRule(rule);
+
+          // trigger calc
+          await spreadsheet.calculatePending();
+
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully created conditional format`,
+            ruleId: newRuleId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "CREATE_FORMAT_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "update") {
+    if (!ruleId) {
+      return failTool("MISSING_RULE_ID", "ruleId is required for update");
+    }
+    if (!sheetId) {
+      return failTool("MISSING_SHEET_ID", "sheetId is required for update");
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const rules = spreadsheet.conditionalFormats || [];
+          const existingRule = rules.find((r) => r.id === ruleId);
+
+          if (!existingRule) {
+            return failTool("RULE_NOT_FOUND", `Rule not found`);
+          }
+
+          const updates: Record<string, unknown> = {};
+
+          if (rest.range) {
+            const selection = addressToSelection(rest.range);
+            if (selection?.range) {
+              updates.ranges = [
+                {
+                  sheetId,
+                  startRowIndex: selection.range.startRowIndex,
+                  endRowIndex: selection.range.endRowIndex,
+                  startColumnIndex: selection.range.startColumnIndex,
+                  endColumnIndex: selection.range.endColumnIndex,
+                },
+              ];
+            }
+          }
+
+          if (rest.enabled !== undefined) updates.enabled = rest.enabled;
+
+          // Handle format updates for boolean rules
+          if (
+            rest.backgroundColor ||
+            rest.textColor ||
+            rest.bold !== undefined ||
+            rest.italic !== undefined
+          ) {
+            const format: CellFormat = {
+              ...(existingRule.booleanRule?.format || {}),
+            };
+            if (rest.backgroundColor)
+              format.backgroundColor = rest.backgroundColor;
+            if (rest.textColor)
+              format.textFormat = {
+                ...format.textFormat,
+                color: rest.textColor,
+              };
+            if (rest.bold !== undefined)
+              format.textFormat = { ...format.textFormat, bold: rest.bold };
+            if (rest.italic !== undefined)
+              format.textFormat = { ...format.textFormat, italic: rest.italic };
+
+            updates.booleanRule = {
+              ...existingRule.booleanRule,
+              format,
+            };
+          }
+
+          // updateConditionalFormattingRule expects (updatedRule, previousRule)
+          const updatedRule = {
+            ...existingRule,
+            ...updates,
+          } as ConditionalFormatRule;
+          spreadsheet.updateConditionalFormattingRule(
+            updatedRule,
+            existingRule,
+          );
+
+          // trigger calc
+          await spreadsheet.calculatePending();
+
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully updated conditional format`,
+            ruleId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "UPDATE_FORMAT_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  if (action === "delete") {
+    if (!ruleId) {
+      return failTool("MISSING_RULE_ID", "ruleId is required for delete");
+    }
+    if (!sheetId) {
+      return failTool("MISSING_SHEET_ID", "sheetId is required for delete");
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data)
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+
+          const spreadsheet = createSpreadsheetInterface(data);
+          const rules = spreadsheet.conditionalFormats || [];
+          const rule = rules.find((r) => r.id === ruleId);
+
+          if (!rule) {
+            return failTool("RULE_NOT_FOUND", `Rule not found`);
+          }
+
+          spreadsheet.deleteConditionalFormattingRule(rule);
+
+          // trigger calc
+          await spreadsheet.calculatePending();
+
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully deleted conditional format`,
+            ruleId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "DELETE_FORMAT_FAILED",
+          error instanceof Error ? error.message : "Failed",
+        );
+      }
+    });
+  }
+
+  return failTool("INVALID_ACTION", `Invalid action: ${action}`);
+};
+
+export const spreadsheetConditionalFormatTool = tool(
+  handleSpreadsheetConditionalFormat,
+  {
+    name: "spreadsheet_conditionalFormat",
+    description: `Create, update, delete, or query conditional formatting rules.
+
+OVERVIEW:
+This tool applies visual formatting based on cell values or conditions. Use action parameter to create/update/delete/query rules.
+
+WHEN TO USE:
+- Highlighting cells based on value conditions (>, <, =, between, etc.)
+- Applying color scales/heatmaps to numeric data
+- Highlighting top/bottom N values or percentages
+- Highlighting duplicate or unique values
+- Updating or removing existing conditional format rules
+
+ACTIONS:
+- create: sheetId, range, ruleType required
+- update: sheetId, ruleId required, plus properties to change
+- delete: sheetId, ruleId required
+- query: optional sheetId/range filters to find existing rules
+
+RULE TYPES:
+
+1. CONDITION - Format cells based on value conditions:
+   ruleType: "condition"
+   conditionType: "greaterThan" | "greaterThanOrEqual" | "lessThan" | "lessThanOrEqual" | "equal" | "notEqual" | "between" | "notBetween" | "textContains" | "textNotContains" | "textStartsWith" | "textEndsWith" | "blank" | "notBlank" | "custom"
+   conditionValues: [50] or [10, 90] for between/notBetween
+   customFormula: "=A1>B1" (for custom type only)
+   backgroundColor: "#FFCCCC"
+   textColor: "#FF0000"
+   bold: true/false
+   italic: true/false
+
+2. COLOR SCALE - Gradient colors based on values:
+   ruleType: "colorScale"
+   colorScaleType: "2color" or "3color"
+   minColor: "#FF0000" (red for low values)
+   midColor: "#FFFF00" (yellow for mid, only for 3color)
+   maxColor: "#00FF00" (green for high values)
+
+3. TOP/BOTTOM - Highlight top or bottom values:
+   ruleType: "topBottom"
+   topBottomType: "top" or "bottom"
+   rank: 10 (number of items)
+   isPercent: true (top 10%) or false (top 10 items)
+   backgroundColor/textColor/bold/italic for format
+
+4. DUPLICATES - Highlight duplicate or unique values:
+   ruleType: "duplicates"
+   duplicateType: "duplicate" or "unique"
+   backgroundColor/textColor/bold/italic for format
+
+IMPORTANT: Use EXACTLY the range the user specifies.
+
+EXAMPLES:
+
+Example 1 — Highlight cells > 100 with red background:
+  action: "create", sheetId: 1, range: "C2:C50", ruleType: "condition", conditionType: "greaterThan", conditionValues: [100], backgroundColor: "#FFCCCC"
+
+Example 2 — 3-color scale (red → yellow → green):
+  action: "create", sheetId: 1, range: "D2:D50", ruleType: "colorScale", colorScaleType: "3color", minColor: "#FF0000", midColor: "#FFFF00", maxColor: "#00FF00"
+
+Example 3 — Highlight top 10%:
+  action: "create", sheetId: 1, range: "E2:E50", ruleType: "topBottom", topBottomType: "top", rank: 10, isPercent: true, backgroundColor: "#90EE90"
+
+Example 4 — Highlight duplicates:
+  action: "create", sheetId: 1, range: "A2:A100", ruleType: "duplicates", duplicateType: "duplicate", backgroundColor: "#FFB6C1"
+
+Example 5 — Custom formula (highlight if A > B):
+  action: "create", sheetId: 1, range: "A1:A100", ruleType: "condition", conditionType: "custom", customFormula: "=A1>B1", backgroundColor: "#FFFFCC"
+
+Example 6 — Query existing rules:
+  action: "query", sheetId: 1
+
+Example 7 — Update rule format:
+  action: "update", sheetId: 1, ruleId: "xyz789", backgroundColor: "#CCCCFF"
+
+Example 8 — Delete rule:
+  action: "delete", sheetId: 1, ruleId: "xyz789"`,
+    schema: SpreadsheetConditionalFormatSchema,
   },
 );
 
@@ -6956,33 +5454,20 @@ export const spreadsheetTools = [
   spreadsheetUpdateSheetTool,
   spreadsheetGetSheetMetadataTool,
   spreadsheetFormatRangeTool,
-  spreadsheetInsertRowsTool,
-  spreadsheetInsertColumnsTool,
+  spreadsheetModifyRowsColsTool,
   spreadsheetQueryRangeTool,
   spreadsheetSetIterativeModeTool,
   spreadsheetReadDocumentTool,
   spreadsheetGetRowColMetadataTool,
   spreadsheetSetRowColDimensionsTool,
   spreadsheetDuplicateSheetTool,
-  spreadsheetDeleteCellsTool,
-  spreadsheetClearFormattingTool,
   spreadsheetApplyFillTool,
   spreadsheetInsertNoteTool,
-  spreadsheetDeleteRowsTool,
-  spreadsheetDeleteColumnsTool,
-  spreadsheetCreateTableTool,
-  spreadsheetUpdateTableTool,
-  spreadsheetCreateChartTool,
-  spreadsheetUpdateChartTool,
   spreadsheetDeleteSheetTool,
-  spreadsheetDeleteChartTool,
-  spreadsheetDeleteTableTool,
-  spreadsheetCreateDataValidationTool,
-  spreadsheetUpdateDataValidationTool,
-  spreadsheetDeleteDataValidationTool,
-  spreadsheetQueryDataValidationsTool,
-  spreadsheetCreateConditionalFormatTool,
-  spreadsheetUpdateConditionalFormatTool,
-  spreadsheetDeleteConditionalFormatTool,
-  spreadsheetQueryConditionalFormatsTool,
+  // Consolidated tools
+  spreadsheetClearCellsTool,
+  spreadsheetTableTool,
+  spreadsheetChartTool,
+  spreadsheetDataValidationTool,
+  spreadsheetConditionalFormatTool,
 ];

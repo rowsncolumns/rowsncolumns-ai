@@ -118,7 +118,6 @@ export const buildSpreadsheetContextInstructions = (
 IMPORTANT INDEXING RULE:
 - rowIndex and columnIndex are 1-based (NOT zero-based)
 - A1 is rowIndex=1, columnIndex=1
-- Never interpret rowIndex=1,columnIndex=1 as B2
 `,
         context.activeCell,
       ),
