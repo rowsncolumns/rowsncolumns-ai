@@ -406,7 +406,7 @@ CRITICAL RULES:
     - Use spreadsheet_applyFill to extend the sequence automatically
     Example: For "Fiscal Month 1, 2, 3...12" across B5:M5:
       Step 1: Write range "B5:C5" with cells [[{"value": 1}, {"value": 2}]]
-      Step 2: applyFill with sourceRange "B5:C5", fillRange "B5:M5"
+      Step 2: applyFill with sourceRange "B5:C5", fillRange "D5:M5" (starts at D, NOT B!)
     This saves tokens and is more efficient than listing all 12 values.
 11. CITATIONS: Use the 'citation' field to track data sources. Citations MUST be accompanied by a 'value' or 'formula'.
     - Format: URL with optional 'excerpt' query param for scroll-to-text highlighting
@@ -3225,13 +3225,29 @@ Use this approach:
   1. changeBatch: Write first 2 values to establish pattern (e.g., 1, 2 in B5:C5)
   2. applyFill: Extend to remaining cells (sourceRange: "B5:C5", fillRange: "D5:M5")
 
-IMPORTANT:
+⚠️ CRITICAL - fillRange must NOT include sourceRange:
+- fillRange specifies ONLY the destination cells to be filled
+- For fill DOWN: fillRange starts at the row AFTER sourceRange ends
+- For fill RIGHT: fillRange starts at the column AFTER sourceRange ends
+
+WRONG vs CORRECT examples:
+
+Fill DOWN (extending row 12 to rows 13-22):
+  ❌ WRONG:  sourceRange: "A12:H12", fillRange: "A12:H22" (includes source row 12!)
+  ✓ CORRECT: sourceRange: "A12:H12", fillRange: "A13:H22" (starts at row 13)
+
+Fill DOWN (extending rows 1-2 pattern to rows 3-10):
+  ❌ WRONG:  sourceRange: "A1:A2", fillRange: "A1:A10" (includes source rows 1-2!)
+  ✓ CORRECT: sourceRange: "A1:A2", fillRange: "A3:A10" (starts at row 3)
+
+Fill RIGHT (extending columns A-B to columns C-F):
+  ❌ WRONG:  sourceRange: "A1:B1", fillRange: "A1:F1" (includes source columns A-B!)
+  ✓ CORRECT: sourceRange: "A1:B1", fillRange: "C1:F1" (starts at column C)
+
+OTHER NOTES:
 - All indices are 1-based
-- fillRange must NOT overlap with sourceRange - it specifies only the destination cells
-- For fill down: fillRange starts at the row AFTER sourceRange ends
-- For fill right: fillRange starts at the column AFTER sourceRange ends
 - The tool auto-detects patterns (numbers, dates, series)
-- BATCHING: For large fills (more than 50 rows), apply in batches of 50 rows at a time. This improves reliability and allows for incremental progress.
+- BATCHING: For large fills (more than 50 rows), apply in batches of 50 rows at a time
 
 PARAMETERS:
 - docId: The document ID of the spreadsheet (required)
