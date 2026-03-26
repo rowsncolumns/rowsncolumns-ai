@@ -3,6 +3,7 @@ import {
   DEFAULT_COLUMN_WIDTH,
   DEFAULT_ROW_HEIGHT,
   addressToSelection,
+  areaIntersects,
   cellToAddress,
   desanitizeSheetName,
   generateSelectionsFromFormula,
@@ -17,6 +18,7 @@ import {
   isNil,
   selectionToAddress,
   uuidString,
+  alpha2number,
 } from "@rowsncolumns/utils";
 
 import {
@@ -53,10 +55,12 @@ import {
   SpreadsheetSetIterativeModeSchema,
   type SpreadsheetUpdateSheetInput,
   SpreadsheetUpdateSheetSchema,
+  type SpreadsheetGetSheetMetadataInput,
+  SpreadsheetGetSheetMetadataSchema,
   type SpreadsheetReadDocumentInput,
   SpreadsheetReadDocumentSchema,
-  type SpreadsheetGetRowColDimensionsInput,
-  SpreadsheetGetRowColDimensionsSchema,
+  type SpreadsheetGetRowColMetadataInput,
+  SpreadsheetGetRowColMetadataSchema,
   type SpreadsheetSetRowColDimensionsInput,
   SpreadsheetSetRowColDimensionsSchema,
   type SpreadsheetCreateTableInput,
@@ -109,12 +113,16 @@ import {
   type ChartSpec,
   type ConditionalFormatRule,
   AXIS,
+  Sheet,
+  DimensionProperties,
 } from "@rowsncolumns/spreadsheet";
 import type {
   SelectionArea,
   ConditionType,
   DataValidationRuleRecord,
   CellFormat,
+  GridRange,
+  SheetRange,
 } from "@rowsncolumns/common-types";
 
 const failTool = (
@@ -478,7 +486,22 @@ Example 5 — Write values with citations to track data sources:
 const handleSpreadsheetCreateSheet = async (
   input: SpreadsheetCreateSheetInput,
 ): Promise<string> => {
-  const { docId, sheetSpec, activeSheetId } = input;
+  const {
+    docId,
+    activeSheetId,
+    title,
+    sheetId: inputSheetId,
+    hidden,
+    merges,
+    hideRows,
+    showRows,
+    hideCols,
+    showCols,
+    frozenRowCount,
+    frozenColumnCount,
+    showGridLines,
+    tabColor,
+  } = input;
 
   if (!docId) {
     return JSON.stringify({
@@ -491,7 +514,7 @@ const handleSpreadsheetCreateSheet = async (
     console.log("[spreadsheet_createSheet] Starting:", {
       docId,
       activeSheetId,
-      sheetSpec,
+      title,
     });
 
     try {
@@ -517,36 +540,71 @@ const handleSpreadsheetCreateSheet = async (
         // Build sheet spec for createNewSheet
         const spec: Record<string, unknown> = {};
 
-        if (sheetSpec?.title) {
-          spec.title = sheetSpec.title;
+        if (title) {
+          spec.title = title;
         }
-        if (sheetSpec?.sheetId !== undefined) {
-          spec.sheetId = sheetSpec.sheetId;
+        if (inputSheetId !== undefined) {
+          spec.sheetId = inputSheetId;
         }
-        if (sheetSpec?.hidden !== undefined) {
-          spec.hidden = sheetSpec.hidden;
+        if (hidden !== undefined) {
+          spec.hidden = hidden;
         }
-        if (sheetSpec?.merges) {
-          spec.merges = sheetSpec.merges;
+        // Convert A1 notation merges to GridRange format
+        if (merges && merges.length > 0) {
+          spec.merges = merges
+            .map((a1Range: string) => {
+              const selection = addressToSelection(a1Range);
+              if (!selection?.range) {
+                return null;
+              }
+              return selection.range;
+            })
+            .filter(Boolean);
         }
-        if (sheetSpec?.rowMetadata) {
-          spec.rowMetadata = sheetSpec.rowMetadata;
+        // Convert hideRows/showRows to rowMetadata
+        const rowMetadata: DimensionProperties[] = [];
+        if (hideRows) {
+          for (const row of hideRows) {
+            rowMetadata[row] = { hiddenByUser: true };
+          }
         }
-        if (sheetSpec?.columnMetadata) {
-          spec.columnMetadata = sheetSpec.columnMetadata;
+        if (showRows) {
+          for (const row of showRows) {
+            rowMetadata[row] = { hiddenByUser: false };
+          }
         }
-        if (sheetSpec?.frozenRowCount !== undefined) {
-          spec.frozenRowCount = sheetSpec.frozenRowCount;
+        if (rowMetadata.length > 0) {
+          spec.rowMetadata = rowMetadata;
         }
-        if (sheetSpec?.frozenColumnCount !== undefined) {
-          spec.frozenColumnCount = sheetSpec.frozenColumnCount;
+        // Convert hideCols/showCols to columnMetadata (column letters like "A", "B", "AA")
+        const columnMetadata: DimensionProperties[] = [];
+        if (hideCols) {
+          for (const colLetter of hideCols) {
+            const colIndex = alpha2number(colLetter);
+            columnMetadata[colIndex] = { hiddenByUser: true };
+          }
         }
-        if (sheetSpec?.showGridLines !== undefined) {
-          spec.showGridLines = sheetSpec.showGridLines;
+        if (showCols) {
+          for (const colLetter of showCols) {
+            const colIndex = alpha2number(colLetter);
+            columnMetadata[colIndex] = { hiddenByUser: false };
+          }
         }
-        if (sheetSpec?.tabColor !== undefined) {
+        if (columnMetadata.length > 0) {
+          spec.columnMetadata = columnMetadata;
+        }
+        if (frozenRowCount !== undefined) {
+          spec.frozenRowCount = frozenRowCount;
+        }
+        if (frozenColumnCount !== undefined) {
+          spec.frozenColumnCount = frozenColumnCount;
+        }
+        if (showGridLines !== undefined) {
+          spec.showGridLines = showGridLines;
+        }
+        if (tabColor !== undefined) {
           // tabColor can be a hex string or { theme, tint } object
-          spec.tabColor = sheetSpec.tabColor;
+          spec.tabColor = tabColor;
         }
 
         // Create the new sheet
@@ -606,30 +664,34 @@ EXAMPLES:
 
 Example 1 — Create a simple sheet with default settings:
   docId: "abc123"
-  (no sheetSpec needed)
 
 Example 2 — Create a named sheet with frozen header row:
   docId: "abc123"
-  sheetSpec: {
-    "title": "Sales Report",
-    "frozenRowCount": 1
-  }
+  title: "Sales Report"
+  frozenRowCount: 1
 
 Example 3 — Create a colored sheet with hex color:
   docId: "abc123"
-  sheetSpec: {
-    "title": "Dashboard",
-    "frozenRowCount": 2,
-    "frozenColumnCount": 1,
-    "tabColor": "#4285F4"
-  }
+  title: "Dashboard"
+  frozenRowCount: 2
+  frozenColumnCount: 1
+  tabColor: "#4285F4"
 
 Example 4 — Create a sheet with theme-based color:
   docId: "abc123"
-  sheetSpec: {
-    "title": "Summary",
-    "tabColor": { "theme": 4, "tint": 0.4 }
-  }`,
+  title: "Summary"
+  tabColor: { "theme": 4, "tint": 0.4 }
+
+Example 5 — Create a sheet with merged cells:
+  docId: "abc123"
+  title: "Report"
+  merges: ["A1:C1", "A2:A5"]
+
+Example 6 — Create a sheet with hidden rows/columns:
+  docId: "abc123"
+  title: "Data"
+  hideRows: [2, 3, 4]
+  hideCols: ["A", "B"]`,
   schema: SpreadsheetCreateSheetSchema,
 });
 
@@ -642,7 +704,23 @@ Example 4 — Create a sheet with theme-based color:
 const handleSpreadsheetUpdateSheet = async (
   input: SpreadsheetUpdateSheetInput,
 ): Promise<string> => {
-  const { docId, sheetId, sheetSpec, unsetFields } = input;
+  const {
+    docId,
+    sheetId,
+    unsetFields,
+    title,
+    hidden,
+    merges,
+    removeMerges,
+    hideRows,
+    showRows,
+    hideCols,
+    showCols,
+    frozenRowCount,
+    frozenColumnCount,
+    showGridLines,
+    tabColor,
+  } = input;
 
   if (!docId) {
     return JSON.stringify({
@@ -662,7 +740,7 @@ const handleSpreadsheetUpdateSheet = async (
     console.log("[spreadsheet_updateSheet] Starting:", {
       docId,
       sheetId,
-      sheetSpec,
+      title,
       unsetFields,
     });
 
@@ -683,34 +761,120 @@ const handleSpreadsheetUpdateSheet = async (
         const spreadsheet = createSpreadsheetInterface(data);
 
         // Build sheet spec for updateSheet
-        const spec: Record<string, unknown> = {};
+        const spec: Partial<Sheet> = {};
 
-        if (sheetSpec?.title !== undefined) {
-          spec.title = sheetSpec.title;
+        if (title !== undefined) {
+          spec.title = title;
         }
-        if (sheetSpec?.hidden !== undefined) {
-          spec.hidden = sheetSpec.hidden;
+        if (hidden !== undefined) {
+          spec.hidden = hidden;
         }
-        if (sheetSpec?.merges !== undefined) {
-          spec.merges = sheetSpec.merges;
+        // Handle merges: add new merges and/or remove existing ones
+        if (merges?.length || removeMerges?.length) {
+          const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+          let currentMerges = sheet?.merges ?? [];
+
+          // Remove merges that match removeMerges ranges
+          if (removeMerges?.length) {
+            const rangesToRemove = removeMerges
+              .map((a1Range: string) => {
+                const selection = addressToSelection(a1Range);
+                return selection?.range ?? null;
+              })
+              .filter((s) => !isNil(s));
+
+            currentMerges = currentMerges.filter((existing) => {
+              const shouldRemove = rangesToRemove.some(
+                (toRemove) =>
+                  existing.startRowIndex === toRemove.startRowIndex &&
+                  existing.endRowIndex === toRemove.endRowIndex &&
+                  existing.startColumnIndex === toRemove.startColumnIndex &&
+                  existing.endColumnIndex === toRemove.endColumnIndex,
+              );
+              return !shouldRemove;
+            });
+          }
+
+          // Add new merges (skip if they intersect with remaining merges)
+          if (merges?.length) {
+            const newMerges = merges
+              .map((a1Range: string) => {
+                const selection = addressToSelection(a1Range);
+                if (!selection?.range) {
+                  return null;
+                }
+                return selection.range;
+              })
+              .filter((s) => !isNil(s))
+              .filter((newMerge) => {
+                const intersectsExisting = currentMerges.some((existing) =>
+                  areaIntersects(existing, newMerge),
+                );
+                if (intersectsExisting) {
+                  console.warn(
+                    `[spreadsheet_updateSheet] Skipping merge that intersects existing merge`,
+                  );
+                }
+                return !intersectsExisting;
+              });
+            currentMerges = [...currentMerges, ...newMerges];
+          }
+
+          spec.merges = currentMerges;
         }
-        if (sheetSpec?.rowMetadata !== undefined) {
-          spec.rowMetadata = sheetSpec.rowMetadata;
+        // Convert hideRows/showRows - merge with existing rowMetadata
+        if (hideRows?.length || showRows?.length) {
+          const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+          const existingRowMetadata = sheet?.rowMetadata ?? [];
+          const rowMetadata = [...existingRowMetadata];
+          if (hideRows) {
+            for (const row of hideRows) {
+              rowMetadata[row] = { ...rowMetadata[row], hiddenByUser: true };
+            }
+          }
+          if (showRows) {
+            for (const row of showRows) {
+              rowMetadata[row] = { ...rowMetadata[row], hiddenByUser: false };
+            }
+          }
+          spec.rowMetadata = rowMetadata;
         }
-        if (sheetSpec?.columnMetadata !== undefined) {
-          spec.columnMetadata = sheetSpec.columnMetadata;
+        // Convert hideCols/showCols - merge with existing columnMetadata
+        if (hideCols?.length || showCols?.length) {
+          const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+          const existingColMetadata = sheet?.columnMetadata ?? [];
+          const columnMetadata = [...existingColMetadata];
+          if (hideCols) {
+            for (const colLetter of hideCols) {
+              const colIndex = alpha2number(colLetter);
+              columnMetadata[colIndex] = {
+                ...columnMetadata[colIndex],
+                hiddenByUser: true,
+              };
+            }
+          }
+          if (showCols) {
+            for (const colLetter of showCols) {
+              const colIndex = alpha2number(colLetter);
+              columnMetadata[colIndex] = {
+                ...columnMetadata[colIndex],
+                hiddenByUser: false,
+              };
+            }
+          }
+          spec.columnMetadata = columnMetadata;
         }
-        if (sheetSpec?.frozenRowCount !== undefined) {
-          spec.frozenRowCount = sheetSpec.frozenRowCount;
+        if (frozenRowCount !== undefined) {
+          spec.frozenRowCount = frozenRowCount;
         }
-        if (sheetSpec?.frozenColumnCount !== undefined) {
-          spec.frozenColumnCount = sheetSpec.frozenColumnCount;
+        if (frozenColumnCount !== undefined) {
+          spec.frozenColumnCount = frozenColumnCount;
         }
-        if (sheetSpec?.showGridLines !== undefined) {
-          spec.showGridLines = sheetSpec.showGridLines;
+        if (showGridLines !== undefined) {
+          spec.showGridLines = showGridLines;
         }
-        if (sheetSpec?.tabColor !== undefined) {
-          spec.tabColor = sheetSpec.tabColor;
+        if (tabColor !== undefined) {
+          spec.tabColor = tabColor as Sheet["tabColor"];
         }
 
         // Handle unsetFields - explicitly set these to null
@@ -734,7 +898,7 @@ const handleSpreadsheetUpdateSheet = async (
               );
               continue;
             }
-            spec[field] = null;
+            (spec as Record<string, unknown>)[field] = null;
           }
         }
 
@@ -781,71 +945,192 @@ export const spreadsheetUpdateSheetTool = tool(handleSpreadsheetUpdateSheet, {
   description: `Update an existing sheet (tab) in a spreadsheet document.
 
 OVERVIEW:
-This tool updates properties of an existing sheet/tab. Use this to change sheet title, tab color, frozen rows/columns, row heights, column widths, merges, and more.
+This tool updates properties of an existing sheet/tab. Use this to change sheet title, tab color, frozen rows/columns, merges, and hide/show rows/columns.
 
 WHEN TO USE THIS TOOL:
 - Renaming a sheet tab
 - Changing tab color
 - Setting frozen rows/columns
-- Adjusting row heights or column widths
-- Adding or modifying cell merges
+- Adding or modifying cell merges (use A1 notation)
+- Hiding/showing rows or columns
 - Showing/hiding grid lines
 - Hiding/unhiding a sheet
-
-IMPORTANT: To change row heights or column widths, populate rowMetadata or columnMetadata arrays with { index, size } objects.
-
-SIZE DEFAULTS:
-- Default row height: 21 pixels (MINIMUM recommended - sizes below 21 can cause text to be cut off or not visible)
-- Default column width: 100 pixels
-- When adjusting row heights, always use size >= 21 to ensure text visibility
 
 EXAMPLES:
 
 Example 1 — Rename a sheet:
   docId: "abc123"
   sheetId: 1
-  sheetSpec: { "title": "Q1 Sales" }
+  title: "Q1 Sales"
 
 Example 2 — Change tab color:
   docId: "abc123"
   sheetId: 1
-  sheetSpec: { "tabColor": "#4285F4" }
+  tabColor: "#4285F4"
 
 Example 3 — Remove tab color:
   docId: "abc123"
   sheetId: 1
-  sheetSpec: {}
-  unsetFields: ["tabColor"]
+  tabColor: null
 
 Example 4 — Freeze header row and first column:
   docId: "abc123"
   sheetId: 1
-  sheetSpec: {
-    "frozenRowCount": 1,
-    "frozenColumnCount": 1
-  }
+  frozenRowCount: 1
+  frozenColumnCount: 1
 
-Example 5 — Set specific row heights:
+Example 5 — Merge cells using A1 notation:
   docId: "abc123"
   sheetId: 1
-  sheetSpec: {
-    "rowMetadata": [
-      { "index": 0, "size": 40 },
-      { "index": 5, "size": 50 }
-    ]
-  }
+  merges: ["A1:C1", "A2:A5", "D3:F3"]
 
-Example 6 — Set column widths:
+Example 6 — Remove existing merges:
   docId: "abc123"
   sheetId: 1
-  sheetSpec: {
-    "columnMetadata": [
-      { "index": 0, "size": 200 },
-      { "index": 1, "size": 150 }
-    ]
-  }`,
+  removeMerges: ["A1:C1", "D3:F3"]
+
+Example 7 — Hide specific rows:
+  docId: "abc123"
+  sheetId: 1
+  hideRows: [2, 3, 4, 5]
+
+Example 8 — Show previously hidden rows:
+  docId: "abc123"
+  sheetId: 1
+  showRows: [2, 3]
+
+Example 9 — Hide columns A and B:
+  docId: "abc123"
+  sheetId: 1
+  hideCols: ["A", "B"]
+
+Example 10 — Show hidden columns:
+  docId: "abc123"
+  sheetId: 1
+  showCols: ["A", "B", "C"]`,
   schema: SpreadsheetUpdateSheetSchema,
 });
+
+/**
+ * Handler for the spreadsheet_getSheetMetadata tool
+ */
+const handleSpreadsheetGetSheetMetadata = async (
+  input: SpreadsheetGetSheetMetadataInput,
+): Promise<string> => {
+  const { docId, sheetId: inputSheetId } = input;
+
+  if (!docId) {
+    return JSON.stringify({
+      success: false,
+      error: "docId is required to get sheet metadata",
+    });
+  }
+
+  try {
+    const { doc, close } = await getShareDBDocument(docId);
+
+    try {
+      const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+      if (!data) {
+        return JSON.stringify({
+          success: false,
+          error: "Document has no data",
+        });
+      }
+
+      const spreadsheet = createSpreadsheetInterface(data);
+      const sheetId = inputSheetId ?? 1;
+      const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+
+      if (!sheet) {
+        return JSON.stringify({
+          success: false,
+          error: `Sheet with ID ${sheetId} not found`,
+        });
+      }
+
+      // Convert merges to A1 notation
+      const mergesA1 = (sheet.merges ?? []).map((merge) => {
+        return selectionToAddress({ range: merge });
+      });
+
+      // Build metadata response (excluding row/column metadata)
+      const metadata = {
+        sheetId: sheet.sheetId,
+        title: sheet.title,
+        hidden: sheet.hidden ?? false,
+        frozenRowCount: sheet.frozenRowCount ?? 0,
+        frozenColumnCount: sheet.frozenColumnCount ?? 0,
+        showGridLines: sheet.showGridLines ?? true,
+        tabColor: sheet.tabColor ?? null,
+        merges: mergesA1,
+        index: sheet.index,
+      };
+
+      console.log("[spreadsheet_getSheetMetadata] Completed:", {
+        docId,
+        sheetId,
+      });
+
+      return JSON.stringify({
+        success: true,
+        ...metadata,
+      });
+    } finally {
+      close();
+    }
+  } catch (error) {
+    console.error("[spreadsheet_getSheetMetadata] Error:", error);
+
+    return JSON.stringify({
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to get sheet metadata",
+    });
+  }
+};
+
+/**
+ * The spreadsheet_getSheetMetadata tool for LangChain
+ */
+export const spreadsheetGetSheetMetadataTool = tool(
+  handleSpreadsheetGetSheetMetadata,
+  {
+    name: "spreadsheet_getSheetMetadata",
+    description: `Get metadata for a specific sheet (tab) in a spreadsheet.
+
+OVERVIEW:
+Returns sheet properties including title, frozen rows/columns, tab color, merges (in A1 notation), visibility, and grid line settings. Does NOT include row/column metadata (sizes, hidden state).
+
+WHEN TO USE THIS TOOL:
+- To check current sheet settings before making updates
+- To get list of merged cell ranges
+- To verify frozen rows/columns configuration
+- To check if a sheet is hidden
+
+RETURNS:
+- sheetId: The sheet ID
+- title: Sheet name
+- hidden: Whether the sheet is hidden
+- frozenRowCount: Number of frozen rows
+- frozenColumnCount: Number of frozen columns
+- showGridLines: Whether grid lines are visible
+- tabColor: Tab color (hex string or theme reference)
+- merges: Array of merged ranges in A1 notation (e.g., ["A1:C1", "D3:F5"])
+- index: Sheet order/position
+
+EXAMPLES:
+
+Example 1 — Get metadata for sheet 1:
+  docId: "abc123"
+  sheetId: 1
+
+Example 2 — Get metadata for default sheet:
+  docId: "abc123"`,
+    schema: SpreadsheetGetSheetMetadataSchema,
+  },
+);
 
 /**
  * Parse and validate cells input for formatting - handles JSON string and validates 2D array structure
@@ -2274,11 +2559,11 @@ const inferAxisHintFromDimensionRange = (range: string): "x" | "y" | null => {
 };
 
 /**
- * Handler for the spreadsheet_getRowColDimensions tool
+ * Handler for the spreadsheet_getRowColMetadata tool
  * Reads row heights or column widths from sheet metadata
  */
-const handleSpreadsheetGetRowColDimensions = async (
-  input: SpreadsheetGetRowColDimensionsInput,
+const handleSpreadsheetGetRowColMetadata = async (
+  input: SpreadsheetGetRowColMetadataInput,
 ): Promise<string> => {
   const {
     docId,
@@ -2316,7 +2601,7 @@ const handleSpreadsheetGetRowColDimensions = async (
   const { indexes, axis } = parsedRange;
   const sheetId = inputSheetId ?? 1;
 
-  console.log("[spreadsheet_getRowColDimensions] Starting:", {
+  console.log("[spreadsheet_getRowColMetadata] Starting:", {
     docId,
     sheetId,
     range,
@@ -2359,7 +2644,10 @@ const handleSpreadsheetGetRowColDimensions = async (
           typeof item?.size === "number" && Number.isFinite(item.size)
             ? item.size
             : defaultSize;
-        const columnAddress = cellToAddress({ rowIndex: 1, columnIndex: index });
+        const columnAddress = cellToAddress({
+          rowIndex: 1,
+          columnIndex: index,
+        });
         const columnLabel = columnAddress?.replace(/\d+/g, "") ?? String(index);
         const a1Range =
           resolvedDimensionType === "column"
@@ -2377,7 +2665,7 @@ const handleSpreadsheetGetRowColDimensions = async (
         };
       });
 
-      console.log("[spreadsheet_getRowColDimensions] Completed:", {
+      console.log("[spreadsheet_getRowColMetadata] Completed:", {
         docId,
         sheetId,
         range,
@@ -2400,7 +2688,7 @@ const handleSpreadsheetGetRowColDimensions = async (
       close();
     }
   } catch (error) {
-    console.error("[spreadsheet_getRowColDimensions] Error:", error);
+    console.error("[spreadsheet_getRowColMetadata] Error:", error);
     return failTool(
       "GET_DIMENSIONS_FAILED",
       error instanceof Error
@@ -2411,12 +2699,12 @@ const handleSpreadsheetGetRowColDimensions = async (
 };
 
 /**
- * The spreadsheet_getRowColDimensions tool for LangChain
+ * The spreadsheet_getRowColMetadata tool for LangChain
  */
-export const spreadsheetGetRowColDimensionsTool = tool(
-  handleSpreadsheetGetRowColDimensions,
+export const spreadsheetGetRowColMetadataTool = tool(
+  handleSpreadsheetGetRowColMetadata,
   {
-    name: "spreadsheet_getRowColDimensions",
+    name: "spreadsheet_getRowColMetadata",
     description: `Get row heights or column widths from sheet metadata.
 
 OVERVIEW:
@@ -2456,12 +2744,12 @@ RETURNS:
     }
   ]
 }`,
-    schema: SpreadsheetGetRowColDimensionsSchema,
+    schema: SpreadsheetGetRowColMetadataSchema,
   },
 );
 
 /**
- * Handler for the spreadsheet_setRowColDimensions tool
+ * Handler for the spreadsheet_setRowColMetadata tool
  * Sets the width of columns or height of rows in a spreadsheet
  */
 const handleSpreadsheetSetRowColDimensions = async (
@@ -2522,7 +2810,7 @@ const handleSpreadsheetSetRowColDimensions = async (
   const sheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_setRowColDimensions] Starting:", {
+    console.log("[spreadsheet_setRowColMetadata] Starting:", {
       docId,
       sheetId,
       range,
@@ -2562,7 +2850,7 @@ const handleSpreadsheetSetRowColDimensions = async (
             ? `${dimensionSpec.value}px`
             : "autofit";
 
-        console.log("[spreadsheet_setRowColDimensions] Completed:", {
+        console.log("[spreadsheet_setRowColMetadata] Completed:", {
           docId,
           sheetId,
           range,
@@ -2581,7 +2869,7 @@ const handleSpreadsheetSetRowColDimensions = async (
         close();
       }
     } catch (error) {
-      console.error("[spreadsheet_setRowColDimensions] Error:", error);
+      console.error("[spreadsheet_setRowColMetadata] Error:", error);
 
       return failTool(
         "SET_DIMENSIONS_FAILED",
@@ -2594,12 +2882,12 @@ const handleSpreadsheetSetRowColDimensions = async (
 };
 
 /**
- * The spreadsheet_setRowColDimensions tool for LangChain
+ * The spreadsheet_setRowColMetadata tool for LangChain
  */
 export const spreadsheetSetRowColDimensionsTool = tool(
   handleSpreadsheetSetRowColDimensions,
   {
-    name: "spreadsheet_setRowColDimensions",
+    name: "spreadsheet_setRowColMetadata",
     description: `Set the width of columns or height of rows in a spreadsheet.
 
 Use this tool to adjust column widths or row heights. Supports autofit
@@ -4216,10 +4504,7 @@ const handleSpreadsheetCreateChart = async (
               sources: [
                 {
                   sheetId,
-                  startRowIndex: domainSelection.range.startRowIndex,
-                  endRowIndex: domainSelection.range.endRowIndex,
-                  startColumnIndex: domainSelection.range.startColumnIndex,
-                  endColumnIndex: domainSelection.range.endColumnIndex,
+                  ...domainSelection.range,
                 },
               ],
             },
@@ -4459,10 +4744,7 @@ const handleSpreadsheetUpdateChart = async (
                 sources: [
                   {
                     sheetId,
-                    startRowIndex: domainSelection.range.startRowIndex,
-                    endRowIndex: domainSelection.range.endRowIndex,
-                    startColumnIndex: domainSelection.range.startColumnIndex,
-                    endColumnIndex: domainSelection.range.endColumnIndex,
+                    ...domainSelection.range,
                   },
                 ],
               },
@@ -4484,10 +4766,7 @@ const handleSpreadsheetUpdateChart = async (
                 sources: [
                   {
                     sheetId,
-                    startRowIndex: sel.range.startRowIndex,
-                    endRowIndex: sel.range.endRowIndex,
-                    startColumnIndex: sel.range.startColumnIndex,
-                    endColumnIndex: sel.range.endColumnIndex,
+                    ...sel.range,
                   },
                 ],
               }));
@@ -5138,10 +5417,7 @@ const handleSpreadsheetCreateDataValidation = async (
           ranges: [
             {
               sheetId,
-              startRowIndex: selection.range.startRowIndex,
-              endRowIndex: selection.range.endRowIndex,
-              startColumnIndex: selection.range.startColumnIndex,
-              endColumnIndex: selection.range.endColumnIndex,
+              ...selection.range,
             },
           ],
           condition: {
@@ -5341,10 +5617,7 @@ const handleSpreadsheetUpdateDataValidation = async (
             updatedRule.ranges = [
               {
                 sheetId,
-                startRowIndex: selection.range.startRowIndex,
-                endRowIndex: selection.range.endRowIndex,
-                startColumnIndex: selection.range.startColumnIndex,
-                endColumnIndex: selection.range.endColumnIndex,
+                ...selection.range,
               },
             ];
           }
@@ -5576,57 +5849,9 @@ EXAMPLE:
 );
 
 /**
- * Helper to check if two ranges overlap
- */
-const rangesOverlap = (
-  range1: {
-    sheetId: number;
-    startRowIndex: number;
-    endRowIndex: number;
-    startColumnIndex: number;
-    endColumnIndex: number;
-  },
-  range2: {
-    sheetId?: number;
-    startRowIndex: number;
-    endRowIndex: number;
-    startColumnIndex: number;
-    endColumnIndex: number;
-  },
-  filterSheetId?: number,
-): boolean => {
-  // If filtering by sheetId, check both ranges match
-  if (filterSheetId !== undefined && range1.sheetId !== filterSheetId) {
-    return false;
-  }
-  if (range2.sheetId !== undefined && range1.sheetId !== range2.sheetId) {
-    return false;
-  }
-
-  // Check for overlap: ranges overlap if they intersect in both dimensions
-  const rowOverlap =
-    range1.startRowIndex <= range2.endRowIndex &&
-    range1.endRowIndex >= range2.startRowIndex;
-  const colOverlap =
-    range1.startColumnIndex <= range2.endColumnIndex &&
-    range1.endColumnIndex >= range2.startColumnIndex;
-
-  return rowOverlap && colOverlap;
-};
-
-/**
  * Helper to convert a grid range to A1 notation
  */
-const gridRangeToA1 = (
-  range: {
-    sheetId: number;
-    startRowIndex: number;
-    endRowIndex: number;
-    startColumnIndex: number;
-    endColumnIndex: number;
-  },
-  sheetName?: string,
-): string => {
+const gridRangeToA1 = (range: SheetRange, sheetName?: string): string => {
   const address = selectionToAddress(
     {
       range: {
@@ -5683,23 +5908,14 @@ const handleSpreadsheetQueryDataValidations = async (
 
       // Parse filter range if provided
       let filterRange:
-        | {
+        | ({
             sheetId?: number;
-            startRowIndex: number;
-            endRowIndex: number;
-            startColumnIndex: number;
-            endColumnIndex: number;
-          }
+          } & GridRange)
         | undefined;
       if (range) {
         const selection = addressToSelection(range);
         if (selection?.range) {
-          filterRange = {
-            startRowIndex: selection.range.startRowIndex,
-            endRowIndex: selection.range.endRowIndex,
-            startColumnIndex: selection.range.startColumnIndex,
-            endColumnIndex: selection.range.endColumnIndex,
-          };
+          filterRange = selection.range;
         }
       }
 
@@ -5715,7 +5931,7 @@ const handleSpreadsheetQueryDataValidations = async (
             return false;
           }
           // Filter by range overlap if specified
-          if (filterRange && !rangesOverlap(r, filterRange, sheetId)) {
+          if (filterRange && !areaIntersects(r, filterRange)) {
             return false;
           }
           return true;
@@ -5746,13 +5962,9 @@ const handleSpreadsheetQueryDataValidations = async (
             validationId: String(rule.id),
             validationType,
             ranges: matchingRanges.map((r) => ({
-              sheetId: r.sheetId,
+              ...r,
               sheetName: sheetNameById.get(r.sheetId) || `Sheet${r.sheetId}`,
               a1Range: gridRangeToA1(r, sheetNameById.get(r.sheetId)),
-              startRowIndex: r.startRowIndex,
-              endRowIndex: r.endRowIndex,
-              startColumnIndex: r.startColumnIndex,
-              endColumnIndex: r.endColumnIndex,
             })),
             condition: rule.condition,
             allowBlank: rule.allowBlank,
@@ -5880,24 +6092,11 @@ const handleSpreadsheetQueryConditionalFormats = async (
       }
 
       // Parse filter range if provided
-      let filterRange:
-        | {
-            sheetId?: number;
-            startRowIndex: number;
-            endRowIndex: number;
-            startColumnIndex: number;
-            endColumnIndex: number;
-          }
-        | undefined;
+      let filterRange: GridRange;
       if (range) {
         const selection = addressToSelection(range);
         if (selection?.range) {
-          filterRange = {
-            startRowIndex: selection.range.startRowIndex,
-            endRowIndex: selection.range.endRowIndex,
-            startColumnIndex: selection.range.startColumnIndex,
-            endColumnIndex: selection.range.endColumnIndex,
-          };
+          filterRange = selection.range;
         }
       }
 
@@ -5913,7 +6112,7 @@ const handleSpreadsheetQueryConditionalFormats = async (
             return false;
           }
           // Filter by range overlap if specified
-          if (filterRange && !rangesOverlap(r, filterRange, sheetId)) {
+          if (filterRange && !areaIntersects(r, filterRange)) {
             return false;
           }
           return true;
@@ -5941,13 +6140,9 @@ const handleSpreadsheetQueryConditionalFormats = async (
             priority: index,
             ruleType,
             ranges: matchingRanges.map((r) => ({
-              sheetId: r.sheetId,
+              ...r,
               sheetName: sheetNameById.get(r.sheetId) || `Sheet${r.sheetId}`,
               a1Range: gridRangeToA1(r, sheetNameById.get(r.sheetId)),
-              startRowIndex: r.startRowIndex,
-              endRowIndex: r.endRowIndex,
-              startColumnIndex: r.startColumnIndex,
-              endColumnIndex: r.endColumnIndex,
             })),
             ...(rule.booleanRule
               ? {
@@ -6203,10 +6398,7 @@ const handleSpreadsheetCreateConditionalFormat = async (
           ranges: [
             {
               sheetId,
-              startRowIndex: selection.range.startRowIndex,
-              endRowIndex: selection.range.endRowIndex,
-              startColumnIndex: selection.range.startColumnIndex,
-              endColumnIndex: selection.range.endColumnIndex,
+              ...selection.range,
             },
           ],
         };
@@ -6529,10 +6721,7 @@ const handleSpreadsheetUpdateConditionalFormat = async (
             updatedRule.ranges = [
               {
                 sheetId,
-                startRowIndex: selection.range.startRowIndex,
-                endRowIndex: selection.range.endRowIndex,
-                startColumnIndex: selection.range.startColumnIndex,
-                endColumnIndex: selection.range.endColumnIndex,
+                ...selection.range,
               },
             ];
           }
@@ -6765,13 +6954,14 @@ export const spreadsheetTools = [
   spreadsheetChangeBatchTool,
   spreadsheetCreateSheetTool,
   spreadsheetUpdateSheetTool,
+  spreadsheetGetSheetMetadataTool,
   spreadsheetFormatRangeTool,
   spreadsheetInsertRowsTool,
   spreadsheetInsertColumnsTool,
   spreadsheetQueryRangeTool,
   spreadsheetSetIterativeModeTool,
   spreadsheetReadDocumentTool,
-  spreadsheetGetRowColDimensionsTool,
+  spreadsheetGetRowColMetadataTool,
   spreadsheetSetRowColDimensionsTool,
   spreadsheetDuplicateSheetTool,
   spreadsheetDeleteCellsTool,

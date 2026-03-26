@@ -158,31 +158,51 @@ const SheetSpecSchema = z
       .int()
       .optional()
       .describe("Number of frozen columns"),
-    tabColor: ColorSchema.optional().describe(
-      "Tab color as hex string (e.g., '#FF0000') or theme reference ({theme: 0-10, tint?: number})",
-    ),
+    tabColor: ColorSchema.nullable()
+      .optional()
+      .describe(
+        "Tab color as hex string (e.g., '#FF0000'), theme reference ({theme: 0-10, tint?: number}), or null to remove the color.",
+      ),
     showGridLines: z
       .boolean()
       .optional()
       .describe("Whether to show grid lines"),
     hidden: z.boolean().optional().describe("Whether the sheet is hidden"),
     merges: z
-      .array(GridRangeSchema)
-      .default([])
-      .describe(
-        "List of merged cell ranges. Each merge combines multiple cells into one. The top-left cell becomes the anchor.",
-      ),
-    rowMetadata: z
-      .array(DimensionPropertiesSchema)
+      .array(z.string())
       .optional()
       .describe(
-        "Array of row properties (1-indexed). REQUIRED when changing row heights. Example: rowMetadata[5] = {size: 50} for 50px height.",
+        "List of A1 notation ranges to merge (e.g., ['A1:B2', 'D1:D3']). Each range will be merged into a single cell.",
       ),
-    columnMetadata: z
-      .array(DimensionPropertiesSchema)
+    removeMerges: z
+      .array(z.string())
       .optional()
       .describe(
-        "Array of column properties (1-indexed). REQUIRED when changing column widths. Example: columnMetadata[3] = {size: 150} for 150px width.",
+        "List of A1 notation ranges to unmerge (e.g., ['A1:B2']). Removes existing merges that match these ranges.",
+      ),
+    hideRows: z
+      .array(z.number().int())
+      .optional()
+      .describe(
+        "List of row numbers to hide (1-indexed). Example: [1, 2, 5] hides rows 1, 2, and 5.",
+      ),
+    showRows: z
+      .array(z.number().int())
+      .optional()
+      .describe(
+        "List of row numbers to unhide/show (1-indexed). Example: [1, 2] shows previously hidden rows 1 and 2.",
+      ),
+    hideCols: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "List of column letters to hide (e.g., ['A', 'B', 'C'] or ['AA', 'AB']).",
+      ),
+    showCols: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "List of column letters to unhide/show (e.g., ['A', 'B'] shows previously hidden columns A and B).",
       ),
   })
   .loose();
@@ -194,7 +214,7 @@ export const SpreadsheetCreateSheetSchema = z.object({
     .int()
     .optional()
     .describe("The active sheet ID to use as context"),
-  sheetSpec: SheetSpecSchema.optional().describe("Sheet specification"),
+  ...SheetSpecSchema.shape,
   ...ToolExplanationSchemaShape,
 });
 
@@ -203,14 +223,10 @@ export type SpreadsheetCreateSheetInput = z.infer<
 >;
 
 // Spreadsheet UpdateSheet
-const UpdateSheetSpecSchema = SheetSpecSchema.partial().describe(
-  "Partial sheet specification. Any provided field will be updated.",
-);
-
 export const SpreadsheetUpdateSheetSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
+  ...SheetSpecSchema.omit({ sheetId: true }).partial().shape,
   sheetId: z.number().int().describe("The sheet ID to update"),
-  sheetSpec: UpdateSheetSpecSchema.optional(),
   unsetFields: z
     .array(z.string())
     .optional()
@@ -220,6 +236,17 @@ export const SpreadsheetUpdateSheetSchema = z.object({
 
 export type SpreadsheetUpdateSheetInput = z.infer<
   typeof SpreadsheetUpdateSheetSchema
+>;
+
+// Spreadsheet GetSheetMetadata
+export const SpreadsheetGetSheetMetadataSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetGetSheetMetadataInput = z.infer<
+  typeof SpreadsheetGetSheetMetadataSchema
 >;
 
 // Border style enum
@@ -502,8 +529,8 @@ export type SpreadsheetSetRowColDimensionsInput = z.infer<
   typeof SpreadsheetSetRowColDimensionsSchema
 >;
 
-// Spreadsheet GetRowColDimensions
-export const SpreadsheetGetRowColDimensionsSchema = z.object({
+// Spreadsheet GetRowColMetadata
+export const SpreadsheetGetRowColMetadataSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
   sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
   range: z
@@ -520,8 +547,8 @@ export const SpreadsheetGetRowColDimensionsSchema = z.object({
   ...ToolExplanationSchemaShape,
 });
 
-export type SpreadsheetGetRowColDimensionsInput = z.infer<
-  typeof SpreadsheetGetRowColDimensionsSchema
+export type SpreadsheetGetRowColMetadataInput = z.infer<
+  typeof SpreadsheetGetRowColMetadataSchema
 >;
 
 // Spreadsheet DuplicateSheet
