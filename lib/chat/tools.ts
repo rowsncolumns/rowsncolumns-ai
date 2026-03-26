@@ -13,6 +13,7 @@ import {
   getExtendedValueNumber,
   getExtendedValueString,
   isNil,
+  selectionToAddress,
   uuidString,
 } from "@rowsncolumns/utils";
 
@@ -80,6 +81,10 @@ import {
   SpreadsheetUpdateConditionalFormatSchema,
   type SpreadsheetDeleteConditionalFormatInput,
   SpreadsheetDeleteConditionalFormatSchema,
+  type SpreadsheetQueryDataValidationsInput,
+  SpreadsheetQueryDataValidationsSchema,
+  type SpreadsheetQueryConditionalFormatsInput,
+  SpreadsheetQueryConditionalFormatsSchema,
 } from "./models";
 import {
   cellsToCitations,
@@ -5360,6 +5365,478 @@ EXAMPLE:
 );
 
 /**
+ * Helper to check if two ranges overlap
+ */
+const rangesOverlap = (
+  range1: {
+    sheetId: number;
+    startRowIndex: number;
+    endRowIndex: number;
+    startColumnIndex: number;
+    endColumnIndex: number;
+  },
+  range2: {
+    sheetId?: number;
+    startRowIndex: number;
+    endRowIndex: number;
+    startColumnIndex: number;
+    endColumnIndex: number;
+  },
+  filterSheetId?: number,
+): boolean => {
+  // If filtering by sheetId, check both ranges match
+  if (filterSheetId !== undefined && range1.sheetId !== filterSheetId) {
+    return false;
+  }
+  if (range2.sheetId !== undefined && range1.sheetId !== range2.sheetId) {
+    return false;
+  }
+
+  // Check for overlap: ranges overlap if they intersect in both dimensions
+  const rowOverlap =
+    range1.startRowIndex <= range2.endRowIndex &&
+    range1.endRowIndex >= range2.startRowIndex;
+  const colOverlap =
+    range1.startColumnIndex <= range2.endColumnIndex &&
+    range1.endColumnIndex >= range2.startColumnIndex;
+
+  return rowOverlap && colOverlap;
+};
+
+/**
+ * Helper to convert a grid range to A1 notation
+ */
+const gridRangeToA1 = (
+  range: {
+    sheetId: number;
+    startRowIndex: number;
+    endRowIndex: number;
+    startColumnIndex: number;
+    endColumnIndex: number;
+  },
+  sheetName?: string,
+): string => {
+  const address = selectionToAddress(
+    {
+      range: {
+        startRowIndex: range.startRowIndex,
+        endRowIndex: range.endRowIndex,
+        startColumnIndex: range.startColumnIndex,
+        endColumnIndex: range.endColumnIndex,
+      },
+    },
+    sheetName,
+  );
+  return address || "Unknown";
+};
+
+/**
+ * Handler for the spreadsheet_queryDataValidations tool
+ */
+const handleSpreadsheetQueryDataValidations = async (
+  input: SpreadsheetQueryDataValidationsInput,
+): Promise<string> => {
+  const { docId, sheetId, range } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to query data validations",
+      { field: "docId" },
+    );
+  }
+
+  console.log("[spreadsheet_queryDataValidations] Starting:", {
+    docId,
+    sheetId,
+    range,
+  });
+
+  try {
+    const { doc, close } = await getShareDBDocument(docId);
+
+    try {
+      const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+      if (!data) {
+        return failTool("NO_DOCUMENT_DATA", "Document has no data");
+      }
+
+      const spreadsheet = createSpreadsheetInterface(data);
+
+      // Build sheet name lookup
+      const sheetNameById = new Map<number, string>();
+      for (const sheet of spreadsheet.sheets) {
+        sheetNameById.set(sheet.sheetId, sheet.title);
+      }
+
+      // Parse filter range if provided
+      let filterRange:
+        | {
+            sheetId?: number;
+            startRowIndex: number;
+            endRowIndex: number;
+            startColumnIndex: number;
+            endColumnIndex: number;
+          }
+        | undefined;
+      if (range) {
+        const selection = addressToSelection(range);
+        if (selection?.range) {
+          filterRange = {
+            startRowIndex: selection.range.startRowIndex,
+            endRowIndex: selection.range.endRowIndex,
+            startColumnIndex: selection.range.startColumnIndex,
+            endColumnIndex: selection.range.endColumnIndex,
+          };
+        }
+      }
+
+      const dataValidations =
+        (spreadsheet.dataValidations as DataValidationRuleRecord[]) || [];
+
+      // Filter and transform validations
+      const results = dataValidations.flatMap((rule) => {
+        // Check if any range matches the filter criteria
+        const matchingRanges = rule.ranges.filter((r) => {
+          // Filter by sheetId if specified
+          if (sheetId !== undefined && r.sheetId !== sheetId) {
+            return false;
+          }
+          // Filter by range overlap if specified
+          if (filterRange && !rangesOverlap(r, filterRange, sheetId)) {
+            return false;
+          }
+          return true;
+        });
+
+        if (matchingRanges.length === 0) {
+          return [];
+        }
+
+        // Determine validation type from condition
+        let validationType = "unknown";
+        const conditionType = rule.condition?.type;
+        if (conditionType === "ONE_OF_LIST") {
+          validationType = "list";
+        } else if (conditionType === "CUSTOM_FORMULA") {
+          validationType = "custom";
+        } else if (
+          conditionType?.startsWith("NUMBER_") ||
+          conditionType === "DATE_IS_VALID"
+        ) {
+          validationType = conditionType.includes("DATE") ? "date" : "number";
+        } else if (conditionType?.startsWith("DATE_")) {
+          validationType = "date";
+        }
+
+        return [
+          {
+            validationId: String(rule.id),
+            validationType,
+            ranges: matchingRanges.map((r) => ({
+              sheetId: r.sheetId,
+              sheetName: sheetNameById.get(r.sheetId) || `Sheet${r.sheetId}`,
+              a1Range: gridRangeToA1(r, sheetNameById.get(r.sheetId)),
+              startRowIndex: r.startRowIndex,
+              endRowIndex: r.endRowIndex,
+              startColumnIndex: r.startColumnIndex,
+              endColumnIndex: r.endColumnIndex,
+            })),
+            condition: rule.condition,
+            allowBlank: rule.allowBlank,
+            displayStyle: rule.displayStyle,
+            inputMessage: rule.inputMessage,
+            alert: rule.alert,
+          },
+        ];
+      });
+
+      console.log("[spreadsheet_queryDataValidations] Completed:", {
+        docId,
+        totalValidations: dataValidations.length,
+        matchingValidations: results.length,
+      });
+
+      return JSON.stringify({
+        success: true,
+        totalCount: dataValidations.length,
+        matchingCount: results.length,
+        validations: results,
+        ...(sheetId !== undefined ? { filteredBySheetId: sheetId } : {}),
+        ...(range ? { filteredByRange: range } : {}),
+      });
+    } finally {
+      close();
+    }
+  } catch (error) {
+    console.error("[spreadsheet_queryDataValidations] Error:", error);
+    return failTool(
+      "QUERY_DATA_VALIDATIONS_FAILED",
+      error instanceof Error
+        ? error.message
+        : "Failed to query data validations",
+    );
+  }
+};
+
+/**
+ * The spreadsheet_queryDataValidations tool for LangChain
+ */
+export const spreadsheetQueryDataValidationsTool = tool(
+  handleSpreadsheetQueryDataValidations,
+  {
+    name: "spreadsheet_queryDataValidations",
+    description: `Query existing data validation rules in a spreadsheet.
+
+OVERVIEW:
+This tool retrieves all data validation rules, optionally filtered by sheet or range.
+Use this BEFORE creating new validations to check for existing rules and avoid duplicates.
+
+IMPORTANT - AVOIDING DUPLICATES:
+- Always query existing validations before creating new ones
+- If a validation already exists for a range, UPDATE it instead of creating a new one
+- Overlapping validations (e.g., A1 already has validation, then creating A1:A10) should be avoided
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: Optional sheet ID to filter by
+- range: Optional A1 range to find validations that overlap with it (e.g., 'A1:B10')
+
+RETURNS:
+{
+  "success": true,
+  "totalCount": 5,
+  "matchingCount": 2,
+  "validations": [
+    {
+      "validationId": "abc123",
+      "validationType": "list",
+      "ranges": [{ "sheetId": 1, "sheetName": "Sheet1", "a1Range": "A1:A10", ... }],
+      "condition": { "type": "ONE_OF_LIST", "values": [...] },
+      "allowBlank": true,
+      "displayStyle": "arrow"
+    }
+  ]
+}
+
+EXAMPLE WORKFLOW:
+1. Query: spreadsheet_queryDataValidations(docId, sheetId=1, range="A1")
+2. If validation exists for A1 → use spreadsheet_updateDataValidation with the validationId
+3. If no validation exists → use spreadsheet_createDataValidation`,
+    schema: SpreadsheetQueryDataValidationsSchema,
+  },
+);
+
+/**
+ * Handler for the spreadsheet_queryConditionalFormats tool
+ */
+const handleSpreadsheetQueryConditionalFormats = async (
+  input: SpreadsheetQueryConditionalFormatsInput,
+): Promise<string> => {
+  const { docId, sheetId, range } = input;
+
+  if (!docId) {
+    return failTool(
+      "MISSING_DOC_ID",
+      "docId is required to query conditional formats",
+      { field: "docId" },
+    );
+  }
+
+  console.log("[spreadsheet_queryConditionalFormats] Starting:", {
+    docId,
+    sheetId,
+    range,
+  });
+
+  try {
+    const { doc, close } = await getShareDBDocument(docId);
+
+    try {
+      const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+      if (!data) {
+        return failTool("NO_DOCUMENT_DATA", "Document has no data");
+      }
+
+      const spreadsheet = createSpreadsheetInterface(data);
+
+      // Build sheet name lookup
+      const sheetNameById = new Map<number, string>();
+      for (const sheet of spreadsheet.sheets) {
+        sheetNameById.set(sheet.sheetId, sheet.title);
+      }
+
+      // Parse filter range if provided
+      let filterRange:
+        | {
+            sheetId?: number;
+            startRowIndex: number;
+            endRowIndex: number;
+            startColumnIndex: number;
+            endColumnIndex: number;
+          }
+        | undefined;
+      if (range) {
+        const selection = addressToSelection(range);
+        if (selection?.range) {
+          filterRange = {
+            startRowIndex: selection.range.startRowIndex,
+            endRowIndex: selection.range.endRowIndex,
+            startColumnIndex: selection.range.startColumnIndex,
+            endColumnIndex: selection.range.endColumnIndex,
+          };
+        }
+      }
+
+      const conditionalFormats =
+        (spreadsheet.conditionalFormats as ConditionalFormatRule[]) || [];
+
+      // Filter and transform conditional formats
+      const results = conditionalFormats.flatMap((rule, index) => {
+        // Check if any range matches the filter criteria
+        const matchingRanges = (rule.ranges || []).filter((r) => {
+          // Filter by sheetId if specified
+          if (sheetId !== undefined && r.sheetId !== sheetId) {
+            return false;
+          }
+          // Filter by range overlap if specified
+          if (filterRange && !rangesOverlap(r, filterRange, sheetId)) {
+            return false;
+          }
+          return true;
+        });
+
+        if (matchingRanges.length === 0) {
+          return [];
+        }
+
+        // Determine rule type
+        let ruleType = "unknown";
+        if (rule.booleanRule) {
+          ruleType = "condition";
+        } else if (rule.gradientRule) {
+          ruleType = "colorScale";
+        } else if (rule.topBottomRule) {
+          ruleType = "topBottom";
+        } else if (rule.distinctRule) {
+          ruleType = "duplicates";
+        }
+
+        return [
+          {
+            ruleId: String(rule.id),
+            priority: index,
+            ruleType,
+            ranges: matchingRanges.map((r) => ({
+              sheetId: r.sheetId,
+              sheetName: sheetNameById.get(r.sheetId) || `Sheet${r.sheetId}`,
+              a1Range: gridRangeToA1(r, sheetNameById.get(r.sheetId)),
+              startRowIndex: r.startRowIndex,
+              endRowIndex: r.endRowIndex,
+              startColumnIndex: r.startColumnIndex,
+              endColumnIndex: r.endColumnIndex,
+            })),
+            ...(rule.booleanRule
+              ? {
+                  condition: rule.booleanRule.condition,
+                  format: rule.booleanRule.format,
+                }
+              : {}),
+            ...(rule.gradientRule ? { gradientRule: rule.gradientRule } : {}),
+            ...(rule.topBottomRule
+              ? { topBottomRule: rule.topBottomRule }
+              : {}),
+            ...(rule.distinctRule ? { distinctRule: rule.distinctRule } : {}),
+          },
+        ];
+      });
+
+      console.log("[spreadsheet_queryConditionalFormats] Completed:", {
+        docId,
+        totalFormats: conditionalFormats.length,
+        matchingFormats: results.length,
+      });
+
+      return JSON.stringify({
+        success: true,
+        totalCount: conditionalFormats.length,
+        matchingCount: results.length,
+        conditionalFormats: results,
+        ...(sheetId !== undefined ? { filteredBySheetId: sheetId } : {}),
+        ...(range ? { filteredByRange: range } : {}),
+      });
+    } finally {
+      close();
+    }
+  } catch (error) {
+    console.error("[spreadsheet_queryConditionalFormats] Error:", error);
+    return failTool(
+      "QUERY_CONDITIONAL_FORMATS_FAILED",
+      error instanceof Error
+        ? error.message
+        : "Failed to query conditional formats",
+    );
+  }
+};
+
+/**
+ * The spreadsheet_queryConditionalFormats tool for LangChain
+ */
+export const spreadsheetQueryConditionalFormatsTool = tool(
+  handleSpreadsheetQueryConditionalFormats,
+  {
+    name: "spreadsheet_queryConditionalFormats",
+    description: `Query existing conditional formatting rules in a spreadsheet.
+
+OVERVIEW:
+This tool retrieves all conditional formatting rules, optionally filtered by sheet or range.
+Use this BEFORE creating new conditional formats to check for existing rules and avoid duplicates.
+
+IMPORTANT - AVOIDING DUPLICATES:
+- Always query existing conditional formats before creating new ones
+- Same range + same condition type = UPDATE the existing rule, don't create duplicate
+- Multiple different conditions on the same range is OK (they stack by priority)
+- Priority is determined by order (lower index = higher priority)
+
+PARAMETERS:
+- docId: The document ID (required)
+- sheetId: Optional sheet ID to filter by
+- range: Optional A1 range to find rules that overlap with it (e.g., 'A1:B10')
+
+RETURNS:
+{
+  "success": true,
+  "totalCount": 3,
+  "matchingCount": 1,
+  "conditionalFormats": [
+    {
+      "ruleId": "xyz789",
+      "priority": 0,
+      "ruleType": "condition",
+      "ranges": [{ "sheetId": 1, "sheetName": "Sheet1", "a1Range": "B2:B50", ... }],
+      "condition": { "type": "NUMBER_GREATER", "values": [...] },
+      "format": { "backgroundColor": "#FFCCCC" }
+    }
+  ]
+}
+
+RULE TYPES:
+- "condition": Value-based formatting (greaterThan, lessThan, textContains, etc.)
+- "colorScale": Gradient formatting (2-color or 3-color scales)
+- "topBottom": Top/bottom N items or percentage
+- "duplicates": Highlight duplicate or unique values
+
+EXAMPLE WORKFLOW:
+1. Query: spreadsheet_queryConditionalFormats(docId, sheetId=1, range="B2:B50")
+2. If matching rule exists with same condition → use spreadsheet_updateConditionalFormat
+3. If no matching rule → use spreadsheet_createConditionalFormat`,
+    schema: SpreadsheetQueryConditionalFormatsSchema,
+  },
+);
+
+/**
  * Map simplified condition type to ConditionType for conditional formatting
  */
 const mapConditionalFormatCondition = (
@@ -6101,7 +6578,9 @@ export const spreadsheetTools = [
   spreadsheetCreateDataValidationTool,
   spreadsheetUpdateDataValidationTool,
   spreadsheetDeleteDataValidationTool,
+  spreadsheetQueryDataValidationsTool,
   spreadsheetCreateConditionalFormatTool,
   spreadsheetUpdateConditionalFormatTool,
   spreadsheetDeleteConditionalFormatTool,
+  spreadsheetQueryConditionalFormatsTool,
 ];

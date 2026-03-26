@@ -1293,3 +1293,43 @@ export const SpreadsheetDeleteConditionalFormatSchema = z.object({
 export type SpreadsheetDeleteConditionalFormatInput = z.infer<
   typeof SpreadsheetDeleteConditionalFormatSchema
 >;
+
+// Spreadsheet QueryDataValidations
+export const SpreadsheetQueryDataValidationsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("Optional sheet ID to filter validations by"),
+  range: z
+    .string()
+    .optional()
+    .describe(
+      "Optional A1 range to filter validations that overlap with this range (e.g., 'A1:B10')",
+    ),
+});
+
+export type SpreadsheetQueryDataValidationsInput = z.infer<
+  typeof SpreadsheetQueryDataValidationsSchema
+>;
+
+// Spreadsheet QueryConditionalFormats
+export const SpreadsheetQueryConditionalFormatsSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("Optional sheet ID to filter conditional formats by"),
+  range: z
+    .string()
+    .optional()
+    .describe(
+      "Optional A1 range to filter conditional formats that overlap with this range (e.g., 'A1:B10')",
+    ),
+});
+
+export type SpreadsheetQueryConditionalFormatsInput = z.infer<
+  typeof SpreadsheetQueryConditionalFormatsSchema
+>;

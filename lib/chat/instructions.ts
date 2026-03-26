@@ -14,6 +14,25 @@ const BRANDING_RULE_BLOCK = [
   "Only deviate if the user explicitly asks to override a branding rule.",
 ].join("\n");
 
+const DATA_VALIDATION_RULES_BLOCK = [
+  "Data Validation Rules:",
+  "- Before creating a data validation, always query existing validations first to check for conflicts.",
+  "- If a validation already exists for the target range (exact match or overlap), UPDATE the existing rule instead of creating a new one.",
+  "- Never create overlapping validation rules. Example: if A1 already has a validation, do not create a new rule for A1:A10.",
+  "- To extend a validation to more cells, update the existing rule's range rather than creating a duplicate.",
+  "- When updating, use the validationId from the query results.",
+].join("\n");
+
+const CONDITIONAL_FORMAT_RULES_BLOCK = [
+  "Conditional Formatting Rules:",
+  "- Before creating a conditional format, always query existing rules first to check for conflicts.",
+  "- If a rule already exists for the same range with the same condition type, UPDATE it instead of creating a duplicate.",
+  "- Multiple different conditions on the same range is allowed (they stack by priority).",
+  "- Same range + same condition = always update, never create duplicate.",
+  "- When updating, use the ruleId from the query results.",
+  "- Priority is determined by order (lower index = higher priority, evaluated first).",
+].join("\n");
+
 export const normalizeInstructionText = (value: string | undefined | null) => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
@@ -56,6 +75,8 @@ export const buildSkillsInstruction = (skills: AssistantSkillInstruction[]) => {
   return [
     "Branding and style consistency rules are always in effect.",
     BRANDING_RULE_BLOCK,
+    DATA_VALIDATION_RULES_BLOCK,
+    CONDITIONAL_FORMAT_RULES_BLOCK,
     ...(activeSkills.length > 0
       ? [
           "User-defined custom skills are available for this conversation.",

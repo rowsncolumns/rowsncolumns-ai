@@ -12,6 +12,8 @@ export const spreadsheetMcpTools = spreadsheetTools as LangChainLikeTool[];
 const READ_ONLY_TOOL_NAMES = new Set([
   "spreadsheet_queryRange",
   "spreadsheet_readDocument",
+  "spreadsheet_queryDataValidations",
+  "spreadsheet_queryConditionalFormats",
 ]);
 
 export const isReadOnlyTool = (toolName: string) =>

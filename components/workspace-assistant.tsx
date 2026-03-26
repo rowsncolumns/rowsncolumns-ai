@@ -116,6 +116,7 @@ import type {
   SpreadsheetAssistantContext,
   ChartSummary,
   TableSummary,
+  ViewPortProps,
 } from "@/lib/chat/context";
 import { parseChatStream } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
@@ -2509,7 +2510,7 @@ export function SheetsInstructions({
   sheets,
   activeSheetId,
   activeCell,
-  viewport,
+  getViewPort,
   cellXfs,
   tables,
   theme,
@@ -2521,12 +2522,7 @@ export function SheetsInstructions({
   sheets?: Sheet[];
   activeSheetId?: number;
   activeCell: CellInterface;
-  viewport?: {
-    startRowIndex: number;
-    endRowIndex: number;
-    startColumnIndex: number;
-    endColumnIndex: number;
-  };
+  getViewPort?: () => ViewPortProps | null;
   cellXfs?: CellXfs | null;
   tables?: TableView[] | null;
   theme?: SpreadsheetTheme;
@@ -2633,7 +2629,7 @@ export function SheetsInstructions({
         columnIndex: activeCell.columnIndex,
         a1Address: activeCellA1Address,
       },
-      viewport,
+      viewport: getViewPort?.() ?? undefined,
       cellXfs: cellXfs ? Object.fromEntries([...cellXfs]) : {},
       tables: tableSummaries,
       charts: chartSummaries,
@@ -2646,7 +2642,7 @@ export function SheetsInstructions({
       activeCell.rowIndex,
       activeCell.columnIndex,
       activeCellA1Address,
-      viewport,
+      getViewPort,
       cellXfs,
       tableSummaries,
       chartSummaries,

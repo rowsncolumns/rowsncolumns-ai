@@ -20,7 +20,10 @@ import {
 } from "../lib/chat/utils";
 import { resolveAppBaseUrl, resolveAppOrigin } from "./app-url";
 import { selectionToAddress, uuidString } from "@rowsncolumns/utils";
-import { buildSpreadsheetContextPayload } from "../lib/chat/context";
+import {
+  buildSpreadsheetContextPayload,
+  type ViewPortProps,
+} from "../lib/chat/context";
 import { trackMcpTool, trackMcpSession } from "../lib/analytics/posthog-server";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
@@ -89,12 +92,7 @@ const uiStateByDocId = new Map<
   {
     activeSheetId?: number;
     activeCell?: { rowIndex: number; columnIndex: number };
-    viewport?: {
-      startRowIndex: number;
-      endRowIndex: number;
-      startColumnIndex: number;
-      endColumnIndex: number;
-    };
+    viewport?: ViewPortProps;
     selections?: Array<{
       startRowIndex: number;
       endRowIndex: number;
@@ -810,6 +808,7 @@ export const registerSpreadsheetTools = (
             errorCode,
             inputSize: JSON.stringify(args).length,
             host: options.uiHost ?? "unknown",
+            args: parsedArgs,
           });
         }
       },
@@ -996,10 +995,14 @@ export const registerSpreadsheetTools = (
           .optional(),
         viewport: z
           .object({
-            startRowIndex: z.number().int().nonnegative(),
-            endRowIndex: z.number().int().nonnegative(),
-            startColumnIndex: z.number().int().nonnegative(),
-            endColumnIndex: z.number().int().nonnegative(),
+            rowStartIndex: z.number().int().nonnegative(),
+            rowStopIndex: z.number().int().nonnegative(),
+            columnStartIndex: z.number().int().nonnegative(),
+            columnStopIndex: z.number().int().nonnegative(),
+            visibleRowStartIndex: z.number().int().nonnegative(),
+            visibleRowStopIndex: z.number().int().nonnegative(),
+            visibleColumnStartIndex: z.number().int().nonnegative(),
+            visibleColumnStopIndex: z.number().int().nonnegative(),
           })
           .optional(),
         selections: z
@@ -1038,10 +1041,14 @@ export const registerSpreadsheetTools = (
             .optional(),
           viewport: z
             .object({
-              startRowIndex: z.number().int().nonnegative(),
-              endRowIndex: z.number().int().nonnegative(),
-              startColumnIndex: z.number().int().nonnegative(),
-              endColumnIndex: z.number().int().nonnegative(),
+              rowStartIndex: z.number().int().nonnegative(),
+              rowStopIndex: z.number().int().nonnegative(),
+              columnStartIndex: z.number().int().nonnegative(),
+              columnStopIndex: z.number().int().nonnegative(),
+              visibleRowStartIndex: z.number().int().nonnegative(),
+              visibleRowStopIndex: z.number().int().nonnegative(),
+              visibleColumnStartIndex: z.number().int().nonnegative(),
+              visibleColumnStopIndex: z.number().int().nonnegative(),
             })
             .optional(),
           selections: z
@@ -1090,23 +1097,23 @@ export const registerSpreadsheetTools = (
   const currency = resolveWidgetCurrency();
   const shareDbOrigin = safeOrigin(shareDbUrl);
   const extraConnectDomains = splitCsv(process.env.MCP_EXTRA_CONNECT_DOMAINS);
-  const extraResourceDomains = splitCsv(
-    process.env.MCP_EXTRA_RESOURCE_DOMAINS,
-  );
+  const extraResourceDomains = splitCsv(process.env.MCP_EXTRA_RESOURCE_DOMAINS);
   const connectDomains = [
     appOrigin,
     shareDbOrigin,
     ...extraConnectDomains,
-  ].filter((value, index, list): value is string =>
-    Boolean(value) && list.indexOf(value) === index,
+  ].filter(
+    (value, index, list): value is string =>
+      Boolean(value) && list.indexOf(value) === index,
   );
   const resourceDomains = [
     appOrigin,
     "https://fonts.googleapis.com",
     "https://fonts.gstatic.com",
     ...extraResourceDomains,
-  ].filter((value, index, list): value is string =>
-    Boolean(value) && list.indexOf(value) === index,
+  ].filter(
+    (value, index, list): value is string =>
+      Boolean(value) && list.indexOf(value) === index,
   );
 
   const buildSpreadsheetResourceResult = async () => ({

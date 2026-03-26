@@ -1,3 +1,5 @@
+import { selectionToAddress } from "@rowsncolumns/utils";
+
 export type TableSummary = {
   tableId: string | number;
   title: string;
@@ -15,6 +17,17 @@ export type ChartSummary = {
   dataRange?: string | null;
 };
 
+export type ViewPortProps = {
+  rowStartIndex: number;
+  rowStopIndex: number;
+  columnStartIndex: number;
+  columnStopIndex: number;
+  visibleRowStartIndex: number;
+  visibleRowStopIndex: number;
+  visibleColumnStartIndex: number;
+  visibleColumnStopIndex: number;
+};
+
 export type SpreadsheetAssistantContext = {
   documentId?: string;
   sheets?: Array<{
@@ -29,12 +42,7 @@ export type SpreadsheetAssistantContext = {
     columnIndex: number;
     a1Address?: string | null;
   };
-  viewport?: {
-    startRowIndex: number;
-    endRowIndex: number;
-    startColumnIndex: number;
-    endColumnIndex: number;
-  };
+  viewport?: ViewPortProps;
   cellXfs?: Record<string, unknown>;
   tables?: TableSummary[];
   charts?: ChartSummary[];
@@ -56,12 +64,7 @@ type SpreadsheetContextPayloadInput = {
     columnIndex: number;
     a1Address?: string | null;
   } | null;
-  viewport?: {
-    startRowIndex: number;
-    endRowIndex: number;
-    startColumnIndex: number;
-    endColumnIndex: number;
-  };
+  viewport?: ViewPortProps;
   cellXfs?: Record<string, unknown> | null;
   tables?: TableSummary[];
   charts?: ChartSummary[];
@@ -122,13 +125,23 @@ IMPORTANT INDEXING RULE:
   }
 
   if (context.viewport) {
-    lines.push(
-      instructionLine(
-        `The user's current visible viewport (the range of cells currently visible on screen)
+    const viewportA1 = selectionToAddress({
+      range: {
+        startRowIndex: context.viewport.visibleRowStartIndex,
+        endRowIndex: context.viewport.visibleRowStopIndex,
+        startColumnIndex: context.viewport.visibleColumnStartIndex,
+        endColumnIndex: context.viewport.visibleColumnStopIndex,
+      },
+    });
+    if (viewportA1) {
+      lines.push(
+        instructionLine(
+          `The user's current visible viewport (the range of cells currently visible on screen)
 `,
-        context.viewport,
-      ),
-    );
+          viewportA1,
+        ),
+      );
+    }
   }
 
   if (context.cellXfs) {
@@ -279,20 +292,7 @@ export const sanitizeSpreadsheetAssistantContext = (
         }
       : undefined;
 
-  const viewportRaw = asRecord(record.viewport);
-  const viewport =
-    viewportRaw &&
-    asNumber(viewportRaw.startRowIndex) !== undefined &&
-    asNumber(viewportRaw.endRowIndex) !== undefined &&
-    asNumber(viewportRaw.startColumnIndex) !== undefined &&
-    asNumber(viewportRaw.endColumnIndex) !== undefined
-      ? {
-          startRowIndex: asNumber(viewportRaw.startRowIndex)!,
-          endRowIndex: asNumber(viewportRaw.endRowIndex)!,
-          startColumnIndex: asNumber(viewportRaw.startColumnIndex)!,
-          endColumnIndex: asNumber(viewportRaw.endColumnIndex)!,
-        }
-      : undefined;
+  const viewport = asRecord(record.viewport) as ViewPortProps | undefined;
 
   const cellXfs = asRecord(record.cellXfs) ?? undefined;
 

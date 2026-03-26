@@ -76,6 +76,7 @@ import {
   LoadingIndicator,
   useLoadingIndicator,
   useIsomorphicLayoutEffect,
+  useGetViewPort,
 } from "@rowsncolumns/spreadsheet";
 import type {
   CellXfs,
@@ -853,6 +854,9 @@ function SpreadsheetPane({
   // Spreadsheet Api
   const api = useSpreadsheetApi<CellData>();
 
+  // Viewport getter
+  const getViewPort = useGetViewPort();
+
   const handleExportExcel = useCallback(async () => {
     await exportToExcel({
       filename: `spreadsheet-${documentId}`,
@@ -935,6 +939,7 @@ function SpreadsheetPane({
         getSheetProperties={getSheetProperties}
         getSheetName={getSheetName}
         charts={charts}
+        getViewPort={getViewPort}
       />
       <Toolbar enableFloating className="rounded-tl-xl rounded-tr-xl">
         <FileMenu

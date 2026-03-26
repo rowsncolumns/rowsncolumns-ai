@@ -50,6 +50,7 @@ type McpToolEvent = {
   inputSize?: number;
   outputSize?: number;
   host?: "claude" | "openai" | "unknown";
+  args?: Record<string, unknown>;
 };
 
 type McpSessionEvent = {
