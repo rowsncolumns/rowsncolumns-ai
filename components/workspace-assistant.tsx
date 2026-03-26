@@ -34,6 +34,7 @@ import {
   colorKeys,
   defaultSpreadsheetTheme,
   EmbeddedChart,
+  scrollSubscriber,
   Sheet,
   SpreadsheetTheme,
   TableView,
@@ -2532,6 +2533,20 @@ export function SheetsInstructions({
     typeof useSpreadsheetState
   >["getSheetProperties"];
 }) {
+  // Track viewport state, updated via scrollSubscriber
+  const [viewport, setViewport] = React.useState<ViewPortProps | undefined>(
+    () => getViewPort?.() ?? undefined,
+  );
+
+  // Subscribe to scroll events to keep viewport updated
+  React.useEffect(() => {
+    const subscription = scrollSubscriber.subscribe(() => {
+      const newViewport = getViewPort?.() ?? undefined;
+      setViewport(newViewport);
+    });
+    return () => subscription.unsubscribe();
+  }, [getViewPort]);
+
   const sheetSummary = React.useMemo(
     () =>
       sheets?.map((s) => ({
@@ -2629,7 +2644,7 @@ export function SheetsInstructions({
         columnIndex: activeCell.columnIndex,
         a1Address: activeCellA1Address,
       },
-      viewport: getViewPort?.() ?? undefined,
+      viewport,
       cellXfs: cellXfs ? Object.fromEntries([...cellXfs]) : {},
       tables: tableSummaries,
       charts: chartSummaries,
@@ -2642,7 +2657,7 @@ export function SheetsInstructions({
       activeCell.rowIndex,
       activeCell.columnIndex,
       activeCellA1Address,
-      getViewPort,
+      viewport,
       cellXfs,
       tableSummaries,
       chartSummaries,
