@@ -443,7 +443,20 @@ export type SpreadsheetInsertColumnsInput = z.infer<
 
 // Spreadsheet QueryRange
 const QueryItemSchema = z.object({
-  range: z.string().describe("A1 notation range (e.g., 'A1:D10')"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("The sheet ID to query (use this OR sheetName, not both)"),
+  sheetName: z
+    .string()
+    .optional()
+    .describe("The sheet name to query (use this OR sheetId, not both)"),
+  range: z
+    .string()
+    .describe(
+      "A1 notation range WITH sheet name prefix (e.g., \"'Sheet 1'!A1:D10\")",
+    ),
   layer: z
     .enum(["values", "formatting"])
     .describe("What to query: values or formatting"),

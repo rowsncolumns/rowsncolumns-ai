@@ -1730,28 +1730,55 @@ const handleSpreadsheetQueryRange = async (
             generateSelectionsFromFormula(normalizedRange);
           const selection = parsedSelections[0];
 
-          let sheetId = spreadsheet.activeSheetId ?? 1;
-          const parsedSheetName = selection?.sheetName
-            ? desanitizeSheetName(selection.sheetName)
-            : undefined;
+          // Determine sheetId: explicit sheetId > explicit sheetName > parsed from range > activeSheetId
+          let sheetId: number;
 
-          if (parsedSheetName) {
+          if (item.sheetId !== undefined) {
+            // Use explicitly provided sheetId
+            sheetId = item.sheetId;
+          } else if (item.sheetName !== undefined) {
+            // Find sheet by name
             const targetSheet = spreadsheet.sheets.find((sheet) => {
               const title = (sheet as { title?: string }).title;
               const name = (sheet as { name?: string }).name;
-              return title === parsedSheetName || name === parsedSheetName;
+              return title === item.sheetName || name === item.sheetName;
             });
 
             if (!targetSheet) {
               results.push({
                 range: item.range,
                 layer: item.layer,
-                error: `Sheet "${parsedSheetName}" not found`,
+                error: `Sheet "${item.sheetName}" not found`,
               });
               continue;
             }
 
             sheetId = targetSheet.sheetId;
+          } else {
+            // Fall back to parsing sheet name from range or activeSheetId
+            sheetId = spreadsheet.activeSheetId ?? 1;
+            const parsedSheetName = selection?.sheetName
+              ? desanitizeSheetName(selection.sheetName)
+              : undefined;
+
+            if (parsedSheetName) {
+              const targetSheet = spreadsheet.sheets.find((sheet) => {
+                const title = (sheet as { title?: string }).title;
+                const name = (sheet as { name?: string }).name;
+                return title === parsedSheetName || name === parsedSheetName;
+              });
+
+              if (!targetSheet) {
+                results.push({
+                  range: item.range,
+                  layer: item.layer,
+                  error: `Sheet "${parsedSheetName}" not found`,
+                });
+                continue;
+              }
+
+              sheetId = targetSheet.sheetId;
+            }
           }
 
           if (!selection?.range) {
@@ -1950,8 +1977,15 @@ WHEN TO USE THIS TOOL:
 PARAMETERS:
 - docId: The ID of the spreadsheet asset
 - items: List of range queries, each specifying:
-  - range: A1 notation range (e.g., 'A1:D10', "'Sheet 2'!A1:C20")
+  - sheetId: (optional) The numeric sheet ID to query
+  - sheetName: (optional) The sheet name to query
+  - range: A1 notation range - MUST include sheet name prefix (e.g., "'Sheet 1'!A1:D10")
   - layer: 'values' or 'formatting'
+
+⚠️ CRITICAL: Range MUST always include the sheet name prefix!
+  ❌ WRONG:  "A1:D10" (missing sheet name - ambiguous which sheet!)
+  ✓ CORRECT: "'Sheet 1'!A1:D10" (explicit sheet name)
+  ✓ CORRECT: "'Sales Data'!B2:F20" (sheet names with spaces need quotes)
 
 RETURNS:
 BatchOperationResponse with per-item results containing:
@@ -1968,18 +2002,22 @@ EXAMPLES:
 
 Example 1 — Query values from a single range:
   docId: "abc123"
-  items: [{"range": "A1:D10", "layer": "values"}]
+  items: [{"range": "'Sheet 1'!A1:D10", "layer": "values"}]
 
-Example 2 — Query multiple ranges:
+Example 2 — Query multiple ranges from the same sheet:
   docId: "abc123"
   items: [
-    {"range": "A1:D10", "layer": "values"},
-    {"range": "A1:A10", "layer": "formatting"}
+    {"range": "'Sheet 1'!A1:D10", "layer": "values"},
+    {"range": "'Sheet 1'!A1:A10", "layer": "formatting"}
   ]
 
-Example 3 — Query from a specific sheet:
+Example 3 — Query from multiple different sheets:
   docId: "abc123"
-  items: [{"range": "'Sheet 2'!A1:C20", "layer": "values"}]`,
+  items: [
+    {"range": "'Sheet 1'!A1:C20", "layer": "values"},
+    {"range": "'Sales Data'!B2:F10", "layer": "values"},
+    {"range": "'Summary'!A1:D5", "layer": "formatting"}
+  ]`,
   schema: SpreadsheetQueryRangeSchema,
 });
 
