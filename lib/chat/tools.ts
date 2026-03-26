@@ -3223,19 +3223,22 @@ Instead of writing 12 values with changeBatch like:
   cells: [[{"value": 1}, {"value": 2}, {"value": 3}, ... {"value": 12}]]
 Use this approach:
   1. changeBatch: Write first 2 values to establish pattern (e.g., 1, 2 in B5:C5)
-  2. applyFill: Extend to full range (sourceRange: "B5:C5", fillRange: "B5:M5")
+  2. applyFill: Extend to remaining cells (sourceRange: "B5:C5", fillRange: "D5:M5")
 
 IMPORTANT:
 - All indices are 1-based
-- fillRange must INCLUDE the sourceRange (it's the entire area, not just the destination)
+- fillRange must NOT overlap with sourceRange - it specifies only the destination cells
+- For fill down: fillRange starts at the row AFTER sourceRange ends
+- For fill right: fillRange starts at the column AFTER sourceRange ends
 - The tool auto-detects patterns (numbers, dates, series)
+- BATCHING: For large fills (more than 50 rows), apply in batches of 50 rows at a time. This improves reliability and allows for incremental progress.
 
 PARAMETERS:
 - docId: The document ID of the spreadsheet (required)
 - sheetId: The sheet ID (1-based, default: 1)
 - activeCell: A1 notation for the active cell, typically the top-left of the source (e.g., 'A1')
 - sourceRange: A1 notation for the source range containing the pattern (e.g., 'A1:A2')
-- fillRange: A1 notation for the entire fill area INCLUDING source (e.g., 'A1:A10')
+- fillRange: A1 notation for the DESTINATION cells only, NOT including the source (e.g., 'A3:A10')
 
 EXAMPLES:
 
@@ -3244,25 +3247,31 @@ Example 1 — Fill down a number sequence (1, 2 in A1:A2 → fills 3, 4, 5 in A3
   sheetId: 1
   activeCell: "A1"
   sourceRange: "A1:A2"
-  fillRange: "A1:A5"
+  fillRange: "A3:A5"
 
 Example 2 — Copy a formula down (formula in B2 → copy to B3:B10):
   docId: "abc123"
   activeCell: "B2"
   sourceRange: "B2"
-  fillRange: "B2:B10"
+  fillRange: "B3:B10"
 
 Example 3 — Fill right with a value (value in A1 → copy to B1:E1):
   docId: "abc123"
   activeCell: "A1"
   sourceRange: "A1"
-  fillRange: "A1:E1"
+  fillRange: "B1:E1"
 
 Example 4 — Extend a date series (Jan, Feb in A1:A2 → fills Mar, Apr... in A3:A12):
   docId: "abc123"
   activeCell: "A1"
   sourceRange: "A1:A2"
-  fillRange: "A1:A12"`,
+  fillRange: "A3:A12"
+
+Example 5 — Fill fiscal months 1-12 across row (1, 2 in B5:C5 → fills 3-12 in D5:M5):
+  docId: "abc123"
+  activeCell: "B5"
+  sourceRange: "B5:C5"
+  fillRange: "D5:M5"`,
   schema: SpreadsheetApplyFillSchema,
 });
 
