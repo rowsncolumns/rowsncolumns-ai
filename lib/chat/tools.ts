@@ -3282,10 +3282,22 @@ Fill RIGHT (extending columns A-B to columns C-F):
   ❌ WRONG:  sourceRange: "A1:B1", fillRange: "A1:F1" (includes source columns A-B!)
   ✓ CORRECT: sourceRange: "A1:B1", fillRange: "C1:F1" (starts at column C)
 
+⚠️ MANDATORY BATCHING FOR LARGE FILLS:
+- If fillRange spans MORE than 50 rows, you MUST split into multiple calls of ≤50 rows each
+- Example: To fill F3:F361 (359 rows), make 8 calls:
+  Call 1: fillRange "F3:F52" (50 rows)
+  Call 2: fillRange "F53:F102" (50 rows)
+  Call 3: fillRange "F103:F152" (50 rows)
+  Call 4: fillRange "F153:F202" (50 rows)
+  Call 5: fillRange "F203:F252" (50 rows)
+  Call 6: fillRange "F253:F302" (50 rows)
+  Call 7: fillRange "F303:F352" (50 rows)
+  Call 8: fillRange "F353:F361" (9 rows)
+- NEVER do a single fill of more than 50 rows - it will fail or timeout
+
 OTHER NOTES:
 - All indices are 1-based
 - The tool auto-detects patterns (numbers, dates, series)
-- BATCHING: For large fills (more than 50 rows), apply in batches of 50 rows at a time
 
 PARAMETERS:
 - docId: The document ID of the spreadsheet (required)
