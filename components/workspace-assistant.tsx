@@ -125,6 +125,7 @@ import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@rowsncolumns/ui";
 import { useSpreadsheetState } from "@rowsncolumns/spreadsheet-state";
+import { useNetworkStatus } from "@/hooks/use-network-status";
 
 type WorkspaceAssistantProps = {
   prompts: string[];
@@ -148,6 +149,7 @@ export type WorkspaceAssistantUIProps = {
   onForkConversation?: (atMessageIndex: number) => Promise<void>;
   isForkingRef?: React.MutableRefObject<boolean>;
   isHydratingSession: boolean;
+  isResumingRun?: boolean;
   isReconnecting?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
@@ -353,6 +355,15 @@ type ChatRunResumeResponse = {
     type: string;
     data: {
       type: string;
+      delta?: string;
+      message?: string;
+      threadId?: string;
+      toolName?: string;
+      toolCallId?: string;
+      args?: unknown;
+      result?: unknown;
+      isError?: boolean;
+      error?: string;
       [key: string]: unknown;
     };
   }>;
@@ -360,13 +371,13 @@ type ChatRunResumeResponse = {
 };
 
 const fetchChatRunResume = async (input: {
-  threadId?: string;
+  threadId: string;
   runId?: string;
   lastEventId?: number;
   signal?: AbortSignal;
 }): Promise<ChatRunResumeResponse | null> => {
   const params = new URLSearchParams();
-  if (input.threadId) params.set("threadId", input.threadId);
+  params.set("threadId", input.threadId);
   if (input.runId) params.set("runId", input.runId);
   if (input.lastEventId) params.set("lastEventId", String(input.lastEventId));
 
@@ -996,101 +1007,6 @@ const buildTerminalAssistantMessage = (text: string) => ({
   status: { type: "complete" as const, reason: "stop" as const },
 });
 
-async function* resumeAssistantResponse(
-  threadId: string,
-  runId: string | null,
-  existingState: StreamingState | null,
-  signal?: AbortSignal,
-) {
-  const state: StreamingState = existingState ?? {
-    runId,
-    parts: [],
-    toolPartIndexById: new Map(),
-  };
-
-  // Immediately yield current state to keep typing indicator visible
-  // Don't modify content - just signal that we're still streaming
-  yield buildStreamingYield(state.parts, threadId);
-
-  let lastEventId = 0;
-  const maxRetries = 30; // Poll for up to ~30 seconds
-  let retries = 0;
-
-  while (retries < maxRetries) {
-    if (signal?.aborted) return;
-
-    const resumeData = await fetchChatRunResume({
-      threadId,
-      runId: runId ?? undefined,
-      lastEventId,
-      signal,
-    });
-
-    if (!resumeData) {
-      // Resume endpoint failed, give up
-      finalizePendingToolCalls(state.parts);
-      yield buildStreamingYield(
-        state.parts,
-        threadId,
-        { type: "complete", reason: "stop" },
-        state.parts.length > 0
-          ? undefined
-          : "Connection lost. Please refresh to see the response.",
-      );
-      return;
-    }
-
-    // Process any new events - content continues from where it left off
-    for (const event of resumeData.events) {
-      const result = processStreamEvent(event.data, state, threadId);
-      if (result) {
-        yield result.yield;
-        if (result.done) return;
-      }
-      lastEventId = Math.max(lastEventId, event.id);
-    }
-
-    // Check if the run is complete
-    if (resumeData.run.status === "completed") {
-      finalizePendingToolCalls(state.parts);
-      yield buildStreamingYield(state.parts, threadId, {
-        type: "complete",
-        reason: "stop",
-      });
-      return;
-    }
-
-    if (resumeData.run.status === "failed") {
-      const errorMessage =
-        resumeData.run.errorMessage ?? "Assistant request failed.";
-      appendStreamingDelta(state.parts, "text", `\n\n${errorMessage}`);
-      finalizePendingToolCalls(state.parts);
-      yield buildStreamingYield(
-        state.parts,
-        threadId,
-        { type: "complete", reason: "stop" },
-        errorMessage,
-      );
-      return;
-    }
-
-    // Still running, wait and poll again
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    retries++;
-  }
-
-  // Timeout - run is still going but we hit max retries
-  finalizePendingToolCalls(state.parts);
-  yield buildStreamingYield(
-    state.parts,
-    threadId,
-    { type: "complete", reason: "stop" },
-    state.parts.length > 0
-      ? undefined
-      : "The response is still being generated. Please refresh in a moment.",
-  );
-}
-
 const parsePersistedThreadHistoryContentPart = (
   value: unknown,
   index: number,
@@ -1591,22 +1507,12 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
                 error.message.includes("network") ||
                 error.message.includes("fetch")));
 
-          if (isNetworkError && (currentRunId || threadId)) {
-            console.log(
-              "[assistant] Connection lost, attempting to resume...",
-              { threadId, runId: currentRunId },
+          if (isNetworkError) {
+            // Don't try to resume automatically - just show connection lost message
+            // User can refresh to see the completed response from history
+            yield buildTerminalAssistantMessage(
+              "Connection lost. The response may still be generating. Please refresh to see the result.",
             );
-            setIsReconnecting(true);
-            try {
-              yield* resumeAssistantResponse(
-                threadId,
-                currentRunId,
-                null,
-                abortSignal,
-              );
-            } finally {
-              setIsReconnecting(false);
-            }
             return;
           }
 
@@ -1621,7 +1527,8 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
   const [isHydratingSession, setIsHydratingSession] = React.useState(false);
-  const [isReconnecting, setIsReconnecting] = React.useState(false);
+  const [isResumingRun, setIsResumingRun] = React.useState(false);
+  const { isOffline: isReconnecting } = useNetworkStatus();
   const hydrationControllerRef = React.useRef<AbortController | null>(null);
   const hydrationRequestIdRef = React.useRef(0);
   const didRestoreInitialSessionRef = React.useRef(false);
@@ -1664,6 +1571,75 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
 
         runtime.thread.reset(history);
+
+        // Check if there's an active run that we need to wait for
+        const resumeData = await fetchChatRunResume({
+          threadId: normalizedThreadId,
+          signal: controller.signal,
+        });
+
+        if (
+          controller.signal.aborted ||
+          hydrationRequestIdRef.current !== requestId
+        ) {
+          return;
+        }
+
+        if (resumeData?.run.status === "running") {
+          setIsHydratingSession(false);
+          setIsResumingRun(true);
+
+          // Subscribe to SSE stream for remaining events
+          const params = new URLSearchParams();
+          params.set("threadId", normalizedThreadId);
+          params.set("runId", resumeData.run.runId);
+          params.set("stream", "true");
+
+          try {
+            const streamResponse = await fetch(
+              `${getChatResumeUrl()}?${params}`,
+              {
+                method: "GET",
+                credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
+                signal: controller.signal,
+              },
+            );
+
+            if (streamResponse.ok && streamResponse.body) {
+              // Consume the stream - we just need to wait for it to complete
+              const reader = streamResponse.body.getReader();
+              try {
+                while (true) {
+                  const { done } = await reader.read();
+                  if (done) break;
+                }
+              } finally {
+                reader.releaseLock();
+              }
+            }
+          } catch (streamError) {
+            if (!isAbortError(streamError)) {
+              console.error("[assistant] Resume stream error:", streamError);
+            }
+          }
+
+          // Run finished - refresh history to get the final result
+          if (
+            !controller.signal.aborted &&
+            hydrationRequestIdRef.current === requestId
+          ) {
+            const updatedHistory = await fetchPersistedThreadHistory(
+              normalizedThreadId,
+              controller.signal,
+            );
+            if (
+              !controller.signal.aborted &&
+              hydrationRequestIdRef.current === requestId
+            ) {
+              runtime.thread.reset(updatedHistory);
+            }
+          }
+        }
       } catch (error) {
         if (isAbortError(error)) {
           return;
@@ -1673,6 +1649,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         if (hydrationRequestIdRef.current === requestId) {
           hydrationControllerRef.current = null;
           setIsHydratingSession(false);
+          setIsResumingRun(false);
         }
       }
     },
@@ -1802,6 +1779,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     runtime,
     threadId,
     isHydratingSession,
+    isResumingRun,
     isReconnecting,
     startNewThread,
     selectThread,
@@ -4095,6 +4073,7 @@ type WorkspaceAssistantPanelProps = {
   onForkConversation?: (atMessageIndex: number) => Promise<void>;
   isForkingRef?: React.MutableRefObject<boolean>;
   isHydratingSession?: boolean;
+  isResumingRun?: boolean;
   isReconnecting?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
@@ -4546,6 +4525,7 @@ function WorkspaceAssistantPanel({
   onForkConversation,
   isForkingRef,
   isHydratingSession = false,
+  isResumingRun = false,
   isReconnecting = false,
   selectedModel,
   selectedModelLabel,
@@ -4805,6 +4785,14 @@ function WorkspaceAssistantPanel({
                 </div>
               </div>
             )}
+            {isResumingRun && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+                <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Continuing response...
+                </div>
+              </div>
+            )}
             {isReconnecting && (
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
                 <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
@@ -4835,6 +4823,7 @@ export function WorkspaceAssistantUI({
   onForkConversation,
   isForkingRef,
   isHydratingSession,
+  isResumingRun,
   isReconnecting,
   selectedModel,
   selectedModelLabel,
@@ -4857,6 +4846,7 @@ export function WorkspaceAssistantUI({
       onForkConversation={onForkConversation}
       isForkingRef={isForkingRef}
       isHydratingSession={isHydratingSession}
+      isResumingRun={isResumingRun}
       isReconnecting={isReconnecting}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
@@ -4890,6 +4880,7 @@ export function WorkspaceAssistant({
         onForkConversation={assistantRuntime.forkConversation}
         isForkingRef={assistantRuntime.isForkingRef}
         isHydratingSession={assistantRuntime.isHydratingSession}
+        isResumingRun={assistantRuntime.isResumingRun}
         isReconnecting={assistantRuntime.isReconnecting}
         selectedModel={assistantRuntime.selectedModel}
         selectedModelLabel={assistantRuntime.selectedModelLabel}

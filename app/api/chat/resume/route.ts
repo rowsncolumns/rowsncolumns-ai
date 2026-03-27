@@ -6,6 +6,7 @@ import {
   getChatRunEvents,
   getLatestChatRunForThread,
 } from "@/lib/chat/runs-repository";
+import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const runId = url.searchParams.get("runId")?.trim();
     const threadId = url.searchParams.get("threadId")?.trim();
+    const stream = url.searchParams.get("stream") === "true";
     const lastEventIdParam = url.searchParams.get("lastEventId")?.trim();
     const lastEventId = lastEventIdParam
       ? Number.parseInt(lastEventIdParam, 10)
@@ -49,27 +51,85 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Run not found." }, { status: 404 });
     }
 
-    // Get events since lastEventId
-    const events = await getChatRunEvents({
-      runId: run.runId,
-      afterEventId: lastEventId,
+    // Non-streaming response (for initial check)
+    if (!stream) {
+      const events = await getChatRunEvents({
+        runId: run.runId,
+        afterEventId: lastEventId,
+      });
+
+      return NextResponse.json({
+        run: {
+          runId: run.runId,
+          threadId: run.threadId,
+          status: run.status,
+          startedAt: run.startedAt,
+          completedAt: run.completedAt,
+          errorMessage: run.errorMessage,
+        },
+        events: events.map((e) => ({
+          id: e.id,
+          type: e.eventType,
+          data: e.eventData,
+        })),
+        hasMore: run.status === "running",
+      });
+    }
+
+    // Streaming response - replay events and continue streaming if still running
+    const encoder = new TextEncoder();
+    const currentRunId = run.runId;
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        let currentLastEventId = lastEventId;
+        let isRunning = run!.status === "running";
+        const maxIterations = 300; // 5 minutes max (1 second intervals)
+        let iterations = 0;
+
+        try {
+          while (iterations < maxIterations) {
+            // Get new events
+            const events = await getChatRunEvents({
+              runId: currentRunId,
+              afterEventId: currentLastEventId,
+            });
+
+            // Stream each event
+            for (const event of events) {
+              const encoded = encoder.encode(
+                encodeChatStreamEvent(event.eventData),
+              );
+              controller.enqueue(encoded);
+              currentLastEventId = Math.max(currentLastEventId, event.id);
+            }
+
+            // Check if run is complete
+            const updatedRun = await getChatRun({ runId: currentRunId, userId });
+            if (!updatedRun || updatedRun.status !== "running") {
+              isRunning = false;
+              break;
+            }
+
+            // Wait before next poll
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            iterations++;
+          }
+
+          controller.close();
+        } catch (error) {
+          console.error("[api/chat/resume] Stream error:", error);
+          controller.error(error);
+        }
+      },
     });
 
-    return NextResponse.json({
-      run: {
-        runId: run.runId,
-        threadId: run.threadId,
-        status: run.status,
-        startedAt: run.startedAt,
-        completedAt: run.completedAt,
-        errorMessage: run.errorMessage,
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
       },
-      events: events.map((e) => ({
-        id: e.id,
-        type: e.eventType,
-        data: e.eventData,
-      })),
-      hasMore: run.status === "running",
     });
   } catch (error) {
     console.error("[api/chat/resume] Error:", error);
