@@ -148,6 +148,7 @@ export type WorkspaceAssistantUIProps = {
   onForkConversation?: (atMessageIndex: number) => Promise<void>;
   isForkingRef?: React.MutableRefObject<boolean>;
   isHydratingSession: boolean;
+  isReconnecting?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -1007,25 +1008,13 @@ async function* resumeAssistantResponse(
     toolPartIndexById: new Map(),
   };
 
-  // Track if we showed a reconnecting placeholder
-  const hadExistingParts = state.parts.length > 0;
-  let showedReconnectingMessage = false;
-
-  // Immediately yield a "reconnecting" state to show typing indicator
-  if (hadExistingParts) {
-    yield buildStreamingYield(state.parts, threadId);
-  } else {
-    showedReconnectingMessage = true;
-    yield buildStreamingYield(
-      [{ type: "text" as const, text: "_Reconnecting..._\n\n" }],
-      threadId,
-    );
-  }
+  // Immediately yield current state to keep typing indicator visible
+  // Don't modify content - just signal that we're still streaming
+  yield buildStreamingYield(state.parts, threadId);
 
   let lastEventId = 0;
   const maxRetries = 30; // Poll for up to ~30 seconds
   let retries = 0;
-  let receivedAnyContent = false;
 
   while (retries < maxRetries) {
     if (signal?.aborted) return;
@@ -1051,15 +1040,8 @@ async function* resumeAssistantResponse(
       return;
     }
 
-    // Process any new events
+    // Process any new events - content continues from where it left off
     for (const event of resumeData.events) {
-      // Clear the "Reconnecting..." placeholder on first real content
-      if (showedReconnectingMessage && !receivedAnyContent) {
-        state.parts = [];
-        showedReconnectingMessage = false;
-      }
-      receivedAnyContent = true;
-
       const result = processStreamEvent(event.data, state, threadId);
       if (result) {
         yield result.yield;
@@ -1614,12 +1596,17 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
               "[assistant] Connection lost, attempting to resume...",
               { threadId, runId: currentRunId },
             );
-            yield* resumeAssistantResponse(
-              threadId,
-              currentRunId,
-              null,
-              abortSignal,
-            );
+            setIsReconnecting(true);
+            try {
+              yield* resumeAssistantResponse(
+                threadId,
+                currentRunId,
+                null,
+                abortSignal,
+              );
+            } finally {
+              setIsReconnecting(false);
+            }
             return;
           }
 
@@ -1634,6 +1621,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
   const [isHydratingSession, setIsHydratingSession] = React.useState(false);
+  const [isReconnecting, setIsReconnecting] = React.useState(false);
   const hydrationControllerRef = React.useRef<AbortController | null>(null);
   const hydrationRequestIdRef = React.useRef(0);
   const didRestoreInitialSessionRef = React.useRef(false);
@@ -1814,6 +1802,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     runtime,
     threadId,
     isHydratingSession,
+    isReconnecting,
     startNewThread,
     selectThread,
     forkConversation,
@@ -4106,6 +4095,7 @@ type WorkspaceAssistantPanelProps = {
   onForkConversation?: (atMessageIndex: number) => Promise<void>;
   isForkingRef?: React.MutableRefObject<boolean>;
   isHydratingSession?: boolean;
+  isReconnecting?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
@@ -4556,6 +4546,7 @@ function WorkspaceAssistantPanel({
   onForkConversation,
   isForkingRef,
   isHydratingSession = false,
+  isReconnecting = false,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -4814,6 +4805,14 @@ function WorkspaceAssistantPanel({
                 </div>
               </div>
             )}
+            {isReconnecting && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+                <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Reconnecting...
+                </div>
+              </div>
+            )}
           </ThreadPrimitive.Root>
         </ForkContext.Provider>
       </AssistantDebugAccessContext.Provider>
@@ -4836,6 +4835,7 @@ export function WorkspaceAssistantUI({
   onForkConversation,
   isForkingRef,
   isHydratingSession,
+  isReconnecting,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -4857,6 +4857,7 @@ export function WorkspaceAssistantUI({
       onForkConversation={onForkConversation}
       isForkingRef={isForkingRef}
       isHydratingSession={isHydratingSession}
+      isReconnecting={isReconnecting}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
       isModelPickerOpen={isModelPickerOpen}
@@ -4889,6 +4890,7 @@ export function WorkspaceAssistant({
         onForkConversation={assistantRuntime.forkConversation}
         isForkingRef={assistantRuntime.isForkingRef}
         isHydratingSession={assistantRuntime.isHydratingSession}
+        isReconnecting={assistantRuntime.isReconnecting}
         selectedModel={assistantRuntime.selectedModel}
         selectedModelLabel={assistantRuntime.selectedModelLabel}
         isModelPickerOpen={assistantRuntime.isModelPickerOpen}
