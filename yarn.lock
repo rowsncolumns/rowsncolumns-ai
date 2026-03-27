@@ -2239,10 +2239,10 @@
   dependencies:
     "@radix-ui/react-icons" "^1.3.2"
 
-"@rowsncolumns/sharedb@^1.0.22":
-  version "1.0.22"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.22/ea69decb7ec6249aeeed93e7e73553cbd261cf44#ea69decb7ec6249aeeed93e7e73553cbd261cf44"
-  integrity sha512-QCa84cZN+r0fFEApy/KFZXAQR+1fZgJRKTTxNi+7NfIuQLpNQ85Jjg6MlmTgULzZ6RXGXZ9uIME+d+XiBNqepg==
+"@rowsncolumns/sharedb@^1.0.23":
+  version "1.0.23"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.23/4ac69e3c2f2da097920809324a09c162df67050d#4ac69e3c2f2da097920809324a09c162df67050d"
+  integrity sha512-V9/OddTUdfCOzcKzL/WJkpGzWTGwxnT9saM5olKzXiA532ke7ne6tvp0mrE39I2ULp3ajRxTh1Lnn8fBBYNyOw==
 
 "@rowsncolumns/spreadsheet-state@^21.0.44":
   version "21.0.44"
