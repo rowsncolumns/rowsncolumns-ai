@@ -24,6 +24,7 @@ import {
   useLocalRuntime,
   useMessage,
   useAssistantToolUI,
+  useInlineRender,
   useThread,
   useThreadRuntime,
   useAuiState,
@@ -76,6 +77,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import remarkGfm from "remark-gfm";
+import { useShallow } from "zustand/shallow";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -114,6 +116,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { buildSkillsInstruction } from "@/lib/chat/instructions";
+import {
+  getStablePartRenderKeyFromSignature,
+  getStablePartSignature,
+  getStablePartTypeFromSignature,
+  getStableThreadMessageRenderKey,
+  groupStableMessageParts,
+} from "@/lib/assistant/stable-rendering";
 import type {
   SpreadsheetAssistantContext,
   ChartSummary,
@@ -285,6 +294,7 @@ const CHAT_EXTERNAL_API_PATH = (
   process.env.NEXT_PUBLIC_CHAT_API_PATH ?? "/chat"
 ).trim();
 const CHAT_EXTERNAL_API_ENABLED = CHAT_EXTERNAL_API_BASE_URL.length > 0;
+const FORK_BUTTON_ENABLED = false; // Set to true to enable fork conversation button
 const ASSISTANT_CONTEXT_BY_DOCUMENT_ID = new Map<
   string,
   SpreadsheetAssistantContext
@@ -1600,7 +1610,9 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
               `${getChatResumeUrl()}?${params}`,
               {
                 method: "GET",
-                credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
+                credentials: CHAT_EXTERNAL_API_ENABLED
+                  ? "include"
+                  : "same-origin",
                 signal: controller.signal,
               },
             );
@@ -2295,16 +2307,123 @@ function AssistantTextPart() {
   );
 }
 
+type MessageContentComponents = NonNullable<
+  React.ComponentProps<typeof MessagePrimitive.Content>["components"]
+>;
+
+function StableMessageContent({
+  components,
+}: {
+  components: MessageContentComponents;
+}) {
+  const partSignatures = useAuiState(
+    useShallow((state) =>
+      state.message.parts.map((part) => getStablePartSignature(part)),
+    ),
+  );
+
+  const partTypes = React.useMemo(
+    () =>
+      partSignatures.map((signature) =>
+        getStablePartTypeFromSignature(signature),
+      ),
+    [partSignatures],
+  );
+  const partKeys = React.useMemo(
+    () =>
+      partSignatures.map((signature, index) =>
+        getStablePartRenderKeyFromSignature(signature, index),
+      ),
+    [partSignatures],
+  );
+  const ranges = React.useMemo(
+    () => groupStableMessageParts(partTypes),
+    [partTypes],
+  );
+
+  const ToolGroupComponent =
+    "ToolGroup" in components && components.ToolGroup
+      ? components.ToolGroup
+      : ({ children }: React.PropsWithChildren) => children;
+  const ReasoningGroupComponent =
+    "ReasoningGroup" in components && components.ReasoningGroup
+      ? components.ReasoningGroup
+      : ({ children }: React.PropsWithChildren) => children;
+
+  return (
+    <>
+      {ranges.map((range) => {
+        if (range.type === "single") {
+          return (
+            <MessagePrimitive.PartByIndex
+              key={partKeys[range.index] || `part:${range.index}`}
+              index={range.index}
+              components={components}
+            />
+          );
+        }
+
+        const indices = Array.from(
+          { length: range.endIndex - range.startIndex + 1 },
+          (_, offset) => range.startIndex + offset,
+        );
+        const groupKey = indices
+          .map((index) => partKeys[index] || `part:${index}`)
+          .join("|");
+
+        if (range.type === "toolGroup") {
+          return (
+            <ToolGroupComponent
+              key={`tool-group:${groupKey}`}
+              startIndex={range.startIndex}
+              endIndex={range.endIndex}
+            >
+              {indices.map((index) => (
+                <MessagePrimitive.PartByIndex
+                  key={partKeys[index] || `part:${index}`}
+                  index={index}
+                  components={components}
+                />
+              ))}
+            </ToolGroupComponent>
+          );
+        }
+
+        return (
+          <ReasoningGroupComponent
+            key={`reasoning-group:${groupKey}`}
+            startIndex={range.startIndex}
+            endIndex={range.endIndex}
+          >
+            {indices.map((index) => (
+              <MessagePrimitive.PartByIndex
+                key={partKeys[index] || `part:${index}`}
+                index={index}
+                components={components}
+              />
+            ))}
+          </ReasoningGroupComponent>
+        );
+      })}
+    </>
+  );
+}
+
 function ToolCallDisplay({
+  toolCallId,
   toolName,
   args,
   result,
 }: {
+  toolCallId: string;
   toolName: string;
   args: unknown;
   result?: unknown;
 }) {
-  const [isOpen, setIsOpen] = React.useState(false);
+  const openStateKey = React.useMemo(() => `tool:${toolCallId}`, [toolCallId]);
+  const [isOpen, setIsOpen] = React.useState(() => {
+    return TOOL_CALL_OPEN_STATE.get(openStateKey) ?? false;
+  });
   const [copiedTab, setCopiedTab] = React.useState<"input" | "output" | null>(
     null,
   );
@@ -2385,6 +2504,17 @@ function ToolCallDisplay({
     },
     [navigateToRange],
   );
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      setIsOpen(nextOpen);
+      TOOL_CALL_OPEN_STATE.set(openStateKey, nextOpen);
+    },
+    [openStateKey],
+  );
+
+  React.useEffect(() => {
+    setIsOpen(TOOL_CALL_OPEN_STATE.get(openStateKey) ?? false);
+  }, [openStateKey]);
 
   const range =
     rangeFromArgs ||
@@ -2424,7 +2554,7 @@ function ToolCallDisplay({
     }
   }, [args, parsedArgs]);
   return (
-    <Collapsible.Root open={isOpen} onOpenChange={setIsOpen}>
+    <Collapsible.Root open={isOpen} onOpenChange={handleOpenChange}>
       <Collapsible.Trigger asChild>
         <div
           className={cn(
@@ -2637,37 +2767,42 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_conditionalFormat",
 ] as const;
 
+const TOOL_CALL_OPEN_STATE = new Map<string, boolean>();
+
 function SpreadsheetToolUIRegistration({
   toolName,
 }: {
   toolName: (typeof SPREADSHEET_TOOL_NAMES)[number];
 }) {
+  const renderToolPart = useInlineRender(
+    ({
+      toolName: renderedToolName,
+      args,
+      result,
+      toolCallId,
+    }: ToolCallMessagePartProps<Record<string, unknown>, unknown>) => (
+      <div className="w-full maxx-w-md">
+        {renderedToolName === "spreadsheet_createSheet" && (
+          <SpreadsheetCreateSheetSideEffect result={result} />
+        )}
+        <ToolCallDisplay
+          toolCallId={toolCallId}
+          toolName={renderedToolName}
+          args={args}
+          result={result}
+        />
+      </div>
+    ),
+  );
+
   const toolUI = React.useMemo<
-    AssistantToolUIProps<Record<string, any>, unknown>
+    AssistantToolUIProps<Record<string, unknown>, unknown>
   >(
     () => ({
       toolName,
-      render(
-        toolPartProps: ToolCallMessagePartProps<Record<string, any>, unknown>,
-      ) {
-        const { toolName: renderedToolName, args, result } = toolPartProps;
-
-        return (
-          <div className="w-full maxx-w-md">
-            {renderedToolName === "spreadsheet_createSheet" && (
-              <SpreadsheetCreateSheetSideEffect result={result} />
-            )}
-            <ToolCallDisplay
-              key={toolPartProps.toolCallId}
-              toolName={renderedToolName}
-              args={args}
-              result={result}
-            />
-          </div>
-        );
-      },
+      render: renderToolPart,
     }),
-    [toolName],
+    [renderToolPart, toolName],
   );
 
   useAssistantToolUI(toolUI);
@@ -2677,6 +2812,32 @@ function SpreadsheetToolUIRegistration({
 function SpreadsheetToolUIRegistry() {
   return SPREADSHEET_TOOL_NAMES.map((toolName) => (
     <SpreadsheetToolUIRegistration key={toolName} toolName={toolName} />
+  ));
+}
+
+type ThreadMessagesComponents = NonNullable<
+  React.ComponentProps<typeof ThreadPrimitive.Messages>["components"]
+>;
+
+function StableThreadMessages({
+  components,
+}: {
+  components: ThreadMessagesComponents;
+}) {
+  const messageKeys = useAuiState(
+    useShallow((state) =>
+      state.thread.messages.map((message, index) =>
+        getStableThreadMessageRenderKey(message.id, index),
+      ),
+    ),
+  );
+
+  return messageKeys.map((messageKey, index) => (
+    <ThreadPrimitive.MessageByIndex
+      key={messageKey}
+      index={index}
+      components={components}
+    />
   ));
 }
 
@@ -2751,6 +2912,25 @@ function AssistantMessageBody() {
     !isMessageRunning &&
     hasAnyVisibleText;
   const [isUserCopySuccess, setIsUserCopySuccess] = React.useState(false);
+  const assistantContentComponents = React.useMemo<MessageContentComponents>(
+    () => ({
+      Text: AssistantTextPart,
+      Reasoning: () => (
+        <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50/50 p-3 text-xs text-purple-900/80">
+          <MarkdownText />
+        </div>
+      ),
+      ReasoningGroup: ({ children }: React.PropsWithChildren) => (
+        <div className="w-fit max-w-[92%]">
+          <ReasoningBlock forceOpen={!isComplete}>{children}</ReasoningBlock>
+        </div>
+      ),
+      ToolGroup: ({ children }: React.PropsWithChildren) => (
+        <div className="w-full space-y-2">{children}</div>
+      ),
+    }),
+    [isComplete],
+  );
   const handleCopyUserMessage = React.useCallback(async () => {
     if (!userMessageText) return;
     try {
@@ -2770,6 +2950,7 @@ function AssistantMessageBody() {
   }, [threadMessages, messageId]);
   // Show fork button for assistant messages with visible text (not tool-call-only messages)
   const showForkButton =
+    FORK_BUTTON_ENABLED &&
     role === "assistant" &&
     !isMessageRunning &&
     messageIndex >= 0 &&
@@ -2806,26 +2987,15 @@ function AssistantMessageBody() {
       >
         {role === "assistant" &&
           (hasAnyVisibleReasoning || hasAnyVisibleText || hasAnyToolCall) && (
-            <MessagePrimitive.Content
-              components={{
-                Text: AssistantTextPart,
-                Reasoning: () => (
-                  <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50/50 p-3 text-xs text-purple-900/80">
-                    <MarkdownText />
-                  </div>
-                ),
-                ReasoningGroup: ({ children }: React.PropsWithChildren) => (
-                  <div className="w-fit max-w-[92%]">
-                    <ReasoningBlock forceOpen={!isComplete}>
-                      {children}
-                    </ReasoningBlock>
-                  </div>
-                ),
-                ToolGroup: ({ children }: React.PropsWithChildren) => (
-                  <div className="w-full space-y-2">{children}</div>
-                ),
-              }}
-            />
+            <>
+              {isLastMessage && isThreadRunning ? (
+                <StableMessageContent components={assistantContentComponents} />
+              ) : (
+                <MessagePrimitive.Content
+                  components={assistantContentComponents}
+                />
+              )}
+            </>
           )}
         {role === "assistant" && showTypingIndicatorBeforeText && (
           <Card className="rnc-assistant-bubble-ai w-fit border-black/10 bg-[#fff7f1]">
@@ -4711,7 +4881,7 @@ function WorkspaceAssistantPanel({
               )}
             >
               <div className="space-y-4">
-                <ThreadPrimitive.Messages
+                <StableThreadMessages
                   components={{
                     UserMessage: AssistantMessage,
                     AssistantMessage,
