@@ -216,32 +216,16 @@ const parseCells = (input: unknown): CellData[][] => {
   return result;
 };
 
-const documentWriteQueue = new Map<string, Promise<void>>();
+// Lock disabled for testing - ShareDB OT should handle concurrent operations
+// const documentWriteQueue = new Map<string, Promise<void>>();
 
 const withDocumentWriteLock = async <T>(
-  docId: string,
+  _docId: string,
   operation: () => Promise<T>,
 ): Promise<T> => {
-  const previous = documentWriteQueue.get(docId) ?? Promise.resolve();
-  const waitForPrevious = previous.catch(() => undefined);
-
-  let releaseCurrentQueue!: () => void;
-  const currentQueue = new Promise<void>((resolve) => {
-    releaseCurrentQueue = resolve;
-  });
-  const queued = waitForPrevious.then(() => currentQueue);
-  documentWriteQueue.set(docId, queued);
-
-  await waitForPrevious;
-
-  try {
-    return await operation();
-  } finally {
-    releaseCurrentQueue();
-    if (documentWriteQueue.get(docId) === queued) {
-      documentWriteQueue.delete(docId);
-    }
-  }
+  // Lock disabled - execute operation directly
+  // ShareDB's OT handles concurrent submitOp calls
+  return operation();
 };
 
 /**
