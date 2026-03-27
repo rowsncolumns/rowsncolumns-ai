@@ -1007,9 +1007,25 @@ async function* resumeAssistantResponse(
     toolPartIndexById: new Map(),
   };
 
+  // Track if we showed a reconnecting placeholder
+  const hadExistingParts = state.parts.length > 0;
+  let showedReconnectingMessage = false;
+
+  // Immediately yield a "reconnecting" state to show typing indicator
+  if (hadExistingParts) {
+    yield buildStreamingYield(state.parts, threadId);
+  } else {
+    showedReconnectingMessage = true;
+    yield buildStreamingYield(
+      [{ type: "text" as const, text: "_Reconnecting..._\n\n" }],
+      threadId,
+    );
+  }
+
   let lastEventId = 0;
   const maxRetries = 30; // Poll for up to ~30 seconds
   let retries = 0;
+  let receivedAnyContent = false;
 
   while (retries < maxRetries) {
     if (signal?.aborted) return;
@@ -1037,6 +1053,13 @@ async function* resumeAssistantResponse(
 
     // Process any new events
     for (const event of resumeData.events) {
+      // Clear the "Reconnecting..." placeholder on first real content
+      if (showedReconnectingMessage && !receivedAnyContent) {
+        state.parts = [];
+        showedReconnectingMessage = false;
+      }
+      receivedAnyContent = true;
+
       const result = processStreamEvent(event.data, state, threadId);
       if (result) {
         yield result.yield;
