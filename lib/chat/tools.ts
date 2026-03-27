@@ -301,10 +301,18 @@ const handleSpreadsheetChangeBatch = async (
         const spreadsheet = createSpreadsheetInterface(data);
 
         // Parse the range (supports sheet names like 'Sheet1'!A1:B5)
-        const rangeParsed = parseRangeWithSheetName(range, spreadsheet, defaultSheetId);
+        const rangeParsed = parseRangeWithSheetName(
+          range,
+          spreadsheet,
+          defaultSheetId,
+        );
 
         if (!rangeParsed.selection?.range) {
-          return failTool("INVALID_RANGE", rangeParsed.error || `Invalid range: ${range}`, { range });
+          return failTool(
+            "INVALID_RANGE",
+            rangeParsed.error || `Invalid range: ${range}`,
+            { range },
+          );
         }
 
         const selection = rangeParsed.selection;
@@ -1282,7 +1290,11 @@ const handleSpreadsheetFormatRange = async (
         const spreadsheet = createSpreadsheetInterface(data);
 
         // Parse the range (supports sheet names like 'Sheet1'!A1:B5)
-        const rangeParsed = parseRangeWithSheetName(range, spreadsheet, defaultSheetId);
+        const rangeParsed = parseRangeWithSheetName(
+          range,
+          spreadsheet,
+          defaultSheetId,
+        );
 
         if (!rangeParsed.selection?.range) {
           return JSON.stringify({
@@ -2270,7 +2282,11 @@ const handleSpreadsheetReadDocument = async (
 
         if (rangeStr) {
           // Parse the provided range with sheet name support
-          const rangeParsed = parseRangeWithSheetName(rangeStr, spreadsheet, sheetInfo.sheetId);
+          const rangeParsed = parseRangeWithSheetName(
+            rangeStr,
+            spreadsheet,
+            sheetInfo.sheetId,
+          );
           if (rangeParsed.selection?.range) {
             // Skip this sheet if the range specifies a different sheet
             if (rangeParsed.sheetId !== sheetInfo.sheetId) {
@@ -3222,7 +3238,11 @@ const handleSpreadsheetApplyFill = async (
         };
 
         // Parse sourceRange with sheet name support
-        const sourceParsed = parseRangeWithSheetName(sourceRange, spreadsheet, defaultSheetId);
+        const sourceParsed = parseRangeWithSheetName(
+          sourceRange,
+          spreadsheet,
+          defaultSheetId,
+        );
         if (!sourceParsed.selection?.range) {
           return failTool(
             "INVALID_SOURCE_RANGE",
@@ -3232,11 +3252,19 @@ const handleSpreadsheetApplyFill = async (
         }
 
         // Parse fillRange with sheet name support
-        const fillParsed = parseRangeWithSheetName(fillRange, spreadsheet, defaultSheetId);
+        const fillParsed = parseRangeWithSheetName(
+          fillRange,
+          spreadsheet,
+          defaultSheetId,
+        );
         if (!fillParsed.selection?.range) {
-          return failTool("INVALID_FILL_RANGE", fillParsed.error || `Invalid fillRange: ${fillRange}`, {
-            fillRange,
-          });
+          return failTool(
+            "INVALID_FILL_RANGE",
+            fillParsed.error || `Invalid fillRange: ${fillRange}`,
+            {
+              fillRange,
+            },
+          );
         }
 
         // Use the sheetId from source range (source and fill should be on same sheet)
@@ -3437,9 +3465,17 @@ const handleSpreadsheetInsertNote = async (
         const spreadsheet = createSpreadsheetInterface(data);
 
         // Parse cell from A1 notation with sheet name support
-        const cellParsed = parseRangeWithSheetName(cell, spreadsheet, defaultSheetId);
+        const cellParsed = parseRangeWithSheetName(
+          cell,
+          spreadsheet,
+          defaultSheetId,
+        );
         if (!cellParsed.selection?.range) {
-          return failTool("INVALID_CELL", cellParsed.error || `Invalid cell: ${cell}`, { cell });
+          return failTool(
+            "INVALID_CELL",
+            cellParsed.error || `Invalid cell: ${cell}`,
+            { cell },
+          );
         }
 
         const sheetId = cellParsed.sheetId;
@@ -3868,9 +3904,16 @@ const handleSpreadsheetClearCells = async (
         for (const rangeStr of ranges) {
           try {
             // Parse range with sheet name support
-            const rangeParsed = parseRangeWithSheetName(rangeStr, spreadsheet, defaultSheetId);
+            const rangeParsed = parseRangeWithSheetName(
+              rangeStr,
+              spreadsheet,
+              defaultSheetId,
+            );
             if (!rangeParsed.selection?.range) {
-              errors.push({ range: rangeStr, error: rangeParsed.error || `Invalid range` });
+              errors.push({
+                range: rangeStr,
+                error: rangeParsed.error || `Invalid range`,
+              });
               continue;
             }
 
@@ -3879,7 +3922,9 @@ const handleSpreadsheetClearCells = async (
               rowIndex: rangeParsed.selection.range.startRowIndex,
               columnIndex: rangeParsed.selection.range.startColumnIndex,
             };
-            const selections: SelectionArea[] = [{ range: rangeParsed.selection.range }];
+            const selections: SelectionArea[] = [
+              { range: rangeParsed.selection.range },
+            ];
 
             if (clear === "values" || clear === "all") {
               spreadsheet.deleteCells(rangeSheetId, activeCell, selections);
@@ -3900,7 +3945,10 @@ const handleSpreadsheetClearCells = async (
 
         // Evaluate formulas for all modified sheets if values were cleared
         let formulaResults;
-        if ((clear === "values" || clear === "all") && modifiedSheetIds.size > 0) {
+        if (
+          (clear === "values" || clear === "all") &&
+          modifiedSheetIds.size > 0
+        ) {
           // Evaluate formulas for the first modified sheet (most common case)
           const firstSheetId = Array.from(modifiedSheetIds)[0];
           formulaResults = await evaluateFormulas(firstSheetId, spreadsheet);
@@ -4037,7 +4085,11 @@ const handleSpreadsheetTable = async (
           const spreadsheet = createSpreadsheetInterface(data);
 
           // Parse range with sheet name support
-          const rangeParsed = parseRangeWithSheetName(createInput.range, spreadsheet, sheetId);
+          const rangeParsed = parseRangeWithSheetName(
+            createInput.range,
+            spreadsheet,
+            sheetId,
+          );
           if (!rangeParsed.selection?.range) {
             return failTool(
               "INVALID_RANGE",
@@ -4074,7 +4126,9 @@ const handleSpreadsheetTable = async (
             rowIndex: rangeParsed.selection.range.startRowIndex,
             columnIndex: rangeParsed.selection.range.startColumnIndex,
           };
-          const selections: SelectionArea[] = [{ range: rangeParsed.selection.range }];
+          const selections: SelectionArea[] = [
+            { range: rangeParsed.selection.range },
+          ];
 
           spreadsheet.createTable(
             resolvedSheetId,
@@ -4293,7 +4347,11 @@ const parseRangeWithSheetName = (
   const selection = parsedSelections[0];
 
   if (!selection?.range) {
-    return { selection: null, sheetId: defaultSheetId, error: `Invalid range: ${range}` };
+    return {
+      selection: null,
+      sheetId: defaultSheetId,
+      error: `Invalid range: ${range}`,
+    };
   }
 
   let resolvedSheetId = defaultSheetId;
@@ -4351,7 +4409,11 @@ const handleSpreadsheetChart = async (
           const spreadsheet = createSpreadsheetInterface(data);
 
           // Parse domain range with potential sheet name
-          const domainParsed = parseRangeWithSheetName(rest.domain!, spreadsheet, sheetId);
+          const domainParsed = parseRangeWithSheetName(
+            rest.domain!,
+            spreadsheet,
+            sheetId,
+          );
           if (!domainParsed.selection?.range) {
             return failTool(
               "INVALID_DOMAIN",
@@ -4361,9 +4423,15 @@ const handleSpreadsheetChart = async (
 
           // Parse series ranges with potential sheet names
           const seriesParsed = rest.series!.map((seriesRange: string) => {
-            const parsed = parseRangeWithSheetName(seriesRange, spreadsheet, sheetId);
+            const parsed = parseRangeWithSheetName(
+              seriesRange,
+              spreadsheet,
+              sheetId,
+            );
             if (!parsed.selection?.range)
-              throw new Error(parsed.error || `Invalid series range: ${seriesRange}`);
+              throw new Error(
+                parsed.error || `Invalid series range: ${seriesRange}`,
+              );
             return { range: parsed.selection.range, sheetId: parsed.sheetId };
           });
 
@@ -4401,7 +4469,8 @@ const handleSpreadsheetChart = async (
 
           // Determine anchor position
           let anchorRowIndex = 1;
-          let anchorColumnIndex = domainParsed.selection.range.endColumnIndex + 2;
+          let anchorColumnIndex =
+            domainParsed.selection.range.endColumnIndex + 2;
 
           if (rest.anchorCell) {
             const anchorSel = addressToSelection(rest.anchorCell);
@@ -4493,15 +4562,20 @@ const handleSpreadsheetChart = async (
             specUpdates.stackedType = mapStackedType(rest.stackedType);
 
           if (rest.domain) {
-            const defaultDomainSheetId = (chart.spec as Record<string, unknown>).domain
-              ? (
+            const defaultDomainSheetId = (chart.spec as Record<string, unknown>)
+              .domain
+              ? ((
                   (chart.spec as Record<string, unknown>).domain as Record<
                     string,
                     unknown
                   >
-                ).sheetId as number
+                ).sheetId as number)
               : (sheetId ?? 1);
-            const domainParsed = parseRangeWithSheetName(rest.domain, spreadsheet, defaultDomainSheetId);
+            const domainParsed = parseRangeWithSheetName(
+              rest.domain,
+              spreadsheet,
+              defaultDomainSheetId,
+            );
             if (domainParsed.selection?.range) {
               specUpdates.domain = {
                 sheetId: domainParsed.sheetId,
@@ -4514,7 +4588,8 @@ const handleSpreadsheetChart = async (
           }
 
           if (rest.series) {
-            const defaultSeriesSheetId = (chart.spec as Record<string, unknown>).domain
+            const defaultSeriesSheetId = (chart.spec as Record<string, unknown>)
+              .domain
               ? ((
                   (chart.spec as Record<string, unknown>).domain as Record<
                     string,
@@ -4523,9 +4598,15 @@ const handleSpreadsheetChart = async (
                 ).sheetId as number)
               : (sheetId ?? 1);
             specUpdates.series = rest.series.map((seriesRange: string) => {
-              const parsed = parseRangeWithSheetName(seriesRange, spreadsheet, defaultSeriesSheetId);
+              const parsed = parseRangeWithSheetName(
+                seriesRange,
+                spreadsheet,
+                defaultSeriesSheetId,
+              );
               if (!parsed.selection?.range)
-                throw new Error(parsed.error || `Invalid series range: ${seriesRange}`);
+                throw new Error(
+                  parsed.error || `Invalid series range: ${seriesRange}`,
+                );
               return {
                 sheetId: parsed.sheetId,
                 startRowIndex: parsed.selection.range.startRowIndex,
@@ -4730,7 +4811,11 @@ const handleSpreadsheetDataValidation = async (
 
           // Filter by range if provided (supports sheet names)
           if (rest.range) {
-            const filterParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            const filterParsed = parseRangeWithSheetName(
+              rest.range,
+              spreadsheet,
+              sheetId ?? 1,
+            );
             if (filterParsed.selection?.range) {
               validations = validations.filter((v) => {
                 const vRange = v.ranges?.[0];
@@ -4805,9 +4890,16 @@ const handleSpreadsheetDataValidation = async (
           const spreadsheet = createSpreadsheetInterface(data);
 
           // Parse range with sheet name support
-          const rangeParsed = parseRangeWithSheetName(rest.range!, spreadsheet, sheetId);
+          const rangeParsed = parseRangeWithSheetName(
+            rest.range!,
+            spreadsheet,
+            sheetId,
+          );
           if (!rangeParsed.selection?.range) {
-            return failTool("INVALID_RANGE", rangeParsed.error || `Invalid range: ${rest.range}`);
+            return failTool(
+              "INVALID_RANGE",
+              rangeParsed.error || `Invalid range: ${rest.range}`,
+            );
           }
 
           const resolvedSheetId = rangeParsed.sheetId;
@@ -4918,14 +5010,19 @@ const handleSpreadsheetDataValidation = async (
 
           if (rest.range) {
             // Parse range with sheet name support
-            const rangeParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            const rangeParsed = parseRangeWithSheetName(
+              rest.range,
+              spreadsheet,
+              sheetId ?? 1,
+            );
             if (rangeParsed.selection?.range) {
               updates.ranges = [
                 {
                   sheetId: rangeParsed.sheetId,
                   startRowIndex: rangeParsed.selection.range.startRowIndex,
                   endRowIndex: rangeParsed.selection.range.endRowIndex,
-                  startColumnIndex: rangeParsed.selection.range.startColumnIndex,
+                  startColumnIndex:
+                    rangeParsed.selection.range.startColumnIndex,
                   endColumnIndex: rangeParsed.selection.range.endColumnIndex,
                 },
               ];
@@ -5184,7 +5281,11 @@ const handleSpreadsheetConditionalFormat = async (
 
           if (rest.range) {
             // Parse range with sheet name support
-            const filterParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            const filterParsed = parseRangeWithSheetName(
+              rest.range,
+              spreadsheet,
+              sheetId ?? 1,
+            );
             if (filterParsed.selection?.range) {
               rules = rules.filter((r) => {
                 const rRange = r.ranges?.[0];
@@ -5248,9 +5349,16 @@ const handleSpreadsheetConditionalFormat = async (
           const spreadsheet = createSpreadsheetInterface(data);
 
           // Parse range with sheet name support
-          const rangeParsed = parseRangeWithSheetName(rest.range!, spreadsheet, sheetId);
+          const rangeParsed = parseRangeWithSheetName(
+            rest.range!,
+            spreadsheet,
+            sheetId,
+          );
           if (!rangeParsed.selection?.range) {
-            return failTool("INVALID_RANGE", rangeParsed.error || `Invalid range: ${rest.range}`);
+            return failTool(
+              "INVALID_RANGE",
+              rangeParsed.error || `Invalid range: ${rest.range}`,
+            );
           }
 
           const resolvedSheetId = rangeParsed.sheetId;
@@ -5405,14 +5513,19 @@ const handleSpreadsheetConditionalFormat = async (
 
           if (rest.range) {
             // Parse range with sheet name support
-            const rangeParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            const rangeParsed = parseRangeWithSheetName(
+              rest.range,
+              spreadsheet,
+              sheetId ?? 1,
+            );
             if (rangeParsed.selection?.range) {
               updates.ranges = [
                 {
                   sheetId: rangeParsed.sheetId,
                   startRowIndex: rangeParsed.selection.range.startRowIndex,
                   endRowIndex: rangeParsed.selection.range.endRowIndex,
-                  startColumnIndex: rangeParsed.selection.range.startColumnIndex,
+                  startColumnIndex:
+                    rangeParsed.selection.range.startColumnIndex,
                   endColumnIndex: rangeParsed.selection.range.endColumnIndex,
                 },
               ];

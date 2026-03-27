@@ -54,7 +54,6 @@
     "cmdk": "^1.1.1",
     "dotenv": "^17.3.1",
     "jose": "^6.1.0",
-    "jotai": "2.12.4",
     "lucide-react": "^0.577.0",
     "next": "^16.2.1",
     "postgres": "^3.4.7",
@@ -72,6 +71,9 @@
     "vaul": "^1.1.2",
     "ws": "^8.19.0",
     "zod": "^4.3.6"
+  },
+  "resolutions": {
+    "jotai": "2.12.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

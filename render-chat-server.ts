@@ -15,6 +15,11 @@ import {
 } from "@/lib/chat/server-core";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 import { isAdminUser } from "@/lib/auth/admin";
+import {
+  getChatRun,
+  getChatRunEvents,
+  getLatestChatRunForThread,
+} from "@/lib/chat/runs-repository";
 
 type AuthIdentity = {
   userId: string;
@@ -28,6 +33,7 @@ type JwtPayloadLike = {
 };
 
 const CHAT_PATH = process.env.CHAT_RENDER_PATH?.trim() || "/chat";
+const CHAT_RESUME_PATH = process.env.CHAT_RESUME_PATH?.trim() || "/chat/resume";
 const HEALTH_PATH = process.env.CHAT_RENDER_HEALTH_PATH?.trim() || "/health";
 const CHAT_RUNTIME_HEADER_NAME = "X-Chat-Runtime";
 const CHAT_RUNTIME_HEADER_VALUE =
@@ -540,36 +546,121 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
   }, CHAT_SERVER_TIMEOUT_MS);
   timeoutHandle.unref?.();
 
-  const abortFromClientClose = () => {
-    if (!runAbortController.signal.aborted) {
-      runAbortController.abort({
-        code: "CLIENT_ABORT",
-        message: "Client disconnected.",
-      } satisfies ChatAbortReason);
-    }
+  // Track if client disconnected - we'll stop writing but let the run complete
+  let clientDisconnected = false;
+  const onClientClose = () => {
+    clientDisconnected = true;
+    console.log(
+      "[render-chat-server] Client disconnected, run will continue in background",
+    );
   };
-
-  req.on("close", abortFromClientClose);
+  req.on("close", onClientClose);
 
   try {
     await executeChatRunStream({
       request: runRequest,
       userId: identity.userId,
       isAdmin,
+      persistEvents: true,
       abortSignal: runAbortController.signal,
       emitEvent: (event) => {
-        writeSseEvent(res, event);
+        // Only write to response if client is still connected
+        if (!clientDisconnected && !res.writableEnded && !res.destroyed) {
+          writeSseEvent(res, event);
+        }
       },
     });
   } finally {
     stopHeartbeat();
     clearTimeout(timeoutHandle);
-    req.off("close", abortFromClientClose);
+    req.off("close", onClientClose);
 
     if (!res.writableEnded && !res.destroyed) {
       res.end();
     }
   }
+};
+
+const handleResumeRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+) => {
+  // Try Bearer token first, then fall back to session cookie
+  const bearerToken = getBearerToken(req.headers.authorization);
+  const sessionToken =
+    bearerToken ?? getSessionTokenFromCookies(req.headers.cookie);
+
+  if (!sessionToken) {
+    sendJson(req, res, 401, {
+      error: "Unauthorized. Bearer token or session cookie is required.",
+    });
+    return;
+  }
+
+  const identity = await verifyAuthToken(sessionToken);
+  if (!identity) {
+    sendJson(req, res, 401, {
+      error: "Unauthorized. Invalid or expired token.",
+    });
+    return;
+  }
+
+  const requestUrl = getRequestUrl(req);
+  const runId = requestUrl.searchParams.get("runId")?.trim();
+  const threadId = requestUrl.searchParams.get("threadId")?.trim();
+  const lastEventIdParam = requestUrl.searchParams.get("lastEventId")?.trim();
+  const lastEventId = lastEventIdParam
+    ? Number.parseInt(lastEventIdParam, 10)
+    : 0;
+
+  if (!runId && !threadId) {
+    sendJson(req, res, 400, {
+      error: "Either runId or threadId is required.",
+    });
+    return;
+  }
+
+  // Get the run record
+  let run = runId ? await getChatRun({ runId, userId: identity.userId }) : null;
+
+  // If no runId provided, get the latest run for the thread
+  if (!run && threadId) {
+    run = await getLatestChatRunForThread({
+      threadId,
+      userId: identity.userId,
+    });
+  }
+
+  if (!run) {
+    sendJson(req, res, 404, {
+      error: "Run not found.",
+    });
+    return;
+  }
+
+  // Get events since lastEventId
+  const events = await getChatRunEvents({
+    runId: run.runId,
+    afterEventId: lastEventId,
+  });
+
+  // Return run status and events
+  sendJson(req, res, 200, {
+    run: {
+      runId: run.runId,
+      threadId: run.threadId,
+      status: run.status,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      errorMessage: run.errorMessage,
+    },
+    events: events.map((e) => ({
+      id: e.id,
+      type: e.eventType,
+      data: e.eventData,
+    })),
+    hasMore: run.status === "running",
+  });
 };
 
 const server = createServer(async (req, res) => {
@@ -599,6 +690,11 @@ const server = createServer(async (req, res) => {
 
     if (method === "POST" && pathname === CHAT_PATH) {
       await handleChatRequest(req, res);
+      return;
+    }
+
+    if (method === "GET" && pathname === CHAT_RESUME_PATH) {
+      await handleResumeRequest(req, res);
       return;
     }
 

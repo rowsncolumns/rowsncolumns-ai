@@ -2459,6 +2459,7 @@ function SpreadsheetToolUIRegistration({
               <SpreadsheetCreateSheetSideEffect result={result} />
             )}
             <ToolCallDisplay
+              key={toolPartProps.toolCallId}
               toolName={renderedToolName}
               args={args}
               result={result}

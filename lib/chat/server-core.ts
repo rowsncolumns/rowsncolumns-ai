@@ -25,6 +25,11 @@ import {
   MIN_CREDITS_PER_RUN,
 } from "@/lib/credits/pricing";
 import { upsertAssistantSession } from "@/lib/chat/sessions-repository";
+import {
+  createChatRun,
+  completeChatRun,
+  appendChatRunEvent,
+} from "@/lib/chat/runs-repository";
 
 export type ChatProvider = "openai" | "anthropic";
 
@@ -314,11 +319,18 @@ export const ensureChatRunCredits = async (input: {
   };
 };
 
+export type ChatRunResult = {
+  runId: string;
+  completed: boolean;
+  error?: string;
+};
+
 export const executeChatRunStream = async (input: {
   request: ResolvedChatRequest;
   userId: string;
   isAdmin: boolean;
   abortSignal?: AbortSignal;
+  persistEvents?: boolean;
   emitEvent: (
     event:
       | ChatStreamEvent
@@ -326,13 +338,52 @@ export const executeChatRunStream = async (input: {
           runId: string;
         }),
   ) => void;
-}) => {
+}): Promise<ChatRunResult> => {
   let toolCallCount = 0;
   let messageDeltaChars = 0;
   let messageCompleteChars = 0;
   let isCompleted = false;
+  let runError: string | undefined;
   const runId = crypto.randomUUID();
   let sessionTitle: string | undefined;
+  const shouldPersistEvents = input.persistEvents ?? true;
+
+  if (shouldPersistEvents) {
+    try {
+      await createChatRun({
+        runId,
+        threadId: input.request.threadId,
+        userId: input.userId,
+      });
+    } catch (error) {
+      console.error("[chat] Failed to create chat run record", {
+        runId,
+        threadId: input.request.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const persistAndEmit = async (
+    event:
+      | ChatStreamEvent
+      | (Extract<ChatStreamEvent, { type: "message.complete" }> & {
+          runId: string;
+        }),
+  ) => {
+    if (shouldPersistEvents) {
+      try {
+        await appendChatRunEvent({ runId, event: event as ChatStreamEvent });
+      } catch (error) {
+        console.error("[chat] Failed to persist event", {
+          runId,
+          eventType: event.type,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    input.emitEvent(event);
+  };
 
   try {
     await upsertAssistantSession({
@@ -410,7 +461,7 @@ export const executeChatRunStream = async (input: {
         );
       }
 
-      input.emitEvent(
+      await persistAndEmit(
         event.type === "message.complete" ? { ...event, runId } : event,
       );
     }
@@ -430,7 +481,8 @@ export const executeChatRunStream = async (input: {
       "Failed to process chat request.",
     );
 
-    input.emitEvent({
+    runError = errorMessage;
+    await persistAndEmit({
       type: "error",
       error: errorMessage,
     });
@@ -469,5 +521,26 @@ export const executeChatRunStream = async (input: {
         });
       }
     }
+
+    if (shouldPersistEvents) {
+      try {
+        await completeChatRun({
+          runId,
+          status: runError ? "failed" : "completed",
+          errorMessage: runError,
+        });
+      } catch (error) {
+        console.error("[chat] Failed to complete chat run record", {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
+
+  return {
+    runId,
+    completed: isCompleted,
+    ...(runError ? { error: runError } : {}),
+  };
 };
