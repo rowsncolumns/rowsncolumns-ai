@@ -608,6 +608,7 @@ const handleResumeRequest = async (
   const requestUrl = getRequestUrl(req);
   const runId = requestUrl.searchParams.get("runId")?.trim();
   const threadId = requestUrl.searchParams.get("threadId")?.trim();
+  const stream = requestUrl.searchParams.get("stream") === "true";
   const lastEventIdParam = requestUrl.searchParams.get("lastEventId")?.trim();
   const lastEventId = lastEventIdParam
     ? Number.parseInt(lastEventIdParam, 10)
@@ -638,29 +639,86 @@ const handleResumeRequest = async (
     return;
   }
 
-  // Get events since lastEventId
-  const events = await getChatRunEvents({
-    runId: run.runId,
-    afterEventId: lastEventId,
+  // Non-streaming response (for initial check)
+  if (!stream) {
+    const events = await getChatRunEvents({
+      runId: run.runId,
+      afterEventId: lastEventId,
+    });
+
+    sendJson(req, res, 200, {
+      run: {
+        runId: run.runId,
+        threadId: run.threadId,
+        status: run.status,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        errorMessage: run.errorMessage,
+      },
+      events: events.map((e) => ({
+        id: e.id,
+        type: e.eventType,
+        data: e.eventData,
+      })),
+      hasMore: run.status === "running",
+    });
+    return;
+  }
+
+  // Streaming response - replay events and continue streaming if still running
+  const origin = req.headers.origin ?? null;
+  setCorsHeaders(res, origin);
+  setRuntimeHeader(res);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.statusCode = 200;
+
+  const currentRunId = run.runId;
+  const userId = identity.userId;
+  let currentLastEventId = lastEventId;
+  const maxIterations = 300; // 5 minutes max (1 second intervals)
+  let iterations = 0;
+  let clientDisconnected = false;
+
+  req.on("close", () => {
+    clientDisconnected = true;
   });
 
-  // Return run status and events
-  sendJson(req, res, 200, {
-    run: {
-      runId: run.runId,
-      threadId: run.threadId,
-      status: run.status,
-      startedAt: run.startedAt,
-      completedAt: run.completedAt,
-      errorMessage: run.errorMessage,
-    },
-    events: events.map((e) => ({
-      id: e.id,
-      type: e.eventType,
-      data: e.eventData,
-    })),
-    hasMore: run.status === "running",
-  });
+  try {
+    while (iterations < maxIterations && !clientDisconnected) {
+      // Get new events
+      const events = await getChatRunEvents({
+        runId: currentRunId,
+        afterEventId: currentLastEventId,
+      });
+
+      // Stream each event
+      for (const event of events) {
+        if (clientDisconnected || res.writableEnded || res.destroyed) {
+          break;
+        }
+        res.write(encodeChatStreamEvent(event.eventData));
+        currentLastEventId = Math.max(currentLastEventId, event.id);
+      }
+
+      // Check if run is complete
+      const updatedRun = await getChatRun({ runId: currentRunId, userId });
+      if (!updatedRun || updatedRun.status !== "running") {
+        break;
+      }
+
+      // Wait before next poll
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      iterations++;
+    }
+  } catch (error) {
+    console.error("[render-chat-server] Resume stream error:", error);
+  }
+
+  if (!res.writableEnded && !res.destroyed) {
+    res.end();
+  }
 };
 
 const server = createServer(async (req, res) => {
