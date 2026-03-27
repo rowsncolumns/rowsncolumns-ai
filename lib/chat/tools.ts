@@ -216,11 +216,38 @@ const parseCells = (input: unknown): CellData[][] => {
   return result;
 };
 
+// In-memory lock map: docId -> Promise chain
+const documentLocks = new Map<string, Promise<unknown>>();
+
 const withDocumentWriteLock = async <T>(
-  _docId: string,
+  docId: string,
   operation: () => Promise<T>,
 ): Promise<T> => {
-  return operation();
+  // Get the current lock promise for this document (or a resolved one if none exists)
+  const currentLock = documentLocks.get(docId) ?? Promise.resolve();
+
+  // Create a new promise that will resolve when our operation completes
+  let releaseLock: () => void;
+  const newLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+
+  // Set the new lock before waiting (so subsequent calls queue behind us)
+  documentLocks.set(docId, newLock);
+
+  try {
+    // Wait for any previous operation to complete
+    await currentLock;
+    // Execute our operation
+    return await operation();
+  } finally {
+    // Release the lock
+    releaseLock!();
+    // Clean up if this is the last lock in the chain
+    if (documentLocks.get(docId) === newLock) {
+      documentLocks.delete(docId);
+    }
+  }
 };
 
 /**
