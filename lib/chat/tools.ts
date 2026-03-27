@@ -216,6 +216,9 @@ const parseCells = (input: unknown): CellData[][] => {
   return result;
 };
 
+// Configuration for document write locking
+const ENABLE_DOCUMENT_WRITE_LOCK = false;
+
 // In-memory lock map: docId -> Promise chain
 const documentLocks = new Map<string, Promise<unknown>>();
 
@@ -223,6 +226,11 @@ const withDocumentWriteLock = async <T>(
   docId: string,
   operation: () => Promise<T>,
 ): Promise<T> => {
+  // Bypass locking if disabled
+  if (!ENABLE_DOCUMENT_WRITE_LOCK) {
+    return operation();
+  }
+
   // Get the current lock promise for this document (or a resolved one if none exists)
   const currentLock = documentLocks.get(docId) ?? Promise.resolve();
 

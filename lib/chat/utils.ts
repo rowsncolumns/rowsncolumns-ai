@@ -16,6 +16,7 @@ import {
   type WorkerRuntimeOptions,
 } from "@rowsncolumns/calculation-worker";
 import { functions } from "@rowsncolumns/functions/server";
+import { setAutoFreeze } from "immer";
 
 const SHAREDB_URL = process.env.SHAREDB_URL || "ws://localhost:8080";
 const SHAREDB_COLLECTION = process.env.SHAREDB_COLLECTION || "spreadsheets";
@@ -32,6 +33,11 @@ const SHAREDB_FETCH_RETRY_BASE_DELAY_MS = Number.parseInt(
   10,
 );
 const nodeRequire = createRequire(import.meta.url);
+
+// Spreadsheet server flows mutate state across multiple stages (changeBatch ->
+// calculatePending -> patch extraction). Immer auto-freeze can make intermediate
+// arrays/objects non-extensible and throw under concurrent tool execution.
+setAutoFreeze(false);
 
 // Ensure ws skips optional native addons in bundled server runtime.
 if (!process.env.WS_NO_BUFFER_UTIL) {
