@@ -2529,7 +2529,11 @@ function AssistantMessageBody() {
     !showTypingIndicatorBeforeText &&
     (hasAnyVisibleReasoning || hasAnyToolCall || hasAnyVisibleText);
   const showDebugIcon =
-    isAdmin && role === "assistant" && debugUrl && !isMessageRunning;
+    isAdmin &&
+    role === "assistant" &&
+    debugUrl &&
+    !isMessageRunning &&
+    hasAnyVisibleText;
   const [isUserCopySuccess, setIsUserCopySuccess] = React.useState(false);
   const handleCopyUserMessage = React.useCallback(async () => {
     if (!userMessageText) return;
@@ -2548,9 +2552,12 @@ function AssistantMessageBody() {
     if (!messageId) return -1;
     return threadMessages.findIndex((m) => m.id === messageId);
   }, [threadMessages, messageId]);
-  // Show fork button for all assistant messages when not actively generating
+  // Show fork button for assistant messages with visible text (not tool-call-only messages)
   const showForkButton =
-    role === "assistant" && !isMessageRunning && messageIndex >= 0;
+    role === "assistant" &&
+    !isMessageRunning &&
+    messageIndex >= 0 &&
+    hasAnyVisibleText;
   const [isForking, setIsForking] = React.useState(false);
   const handleFork = React.useCallback(async () => {
     if (messageIndex < 0 || isForking) return;
