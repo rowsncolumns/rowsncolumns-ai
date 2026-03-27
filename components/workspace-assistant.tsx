@@ -715,6 +715,19 @@ const snapshotStreamingContent = (parts: StreamingContentPart[]) =>
     };
   }) as any[];
 
+/**
+ * Marks any pending tool calls (those without results) as incomplete.
+ * This ensures tool calls don't show as "running" forever when the stream ends
+ * before their results arrive.
+ */
+const finalizePendingToolCalls = (parts: StreamingContentPart[]) => {
+  for (const part of parts) {
+    if (part.type === "tool-call" && part.result === undefined) {
+      part.result = { success: false, error: "Tool call incomplete" };
+    }
+  }
+};
+
 const hasTextContentParts = (parts: StreamingContentPart[]) =>
   parts.some((part) => part.type === "text" && part.text.trim().length > 0);
 
@@ -813,6 +826,7 @@ async function* streamAssistantResponse(
     }
 
     if (event.type === "message.complete") {
+      finalizePendingToolCalls(streamingParts);
       yield buildStreamingYield(
         streamingParts,
         threadId,
@@ -828,6 +842,7 @@ async function* streamAssistantResponse(
         "Assistant request failed.",
       );
       appendStreamingDelta(streamingParts, "text", `\n\n${errorMessage}`);
+      finalizePendingToolCalls(streamingParts);
       yield buildStreamingYield(
         streamingParts,
         threadId,
@@ -838,6 +853,7 @@ async function* streamAssistantResponse(
     }
   }
 
+  finalizePendingToolCalls(streamingParts);
   yield buildStreamingYield(streamingParts, threadId, {
     type: "complete",
     reason: "stop",

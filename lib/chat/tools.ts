@@ -277,25 +277,18 @@ const handleSpreadsheetChangeBatch = async (
   const colCount = cells[0]?.length ?? 0;
   const cellCount = rowCount * colCount;
 
-  // Use provided sheetId or default to 1
-  const sheetId = inputSheetId ?? 1;
+  // Default sheetId (may be overridden by sheet name in range)
+  const defaultSheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
     console.log("[spreadsheet_changeBatch] Starting:", {
       docId,
-      sheetId,
+      sheetId: defaultSheetId,
       range,
     });
 
     try {
-      // Parse the range
-      const selection = addressToSelection(range);
-
-      if (!selection?.range) {
-        return failTool("INVALID_RANGE", `Invalid range: ${range}`, { range });
-      }
-
-      // Connect to ShareDB
+      // Connect to ShareDB first (needed for sheet name lookup)
       const { doc, close } = await getShareDBDocument(docId);
 
       try {
@@ -306,6 +299,16 @@ const handleSpreadsheetChangeBatch = async (
         }
 
         const spreadsheet = createSpreadsheetInterface(data);
+
+        // Parse the range (supports sheet names like 'Sheet1'!A1:B5)
+        const rangeParsed = parseRangeWithSheetName(range, spreadsheet, defaultSheetId);
+
+        if (!rangeParsed.selection?.range) {
+          return failTool("INVALID_RANGE", rangeParsed.error || `Invalid range: ${range}`, { range });
+        }
+
+        const selection = rangeParsed.selection;
+        const sheetId = rangeParsed.sheetId;
 
         // Convert input cells to values array
         const values = cellsToValues(cells);
@@ -1252,28 +1255,18 @@ const handleSpreadsheetFormatRange = async (
     });
   }
 
-  // Use provided sheetId or default to 1
-  const sheetId = inputSheetId ?? 1;
+  // Default sheetId (may be overridden by sheet name in range)
+  const defaultSheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
     console.log("[spreadsheet_formatRange] Starting:", {
       docId,
-      sheetId,
+      sheetId: defaultSheetId,
       range,
     });
 
     try {
-      // Parse the range
-      const selection = addressToSelection(range);
-
-      if (!selection?.range) {
-        return JSON.stringify({
-          success: false,
-          error: `Invalid range: ${range}`,
-        });
-      }
-
-      // Connect to ShareDB
+      // Connect to ShareDB first (needed for sheet name lookup)
       const { doc, close } = await getShareDBDocument(docId);
 
       try {
@@ -1287,6 +1280,19 @@ const handleSpreadsheetFormatRange = async (
         }
 
         const spreadsheet = createSpreadsheetInterface(data);
+
+        // Parse the range (supports sheet names like 'Sheet1'!A1:B5)
+        const rangeParsed = parseRangeWithSheetName(range, spreadsheet, defaultSheetId);
+
+        if (!rangeParsed.selection?.range) {
+          return JSON.stringify({
+            success: false,
+            error: rangeParsed.error || `Invalid range: ${range}`,
+          });
+        }
+
+        const selection = rangeParsed.selection;
+        const sheetId = rangeParsed.sheetId;
 
         // Calculate range dimensions
         const rangeRowCount =
@@ -2262,14 +2268,18 @@ const handleSpreadsheetReadDocument = async (
         let startColumnIndex = 1;
         let endColumnIndex = 1;
 
-        if (rangeStr && inputSheetId) {
-          // Parse the provided range
-          const selection = addressToSelection(rangeStr);
-          if (selection?.range) {
-            startRowIndex = selection.range.startRowIndex;
-            endRowIndex = selection.range.endRowIndex;
-            startColumnIndex = selection.range.startColumnIndex;
-            endColumnIndex = selection.range.endColumnIndex;
+        if (rangeStr) {
+          // Parse the provided range with sheet name support
+          const rangeParsed = parseRangeWithSheetName(rangeStr, spreadsheet, sheetInfo.sheetId);
+          if (rangeParsed.selection?.range) {
+            // Skip this sheet if the range specifies a different sheet
+            if (rangeParsed.sheetId !== sheetInfo.sheetId) {
+              continue;
+            }
+            startRowIndex = rangeParsed.selection.range.startRowIndex;
+            endRowIndex = rangeParsed.selection.range.endRowIndex;
+            startColumnIndex = rangeParsed.selection.range.startColumnIndex;
+            endColumnIndex = rangeParsed.selection.range.endColumnIndex;
           }
         } else {
           // Calculate data bounds from actual data
@@ -3173,46 +3183,13 @@ const handleSpreadsheetApplyFill = async (
     });
   }
 
-  const sheetId = inputSheetId ?? 1;
-
-  // Parse activeCell from A1 notation
-  const activeCellSelection = addressToSelection(activeCellStr);
-  if (!activeCellSelection?.range) {
-    return failTool(
-      "INVALID_ACTIVE_CELL",
-      `Invalid activeCell: ${activeCellStr}`,
-      { activeCell: activeCellStr },
-    );
-  }
-
-  const activeCell = {
-    rowIndex: activeCellSelection.range.startRowIndex,
-    columnIndex: activeCellSelection.range.startColumnIndex,
-  };
-
-  // Parse sourceRange from A1 notation
-  const sourceSelection = addressToSelection(sourceRange);
-  if (!sourceSelection?.range) {
-    return failTool(
-      "INVALID_SOURCE_RANGE",
-      `Invalid sourceRange: ${sourceRange}`,
-      { sourceRange },
-    );
-  }
-
-  // Parse fillRange from A1 notation
-  const fillSelection = addressToSelection(fillRange);
-  if (!fillSelection?.range) {
-    return failTool("INVALID_FILL_RANGE", `Invalid fillRange: ${fillRange}`, {
-      fillRange,
-    });
-  }
+  const defaultSheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
     console.log("[spreadsheet_applyFill] Starting:", {
       docId,
-      sheetId,
-      activeCell,
+      sheetId: defaultSheetId,
+      activeCell: activeCellStr,
       sourceRange,
       fillRange,
     });
@@ -3229,14 +3206,50 @@ const handleSpreadsheetApplyFill = async (
 
         const spreadsheet = createSpreadsheetInterface(data);
 
+        // Parse activeCell from A1 notation (simple cell, no sheet name needed)
+        const activeCellSelection = addressToSelection(activeCellStr);
+        if (!activeCellSelection?.range) {
+          return failTool(
+            "INVALID_ACTIVE_CELL",
+            `Invalid activeCell: ${activeCellStr}`,
+            { activeCell: activeCellStr },
+          );
+        }
+
+        const activeCell = {
+          rowIndex: activeCellSelection.range.startRowIndex,
+          columnIndex: activeCellSelection.range.startColumnIndex,
+        };
+
+        // Parse sourceRange with sheet name support
+        const sourceParsed = parseRangeWithSheetName(sourceRange, spreadsheet, defaultSheetId);
+        if (!sourceParsed.selection?.range) {
+          return failTool(
+            "INVALID_SOURCE_RANGE",
+            sourceParsed.error || `Invalid sourceRange: ${sourceRange}`,
+            { sourceRange },
+          );
+        }
+
+        // Parse fillRange with sheet name support
+        const fillParsed = parseRangeWithSheetName(fillRange, spreadsheet, defaultSheetId);
+        if (!fillParsed.selection?.range) {
+          return failTool("INVALID_FILL_RANGE", fillParsed.error || `Invalid fillRange: ${fillRange}`, {
+            fillRange,
+          });
+        }
+
+        // Use the sheetId from source range (source and fill should be on same sheet)
+        const sheetId = sourceParsed.sheetId;
+
         // Create selections array from source range
-        const selections = [{ range: sourceSelection.range }];
+        const selections = [{ range: sourceParsed.selection.range }];
 
         // Apply fill operation
         await spreadsheet.applyFill(
           sheetId,
           activeCell,
-          { range: fillSelection.range },
+          { range: fillParsed.selection.range },
           selections,
         );
 
@@ -3401,23 +3414,12 @@ const handleSpreadsheetInsertNote = async (
     return failTool("MISSING_CELL", "cell is required", { field: "cell" });
   }
 
-  const sheetId = inputSheetId ?? 1;
-
-  // Parse cell from A1 notation
-  const cellSelection = addressToSelection(cell);
-  if (!cellSelection?.range) {
-    return failTool("INVALID_CELL", `Invalid cell: ${cell}`, { cell });
-  }
-
-  const cellInterface = {
-    rowIndex: cellSelection.range.startRowIndex,
-    columnIndex: cellSelection.range.startColumnIndex,
-  };
+  const defaultSheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
     console.log("[spreadsheet_insertNote] Starting:", {
       docId,
-      sheetId,
+      sheetId: defaultSheetId,
       cell,
       noteLength: note?.length ?? 0,
     });
@@ -3433,6 +3435,18 @@ const handleSpreadsheetInsertNote = async (
         }
 
         const spreadsheet = createSpreadsheetInterface(data);
+
+        // Parse cell from A1 notation with sheet name support
+        const cellParsed = parseRangeWithSheetName(cell, spreadsheet, defaultSheetId);
+        if (!cellParsed.selection?.range) {
+          return failTool("INVALID_CELL", cellParsed.error || `Invalid cell: ${cell}`, { cell });
+        }
+
+        const sheetId = cellParsed.sheetId;
+        const cellInterface = {
+          rowIndex: cellParsed.selection.range.startRowIndex,
+          columnIndex: cellParsed.selection.range.startColumnIndex,
+        };
 
         // Insert or remove note
         spreadsheet.insertNote(sheetId, cellInterface, note);
@@ -3826,12 +3840,12 @@ const handleSpreadsheetClearCells = async (
     });
   }
 
-  const sheetId = inputSheetId ?? 1;
+  const defaultSheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
     console.log("[spreadsheet_clearCells] Starting:", {
       docId,
-      sheetId,
+      sheetId: defaultSheetId,
       rangeCount: ranges.length,
       clear,
     });
@@ -3849,26 +3863,30 @@ const handleSpreadsheetClearCells = async (
         const spreadsheet = createSpreadsheetInterface(data);
         const processedRanges: string[] = [];
         const errors: Array<{ range: string; error: string }> = [];
+        const modifiedSheetIds = new Set<number>();
 
         for (const rangeStr of ranges) {
           try {
-            const selection = addressToSelection(rangeStr);
-            if (!selection?.range) {
-              errors.push({ range: rangeStr, error: `Invalid range` });
+            // Parse range with sheet name support
+            const rangeParsed = parseRangeWithSheetName(rangeStr, spreadsheet, defaultSheetId);
+            if (!rangeParsed.selection?.range) {
+              errors.push({ range: rangeStr, error: rangeParsed.error || `Invalid range` });
               continue;
             }
 
+            const rangeSheetId = rangeParsed.sheetId;
             const activeCell = {
-              rowIndex: selection.range.startRowIndex,
-              columnIndex: selection.range.startColumnIndex,
+              rowIndex: rangeParsed.selection.range.startRowIndex,
+              columnIndex: rangeParsed.selection.range.startColumnIndex,
             };
-            const selections: SelectionArea[] = [{ range: selection.range }];
+            const selections: SelectionArea[] = [{ range: rangeParsed.selection.range }];
 
             if (clear === "values" || clear === "all") {
-              spreadsheet.deleteCells(sheetId, activeCell, selections);
+              spreadsheet.deleteCells(rangeSheetId, activeCell, selections);
+              modifiedSheetIds.add(rangeSheetId);
             }
             if (clear === "formatting" || clear === "all") {
-              spreadsheet.clearFormatting(sheetId, activeCell, selections);
+              spreadsheet.clearFormatting(rangeSheetId, activeCell, selections);
             }
 
             processedRanges.push(rangeStr);
@@ -3880,17 +3898,19 @@ const handleSpreadsheetClearCells = async (
           }
         }
 
-        // Evaluate formulas if values were cleared
+        // Evaluate formulas for all modified sheets if values were cleared
         let formulaResults;
-        if (clear === "values" || clear === "all") {
-          formulaResults = await evaluateFormulas(sheetId, spreadsheet);
+        if ((clear === "values" || clear === "all") && modifiedSheetIds.size > 0) {
+          // Evaluate formulas for the first modified sheet (most common case)
+          const firstSheetId = Array.from(modifiedSheetIds)[0];
+          formulaResults = await evaluateFormulas(firstSheetId, spreadsheet);
         }
 
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
         console.log("[spreadsheet_clearCells] Completed:", {
           docId,
-          sheetId,
+          sheetId: defaultSheetId,
           clear,
           processedCount: processedRanges.length,
           patchCount: patchTuples.length,
@@ -4007,14 +4027,6 @@ const handleSpreadsheetTable = async (
 
     return withDocumentWriteLock(docId, async () => {
       try {
-        const selection = addressToSelection(createInput.range);
-        if (!selection?.range) {
-          return failTool(
-            "INVALID_RANGE",
-            `Invalid range: ${createInput.range}`,
-          );
-        }
-
         const { doc, close } = await getShareDBDocument(docId);
 
         try {
@@ -4024,10 +4036,21 @@ const handleSpreadsheetTable = async (
 
           const spreadsheet = createSpreadsheetInterface(data);
 
+          // Parse range with sheet name support
+          const rangeParsed = parseRangeWithSheetName(createInput.range, spreadsheet, sheetId);
+          if (!rangeParsed.selection?.range) {
+            return failTool(
+              "INVALID_RANGE",
+              rangeParsed.error || `Invalid range: ${createInput.range}`,
+            );
+          }
+
+          const resolvedSheetId = rangeParsed.sheetId;
+
           const tableSpec = {
             id: newTableId,
             title: createInput.title,
-            sheetId,
+            sheetId: resolvedSheetId,
             columns: createInput.columns.map((col) => ({
               name: col.name,
               ...(col.formula ? { formula: col.formula } : {}),
@@ -4048,13 +4071,13 @@ const handleSpreadsheetTable = async (
 
           const mappedTheme = mapTableTheme(createInput.theme);
           const activeCell = {
-            rowIndex: selection.range.startRowIndex,
-            columnIndex: selection.range.startColumnIndex,
+            rowIndex: rangeParsed.selection.range.startRowIndex,
+            columnIndex: rangeParsed.selection.range.startColumnIndex,
           };
-          const selections: SelectionArea[] = [{ range: selection.range }];
+          const selections: SelectionArea[] = [{ range: rangeParsed.selection.range }];
 
           spreadsheet.createTable(
-            sheetId,
+            resolvedSheetId,
             activeCell,
             selections,
             tableSpec as Partial<TableView>,
@@ -4256,6 +4279,41 @@ Example 4 — Delete table:
 /**
  * Consolidated handler for chart operations (create/update/delete)
  */
+/**
+ * Parse a range string that may include a sheet name (e.g., "'Sheet1'!A1:B5" or "A1:B5")
+ * Returns the parsed selection and the resolved sheetId
+ */
+const parseRangeWithSheetName = (
+  range: string,
+  spreadsheet: ReturnType<typeof createSpreadsheetInterface>,
+  defaultSheetId: number,
+): { selection: SelectionArea | null; sheetId: number; error?: string } => {
+  const normalizedRange = range.startsWith("=") ? range : `=${range}`;
+  const parsedSelections = generateSelectionsFromFormula(normalizedRange);
+  const selection = parsedSelections[0];
+
+  if (!selection?.range) {
+    return { selection: null, sheetId: defaultSheetId, error: `Invalid range: ${range}` };
+  }
+
+  let resolvedSheetId = defaultSheetId;
+
+  if (selection.sheetName) {
+    const sheetName = desanitizeSheetName(selection.sheetName);
+    const targetSheet = spreadsheet.sheets.find((sheet) => {
+      const title = (sheet as { title?: string }).title;
+      const name = (sheet as { name?: string }).name;
+      return title === sheetName || name === sheetName;
+    });
+
+    if (targetSheet) {
+      resolvedSheetId = targetSheet.sheetId;
+    }
+  }
+
+  return { selection: { range: selection.range }, sheetId: resolvedSheetId };
+};
+
 const handleSpreadsheetChart = async (
   input: SpreadsheetChartInput,
 ): Promise<string> => {
@@ -4292,41 +4350,41 @@ const handleSpreadsheetChart = async (
 
           const spreadsheet = createSpreadsheetInterface(data);
 
-          // Parse domain range - use ! since we validated above
-          const domainSelection = addressToSelection(rest.domain!);
-          if (!domainSelection?.range) {
+          // Parse domain range with potential sheet name
+          const domainParsed = parseRangeWithSheetName(rest.domain!, spreadsheet, sheetId);
+          if (!domainParsed.selection?.range) {
             return failTool(
               "INVALID_DOMAIN",
-              `Invalid domain range: ${rest.domain}`,
+              domainParsed.error || `Invalid domain range: ${rest.domain}`,
             );
           }
 
-          // Parse series ranges
-          const seriesSelections = rest.series!.map((seriesRange: string) => {
-            const sel = addressToSelection(seriesRange);
-            if (!sel?.range)
-              throw new Error(`Invalid series range: ${seriesRange}`);
-            return sel.range;
+          // Parse series ranges with potential sheet names
+          const seriesParsed = rest.series!.map((seriesRange: string) => {
+            const parsed = parseRangeWithSheetName(seriesRange, spreadsheet, sheetId);
+            if (!parsed.selection?.range)
+              throw new Error(parsed.error || `Invalid series range: ${seriesRange}`);
+            return { range: parsed.selection.range, sheetId: parsed.sheetId };
           });
 
-          // Build chart spec with proper structure
+          // Build chart spec with proper structure (using sheetId from parsed ranges)
           const chartSpec: Partial<ChartSpec> = {
             chartType: rest.chartType as ChartSpec["chartType"],
             domains: [
               {
                 sources: [
                   {
-                    sheetId,
-                    ...domainSelection.range,
+                    sheetId: domainParsed.sheetId,
+                    ...domainParsed.selection.range,
                   },
                 ],
               },
             ],
-            series: seriesSelections.map((s) => ({
+            series: seriesParsed.map((s) => ({
               sources: [
                 {
-                  sheetId,
-                  ...s,
+                  sheetId: s.sheetId,
+                  ...s.range,
                 },
               ],
             })),
@@ -4343,7 +4401,7 @@ const handleSpreadsheetChart = async (
 
           // Determine anchor position
           let anchorRowIndex = 1;
-          let anchorColumnIndex = domainSelection.range.endColumnIndex + 2;
+          let anchorColumnIndex = domainParsed.selection.range.endColumnIndex + 2;
 
           if (rest.anchorCell) {
             const anchorSel = addressToSelection(rest.anchorCell);
@@ -4375,7 +4433,7 @@ const handleSpreadsheetChart = async (
             columnIndex: anchorColumnIndex,
           };
           const selections: SelectionArea[] = [
-            { range: domainSelection.range },
+            { range: domainParsed.selection.range },
           ];
           spreadsheet.createChart(sheetId, activeCell, selections, chart);
           await persistSpreadsheetPatches(doc, spreadsheet);
@@ -4435,27 +4493,28 @@ const handleSpreadsheetChart = async (
             specUpdates.stackedType = mapStackedType(rest.stackedType);
 
           if (rest.domain) {
-            const domainSel = addressToSelection(rest.domain);
-            if (domainSel?.range) {
+            const defaultDomainSheetId = (chart.spec as Record<string, unknown>).domain
+              ? (
+                  (chart.spec as Record<string, unknown>).domain as Record<
+                    string,
+                    unknown
+                  >
+                ).sheetId as number
+              : (sheetId ?? 1);
+            const domainParsed = parseRangeWithSheetName(rest.domain, spreadsheet, defaultDomainSheetId);
+            if (domainParsed.selection?.range) {
               specUpdates.domain = {
-                sheetId: (chart.spec as Record<string, unknown>).domain
-                  ? (
-                      (chart.spec as Record<string, unknown>).domain as Record<
-                        string,
-                        unknown
-                      >
-                    ).sheetId
-                  : (sheetId ?? 1),
-                startRowIndex: domainSel.range.startRowIndex,
-                endRowIndex: domainSel.range.endRowIndex,
-                startColumnIndex: domainSel.range.startColumnIndex,
-                endColumnIndex: domainSel.range.endColumnIndex,
+                sheetId: domainParsed.sheetId,
+                startRowIndex: domainParsed.selection.range.startRowIndex,
+                endRowIndex: domainParsed.selection.range.endRowIndex,
+                startColumnIndex: domainParsed.selection.range.startColumnIndex,
+                endColumnIndex: domainParsed.selection.range.endColumnIndex,
               };
             }
           }
 
           if (rest.series) {
-            const chartSheetId = (chart.spec as Record<string, unknown>).domain
+            const defaultSeriesSheetId = (chart.spec as Record<string, unknown>).domain
               ? ((
                   (chart.spec as Record<string, unknown>).domain as Record<
                     string,
@@ -4464,15 +4523,15 @@ const handleSpreadsheetChart = async (
                 ).sheetId as number)
               : (sheetId ?? 1);
             specUpdates.series = rest.series.map((seriesRange: string) => {
-              const sel = addressToSelection(seriesRange);
-              if (!sel?.range)
-                throw new Error(`Invalid series range: ${seriesRange}`);
+              const parsed = parseRangeWithSheetName(seriesRange, spreadsheet, defaultSeriesSheetId);
+              if (!parsed.selection?.range)
+                throw new Error(parsed.error || `Invalid series range: ${seriesRange}`);
               return {
-                sheetId: chartSheetId,
-                startRowIndex: sel.range.startRowIndex,
-                endRowIndex: sel.range.endRowIndex,
-                startColumnIndex: sel.range.startColumnIndex,
-                endColumnIndex: sel.range.endColumnIndex,
+                sheetId: parsed.sheetId,
+                startRowIndex: parsed.selection.range.startRowIndex,
+                endRowIndex: parsed.selection.range.endRowIndex,
+                startColumnIndex: parsed.selection.range.startColumnIndex,
+                endColumnIndex: parsed.selection.range.endColumnIndex,
               };
             });
           }
@@ -4669,14 +4728,17 @@ const handleSpreadsheetDataValidation = async (
             );
           }
 
-          // Filter by range if provided
+          // Filter by range if provided (supports sheet names)
           if (rest.range) {
-            const filterSel = addressToSelection(rest.range);
-            if (filterSel?.range) {
+            const filterParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            if (filterParsed.selection?.range) {
               validations = validations.filter((v) => {
                 const vRange = v.ranges?.[0];
                 if (!vRange) return false;
-                return areaIntersects(filterSel.range!, vRange);
+                // Also filter by sheetId if parsed from range
+                const vSheetId = (v as Record<string, unknown>).sheetId;
+                if (vSheetId !== filterParsed.sheetId) return false;
+                return areaIntersects(filterParsed.selection!.range!, vRange);
               });
             }
           }
@@ -4733,11 +4795,6 @@ const handleSpreadsheetDataValidation = async (
 
     return withDocumentWriteLock(docId, async () => {
       try {
-        const selection = addressToSelection(rest.range!);
-        if (!selection?.range) {
-          return failTool("INVALID_RANGE", `Invalid range: ${rest.range}`);
-        }
-
         const { doc, close } = await getShareDBDocument(docId);
 
         try {
@@ -4746,6 +4803,14 @@ const handleSpreadsheetDataValidation = async (
             return failTool("NO_DOCUMENT_DATA", "Document has no data");
 
           const spreadsheet = createSpreadsheetInterface(data);
+
+          // Parse range with sheet name support
+          const rangeParsed = parseRangeWithSheetName(rest.range!, spreadsheet, sheetId);
+          if (!rangeParsed.selection?.range) {
+            return failTool("INVALID_RANGE", rangeParsed.error || `Invalid range: ${rest.range}`);
+          }
+
+          const resolvedSheetId = rangeParsed.sheetId;
 
           const conditionType = mapValidationCondition(
             rest.validationType!,
@@ -4765,14 +4830,14 @@ const handleSpreadsheetDataValidation = async (
 
           const validationRule = {
             id: newValidationId,
-            sheetId,
+            sheetId: resolvedSheetId,
             ranges: [
               {
-                sheetId,
-                startRowIndex: selection.range.startRowIndex,
-                endRowIndex: selection.range.endRowIndex,
-                startColumnIndex: selection.range.startColumnIndex,
-                endColumnIndex: selection.range.endColumnIndex,
+                sheetId: resolvedSheetId,
+                startRowIndex: rangeParsed.selection.range.startRowIndex,
+                endRowIndex: rangeParsed.selection.range.endRowIndex,
+                startColumnIndex: rangeParsed.selection.range.startColumnIndex,
+                endColumnIndex: rangeParsed.selection.range.endColumnIndex,
               },
             ],
             condition: {
@@ -4852,15 +4917,16 @@ const handleSpreadsheetDataValidation = async (
           const updates: Record<string, unknown> = {};
 
           if (rest.range) {
-            const selection = addressToSelection(rest.range);
-            if (selection?.range) {
+            // Parse range with sheet name support
+            const rangeParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            if (rangeParsed.selection?.range) {
               updates.ranges = [
                 {
-                  sheetId,
-                  startRowIndex: selection.range.startRowIndex,
-                  endRowIndex: selection.range.endRowIndex,
-                  startColumnIndex: selection.range.startColumnIndex,
-                  endColumnIndex: selection.range.endColumnIndex,
+                  sheetId: rangeParsed.sheetId,
+                  startRowIndex: rangeParsed.selection.range.startRowIndex,
+                  endRowIndex: rangeParsed.selection.range.endRowIndex,
+                  startColumnIndex: rangeParsed.selection.range.startColumnIndex,
+                  endColumnIndex: rangeParsed.selection.range.endColumnIndex,
                 },
               ];
             }
@@ -5117,12 +5183,16 @@ const handleSpreadsheetConditionalFormat = async (
           }
 
           if (rest.range) {
-            const filterSel = addressToSelection(rest.range);
-            if (filterSel?.range) {
+            // Parse range with sheet name support
+            const filterParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            if (filterParsed.selection?.range) {
               rules = rules.filter((r) => {
                 const rRange = r.ranges?.[0];
                 if (!rRange) return false;
-                return areaIntersects(filterSel.range!, rRange);
+                // Also filter by sheetId if parsed from range
+                const rSheetId = (r as Record<string, unknown>).sheetId;
+                if (rSheetId !== filterParsed.sheetId) return false;
+                return areaIntersects(filterParsed.selection!.range!, rRange);
               });
             }
           }
@@ -5168,11 +5238,6 @@ const handleSpreadsheetConditionalFormat = async (
 
     return withDocumentWriteLock(docId, async () => {
       try {
-        const selection = addressToSelection(rest.range!);
-        if (!selection?.range) {
-          return failTool("INVALID_RANGE", `Invalid range: ${rest.range}`);
-        }
-
         const { doc, close } = await getShareDBDocument(docId);
 
         try {
@@ -5182,16 +5247,24 @@ const handleSpreadsheetConditionalFormat = async (
 
           const spreadsheet = createSpreadsheetInterface(data);
 
+          // Parse range with sheet name support
+          const rangeParsed = parseRangeWithSheetName(rest.range!, spreadsheet, sheetId);
+          if (!rangeParsed.selection?.range) {
+            return failTool("INVALID_RANGE", rangeParsed.error || `Invalid range: ${rest.range}`);
+          }
+
+          const resolvedSheetId = rangeParsed.sheetId;
+
           const rule = {
             id: newRuleId,
-            sheetId,
+            sheetId: resolvedSheetId,
             ranges: [
               {
-                sheetId,
-                startRowIndex: selection.range.startRowIndex,
-                endRowIndex: selection.range.endRowIndex,
-                startColumnIndex: selection.range.startColumnIndex,
-                endColumnIndex: selection.range.endColumnIndex,
+                sheetId: resolvedSheetId,
+                startRowIndex: rangeParsed.selection.range.startRowIndex,
+                endRowIndex: rangeParsed.selection.range.endRowIndex,
+                startColumnIndex: rangeParsed.selection.range.startColumnIndex,
+                endColumnIndex: rangeParsed.selection.range.endColumnIndex,
               },
             ],
             enabled: true,
@@ -5331,15 +5404,16 @@ const handleSpreadsheetConditionalFormat = async (
           const updates: Record<string, unknown> = {};
 
           if (rest.range) {
-            const selection = addressToSelection(rest.range);
-            if (selection?.range) {
+            // Parse range with sheet name support
+            const rangeParsed = parseRangeWithSheetName(rest.range, spreadsheet, sheetId ?? 1);
+            if (rangeParsed.selection?.range) {
               updates.ranges = [
                 {
-                  sheetId,
-                  startRowIndex: selection.range.startRowIndex,
-                  endRowIndex: selection.range.endRowIndex,
-                  startColumnIndex: selection.range.startColumnIndex,
-                  endColumnIndex: selection.range.endColumnIndex,
+                  sheetId: rangeParsed.sheetId,
+                  startRowIndex: rangeParsed.selection.range.startRowIndex,
+                  endRowIndex: rangeParsed.selection.range.endRowIndex,
+                  startColumnIndex: rangeParsed.selection.range.startColumnIndex,
+                  endColumnIndex: rangeParsed.selection.range.endColumnIndex,
                 },
               ];
             }
