@@ -6,8 +6,17 @@ const LOW_BALANCE_ERROR_CODES = new Set([
   "credit_balance_too_low",
 ]);
 
+const RATE_LIMIT_ERROR_CODES = new Set([
+  "rate_limit_error",
+  "rate_limit_exceeded",
+  "too_many_requests",
+]);
+
 const LOW_BALANCE_MESSAGE_GENERIC =
   "The selected AI provider account is out of credits. Please switch models or ask your workspace admin to top up provider billing.";
+
+const RATE_LIMIT_MESSAGE_GENERIC =
+  "The AI service is currently experiencing high traffic. Please wait a moment and try again.";
 
 const isRecord = (value: unknown): value is JsonRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -131,6 +140,21 @@ export const isProviderLowBalanceErrorMessage = (
   return value.toLowerCase().includes("credit balance is too low");
 };
 
+export const isRateLimitErrorMessage = (value: string, payload?: unknown) => {
+  const code = extractErrorCodeFromPayload(payload);
+  if (code && RATE_LIMIT_ERROR_CODES.has(code)) {
+    return true;
+  }
+
+  const lowered = value.toLowerCase();
+  return (
+    lowered.includes("rate limit") ||
+    lowered.includes("rate_limit") ||
+    lowered.includes("too many requests") ||
+    lowered.includes("tokens per minute")
+  );
+};
+
 const buildLowBalanceMessage = (
   providerLabel: "Anthropic" | "OpenAI" | null,
 ) => {
@@ -164,6 +188,10 @@ export const normalizeAssistantErrorMessage = (
 
   if (isProviderLowBalanceErrorMessage(detectionText, parsedPayload)) {
     return buildLowBalanceMessage(detectProviderLabel(detectionText));
+  }
+
+  if (isRateLimitErrorMessage(detectionText, parsedPayload)) {
+    return RATE_LIMIT_MESSAGE_GENERIC;
   }
 
   return normalizedMessage || fallbackMessage;

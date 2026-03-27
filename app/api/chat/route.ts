@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
 import { isAdminUser } from "@/lib/auth/admin";
+import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 import {
   type ChatAbortReason,
@@ -146,6 +147,21 @@ export async function POST(request: Request) {
               );
             },
           });
+        } catch (streamError) {
+          // Ensure any uncaught errors are sent to the client as error events
+          const rawMessage =
+            streamError instanceof Error
+              ? streamError.message
+              : "Assistant request failed.";
+          const errorMessage = normalizeAssistantErrorMessage(
+            rawMessage,
+            "Assistant request failed.",
+          );
+          controller.enqueue(
+            encoder.encode(
+              encodeChatStreamEvent({ type: "error", error: errorMessage }),
+            ),
+          );
         } finally {
           clearTimeout(timeoutHandle);
           request.signal.removeEventListener("abort", abortFromClientSignal);

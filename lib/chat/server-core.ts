@@ -339,6 +339,7 @@ export const executeChatRunStream = async (input: {
       threadId: input.request.threadId,
       userId: input.userId,
       docId: input.request.docId,
+      model: input.request.model,
     });
   } catch (error) {
     console.error("[chat] Failed to upsert assistant session", {
@@ -370,6 +371,7 @@ export const executeChatRunStream = async (input: {
         userId: input.userId,
         docId: input.request.docId,
         title: sessionTitle,
+        model: input.request.model,
       });
     } catch (error) {
       console.error("[chat] Failed to persist session title", {

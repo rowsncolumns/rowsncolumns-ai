@@ -5,6 +5,7 @@ type AssistantSessionRow = {
   user_id: string;
   doc_id: string | null;
   title: string | null;
+  model: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -14,6 +15,7 @@ export type AssistantSessionRecord = {
   userId: string;
   docId?: string;
   title?: string;
+  model?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -29,6 +31,7 @@ const ensureAssistantSessionsTable = async () => {
           user_id TEXT NOT NULL,
           doc_id TEXT,
           title TEXT,
+          model TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -40,6 +43,11 @@ const ensureAssistantSessionsTable = async () => {
       await db`
         CREATE INDEX IF NOT EXISTS assistant_sessions_user_doc_updated_idx
           ON assistant_sessions (user_id, doc_id, updated_at DESC)
+      `;
+      // Add model column if it doesn't exist (migration for existing tables)
+      await db`
+        ALTER TABLE assistant_sessions
+        ADD COLUMN IF NOT EXISTS model TEXT
       `;
     })().catch((error) => {
       ensureAssistantSessionsTablePromise = null;
@@ -55,6 +63,7 @@ const mapRowToRecord = (row: AssistantSessionRow): AssistantSessionRecord => ({
   userId: row.user_id,
   ...(row.doc_id ? { docId: row.doc_id } : {}),
   ...(row.title ? { title: row.title } : {}),
+  ...(row.model ? { model: row.model } : {}),
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
 });
@@ -69,6 +78,7 @@ export async function upsertAssistantSession(input: {
   userId: string;
   docId?: string;
   title?: string;
+  model?: string;
 }) {
   const threadId = input.threadId.trim();
   const userId = input.userId.trim();
@@ -78,6 +88,7 @@ export async function upsertAssistantSession(input: {
 
   const docId = normalizeOptional(input.docId);
   const title = normalizeOptional(input.title);
+  const model = normalizeOptional(input.model);
 
   await ensureAssistantSessionsTable();
   await db`
@@ -85,19 +96,22 @@ export async function upsertAssistantSession(input: {
       thread_id,
       user_id,
       doc_id,
-      title
+      title,
+      model
     )
     VALUES (
       ${threadId},
       ${userId},
       ${docId},
-      ${title}
+      ${title},
+      ${model}
     )
     ON CONFLICT (thread_id) DO UPDATE
       SET
         user_id = EXCLUDED.user_id,
         doc_id = COALESCE(EXCLUDED.doc_id, assistant_sessions.doc_id),
         title = COALESCE(EXCLUDED.title, assistant_sessions.title),
+        model = COALESCE(EXCLUDED.model, assistant_sessions.model),
         updated_at = NOW()
   `;
 }
@@ -132,6 +146,7 @@ export async function listAssistantSessions(input: {
           user_id,
           doc_id,
           title,
+          model,
           created_at,
           updated_at
         FROM assistant_sessions
@@ -146,6 +161,7 @@ export async function listAssistantSessions(input: {
           user_id,
           doc_id,
           title,
+          model,
           created_at,
           updated_at
         FROM assistant_sessions
@@ -174,6 +190,7 @@ export async function getAssistantSessionByThreadId(input: {
       user_id,
       doc_id,
       title,
+      model,
       created_at,
       updated_at
     FROM assistant_sessions

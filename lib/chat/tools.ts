@@ -1419,6 +1419,19 @@ WHEN FORMATTING IS APPLIED, use these standards:
 - Column headers (Year 1, Year 2, etc.): bold, center-align
 - Data body cells: regular weight (non-bold) unless emphasis is explicitly requested
 
+BORDERS - USE THEM LIBERALLY:
+Borders make tables readable and professional. Apply borders proactively when creating/formatting tables:
+- Table outline: Apply borders around the entire table perimeter
+- Header row: Bottom border to separate headers from data
+- Total/summary rows: Top border (single or double) above totals
+- Column separators: Optional light vertical borders between columns
+- Grid style: For data-heavy tables, apply borders to all cells
+
+Border syntax: {borders: {bottom: {style: "thin", color: "#000000"}}}
+- Styles: "thin", "medium", "thick", "dashed", "dotted", "double"
+- Colors: Hex "#000000" OR theme {theme: 4} OR theme with tint {theme: 1, tint: -0.25}
+- Apply to: top, right, bottom, left (or any combination)
+
 INPUT CELL CONVENTION (financial models only, when requested):
 - Light blue background
 - No background = formula/calculated
@@ -1483,7 +1496,35 @@ Example 3 — Format range with mixed styles (A1:B3):
   ]
   // Row 1: Gray background
   // Row 2: First cell italic, second cell no formatting
-  // Row 3: First cell underlined, second cell yellow background`,
+  // Row 3: First cell underlined, second cell yellow background
+
+Example 4 — Apply borders to a header row (A1:D1):
+  range: "A1:D1"
+  cells: [[{"cellStyles": {"textFormat": {"bold": true}, "borders": {"bottom": {"style": "medium", "color": "#000000"}}}}]]
+  // Auto-expands to all 4 cells: bold text with medium bottom border
+
+Example 5 — Apply borders to totals row (A10:D10):
+  range: "A10:D10"
+  cells: [[{"cellStyles": {"textFormat": {"bold": true}, "borders": {"top": {"style": "double", "color": "#000000"}}}}]]
+  // Double top border above totals (accounting style)
+
+Example 6 — Full table border (outline + header separator):
+  // Step 1: Header row with bottom border
+  range: "A1:D1"
+  cells: [[{"cellStyles": {"textFormat": {"bold": true}, "backgroundColor": "#F0F0F0", "borders": {"bottom": {"style": "thin", "color": "#000000"}}}}]]
+  // Step 2: All cells with thin borders (grid style)
+  range: "A1:D10"
+  cells: [[{"cellStyles": {"borders": {"top": {"style": "thin", "color": "#CCCCCC"}, "right": {"style": "thin", "color": "#CCCCCC"}, "bottom": {"style": "thin", "color": "#CCCCCC"}, "left": {"style": "thin", "color": "#CCCCCC"}}}}]]
+
+Example 7 — Using theme colors for borders:
+  range: "A1:D1"
+  cells: [[{"cellStyles": {"borders": {"bottom": {"style": "medium", "color": {"theme": 4}}}}}]]
+  // Uses theme color 4 (typically accent color) for the border
+
+Example 8 — Theme color with tint adjustment:
+  range: "A10:D10"
+  cells: [[{"cellStyles": {"borders": {"top": {"style": "thin", "color": {"theme": 1, "tint": -0.25}}}}}]]
+  // Uses theme color 1 darkened by 25% (tint: -0.25 darkens, +0.25 lightens)`,
   schema: SpreadsheetFormatRangeSchema,
 });
 

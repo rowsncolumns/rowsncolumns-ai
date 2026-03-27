@@ -3,6 +3,7 @@ import {
   AIMessage,
   HumanMessage,
   SystemMessage,
+  ToolMessage,
 } from "@langchain/core/messages";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import {
@@ -1681,6 +1682,127 @@ export async function getSpreadsheetAssistantThreadMessages(input: {
   return buildPersistedThreadMessages(messages);
 }
 
+/**
+ * Fork a conversation at a specific message index, creating a new thread
+ * with the conversation history up to and including that message.
+ */
+export async function forkThreadAtMessage(input: {
+  sourceThreadId: string;
+  userId: string;
+  atMessageIndex: number;
+  docId?: string;
+}): Promise<{ newThreadId: string; title: string }> {
+  const graph = await getGraph();
+
+  // Get the raw messages from the source thread
+  const sourceConfig = getThreadConfig(
+    input.sourceThreadId,
+    "fork-source-read",
+    { userId: input.userId },
+  );
+  const state = await graph.getState(sourceConfig);
+  const values = state.values;
+
+  if (!values || typeof values !== "object") {
+    throw new Error("Source thread has no state");
+  }
+
+  const rawMessages = (values as { messages?: unknown }).messages;
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+    throw new Error("Source thread has no messages");
+  }
+
+  // Build persisted messages to find the correct slice point
+  // (persisted messages exclude tool-only messages, so indices differ)
+  const persistedMessages = buildPersistedThreadMessages(rawMessages);
+
+  if (input.atMessageIndex < 0 || input.atMessageIndex >= persistedMessages.length) {
+    throw new Error(
+      `Invalid message index: ${input.atMessageIndex}. Thread has ${persistedMessages.length} messages.`,
+    );
+  }
+
+  // Find how many raw messages correspond to the first N persisted messages
+  // We need to include all messages up to and including the target message,
+  // plus any tool messages that follow it (to keep tool calls complete)
+  let persistedCount = 0;
+  let rawSliceEnd = 0;
+
+  for (let i = 0; i < rawMessages.length; i++) {
+    const messageType = getStoredMessageType(rawMessages[i]);
+    if (messageType !== "tool") {
+      if (persistedCount > input.atMessageIndex) {
+        // We've passed our target, stop here
+        break;
+      }
+      persistedCount++;
+    }
+    rawSliceEnd = i + 1;
+
+    // If we just processed our target message, include any following tool messages
+    if (persistedCount === input.atMessageIndex + 1 && messageType !== "tool") {
+      // Look ahead for tool messages
+      while (
+        rawSliceEnd < rawMessages.length &&
+        getStoredMessageType(rawMessages[rawSliceEnd]) === "tool"
+      ) {
+        rawSliceEnd++;
+      }
+      break;
+    }
+  }
+
+  const slicedMessages = rawMessages.slice(0, rawSliceEnd);
+  if (slicedMessages.length === 0) {
+    throw new Error("No messages to fork");
+  }
+
+  // Generate new thread ID
+  const newThreadId = crypto.randomUUID();
+
+  // Get source session info for title and model
+  let sourceTitle: string | undefined;
+  let sourceModel: string | undefined;
+  try {
+    const sourceSession = await getAssistantSessionByThreadId({
+      threadId: input.sourceThreadId,
+      userId: input.userId,
+    });
+    sourceTitle = sourceSession?.title;
+    sourceModel = sourceSession?.model;
+  } catch {
+    // Ignore - we'll generate a new title
+  }
+
+  const newTitle = sourceTitle ? `Fork of ${sourceTitle}` : "Forked conversation";
+
+  // Create session record for new thread (preserve model from source)
+  await upsertAssistantSession({
+    threadId: newThreadId,
+    userId: input.userId,
+    docId: input.docId,
+    title: newTitle,
+    model: sourceModel,
+  });
+
+  // Write sliced messages to new thread checkpoint
+  const newConfig = getThreadConfig(newThreadId, "fork-destination-write", {
+    userId: input.userId,
+  });
+
+  await graph.updateState(newConfig, { messages: slicedMessages }, "call-model");
+
+  console.log("[graph] Forked thread:", {
+    sourceThreadId: input.sourceThreadId,
+    newThreadId,
+    atMessageIndex: input.atMessageIndex,
+    rawMessagesSliced: slicedMessages.length,
+    totalRawMessages: rawMessages.length,
+  });
+
+  return { newThreadId, title: newTitle };
+}
+
 const getLatestSessionTitleForThread = async (input: {
   threadId: string;
   userId?: string;
@@ -1920,6 +2042,123 @@ export const persistAssistantFailureToCheckpoint = async (input: {
   }
 };
 
+/**
+ * Repairs orphaned tool calls in the conversation state.
+ * When tool execution fails mid-stream, the conversation can be left with
+ * AIMessage tool_calls that have no corresponding ToolMessage responses.
+ * This function detects and fixes that by adding error ToolMessages.
+ */
+const repairOrphanedToolCalls = async (input: {
+  threadId: string;
+  userId?: string;
+}): Promise<void> => {
+  try {
+    const graph = await getGraph();
+    const config = getThreadConfig(input.threadId, "repair-orphaned-tools", {
+      userId: input.userId,
+    });
+
+    const state = await graph.getState(config);
+    const values = state.values;
+    if (!values || typeof values !== "object") {
+      return;
+    }
+
+    const messages = (values as { messages?: unknown }).messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return;
+    }
+
+    // Find the last AIMessage with tool_calls
+    let lastAIMessageIndex = -1;
+    let orphanedToolCalls: Array<{ id: string; name: string }> = [];
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (
+        msg &&
+        typeof msg === "object" &&
+        "tool_calls" in msg &&
+        Array.isArray(msg.tool_calls) &&
+        msg.tool_calls.length > 0
+      ) {
+        lastAIMessageIndex = i;
+        orphanedToolCalls = msg.tool_calls
+          .filter(
+            (tc: unknown) =>
+              tc && typeof tc === "object" && "id" in tc && "name" in tc,
+          )
+          .map((tc: { id: string; name: string }) => ({
+            id: tc.id,
+            name: tc.name,
+          }));
+        break;
+      }
+    }
+
+    if (lastAIMessageIndex === -1 || orphanedToolCalls.length === 0) {
+      return;
+    }
+
+    // Check which tool_call_ids have responses in messages after the AIMessage
+    const respondedToolCallIds = new Set<string>();
+    for (let i = lastAIMessageIndex + 1; i < messages.length; i++) {
+      const msg = messages[i];
+      if (
+        msg &&
+        typeof msg === "object" &&
+        "tool_call_id" in msg &&
+        typeof msg.tool_call_id === "string"
+      ) {
+        respondedToolCallIds.add(msg.tool_call_id);
+      }
+    }
+
+    // Find orphaned tool calls (no response)
+    const missingResponses = orphanedToolCalls.filter(
+      (tc) => !respondedToolCallIds.has(tc.id),
+    );
+
+    if (missingResponses.length === 0) {
+      return;
+    }
+
+    console.warn("[graph] Repairing orphaned tool calls:", {
+      threadId: input.threadId,
+      orphanedCount: missingResponses.length,
+      toolCallIds: missingResponses.map((tc) => tc.id),
+    });
+
+    // Create error ToolMessages for orphaned tool calls
+    const repairMessages = missingResponses.map(
+      (tc) =>
+        new ToolMessage({
+          tool_call_id: tc.id,
+          name: tc.name,
+          content: JSON.stringify({
+            success: false,
+            error:
+              "Tool execution was interrupted. The previous request failed to complete. Please retry your request.",
+          }),
+        }),
+    );
+
+    // Update state with repair messages
+    await graph.updateState(config, { messages: repairMessages }, "tools");
+
+    console.log("[graph] Successfully repaired orphaned tool calls:", {
+      threadId: input.threadId,
+      repairedCount: repairMessages.length,
+    });
+  } catch (error) {
+    console.error("[graph] Failed to repair orphaned tool calls:", {
+      threadId: input.threadId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // Don't throw - let the stream attempt to continue
+  }
+};
+
 export async function* streamSpreadsheetAssistant(input: {
   threadId: string;
   userId?: string;
@@ -1932,6 +2171,12 @@ export async function* streamSpreadsheetAssistant(input: {
   systemInstructions?: string;
   abortSignal?: AbortSignal;
 }): AsyncGenerator<ChatStreamEvent, void, unknown> {
+  // Repair any orphaned tool calls from previous failed requests
+  await repairOrphanedToolCalls({
+    threadId: input.threadId,
+    userId: input.userId,
+  });
+
   yield {
     type: "message.start",
     threadId: input.threadId,

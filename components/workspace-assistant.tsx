@@ -58,6 +58,7 @@ import {
   Copy,
   Cpu,
   FileText,
+  GitFork,
   Info,
   Loader2,
   History,
@@ -144,6 +145,8 @@ export type WorkspaceAssistantUIProps = {
   threadId?: string;
   onNewSession?: () => void;
   onSelectSession?: (threadId: string) => void | Promise<void>;
+  onForkConversation?: (atMessageIndex: number) => Promise<void>;
+  isForkingRef?: React.MutableRefObject<boolean>;
   isHydratingSession: boolean;
   selectedModel: string;
   selectedModelLabel: string;
@@ -171,6 +174,39 @@ type AssistantChatErrorPayload = {
 };
 
 const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
+  {
+    label: "Anthropic",
+    options: [
+      {
+        value: "claude-sonnet-4-6-low",
+        label: "Claude Sonnet 4.6 (Low Effort)",
+      },
+      {
+        value: "claude-opus-4-6",
+        label: "Claude Opus 4.6",
+      },
+      {
+        value: "claude-sonnet-4-6",
+        label: "Claude Sonnet 4.6",
+      },
+      {
+        value: "claude-sonnet-4-5-20250929",
+        label: "Claude Sonnet 4.5",
+      },
+      {
+        value: "claude-opus-4-5-20251101",
+        label: "Claude Opus 4.5",
+      },
+      {
+        value: "claude-haiku-4-5-20251001",
+        label: "Claude Haiku 4.5",
+      },
+      {
+        value: "claude-opus-4-1-20250805",
+        label: "Claude Opus 4.1",
+      },
+    ],
+  },
   {
     label: "OpenAI",
     options: [
@@ -220,39 +256,6 @@ const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
       },
     ],
   },
-  {
-    label: "Anthropic",
-    options: [
-      {
-        value: "claude-opus-4-6",
-        label: "Claude Opus 4.6",
-      },
-      {
-        value: "claude-sonnet-4-6",
-        label: "Claude Sonnet 4.6",
-      },
-      {
-        value: "claude-sonnet-4-6-low",
-        label: "Claude Sonnet 4.6 (Low Effort)",
-      },
-      {
-        value: "claude-sonnet-4-5-20250929",
-        label: "Claude Sonnet 4.5",
-      },
-      {
-        value: "claude-opus-4-5-20251101",
-        label: "Claude Opus 4.5",
-      },
-      {
-        value: "claude-haiku-4-5-20251001",
-        label: "Claude Haiku 4.5",
-      },
-      {
-        value: "claude-opus-4-1-20250805",
-        label: "Claude Opus 4.1",
-      },
-    ],
-  },
 ];
 
 const DEFAULT_MODEL =
@@ -299,6 +302,7 @@ type AssistantSessionSummary = {
   updatedAt: string;
   docId?: string;
   title?: string;
+  model?: string;
 };
 
 const SESSION_LIST_CACHE_TTL_MS = 60_000;
@@ -1061,6 +1065,7 @@ const parseAssistantSessionSummary = (
     updatedAt?: unknown;
     docId?: unknown;
     title?: unknown;
+    model?: unknown;
   };
   if (
     typeof maybeSession.threadId !== "string" ||
@@ -1081,12 +1086,18 @@ const parseAssistantSessionSummary = (
     maybeSession.title.trim().length > 0
       ? maybeSession.title
       : undefined;
+  const model =
+    typeof maybeSession.model === "string" &&
+    maybeSession.model.trim().length > 0
+      ? maybeSession.model
+      : undefined;
 
   return {
     threadId: maybeSession.threadId,
     updatedAt,
     ...(docId ? { docId } : {}),
     ...(title ? { title } : {}),
+    ...(model ? { model } : {}),
   };
 };
 
@@ -1170,6 +1181,7 @@ const formatSessionTimestamp = (value: string) => {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   }).format(date);
 };
 
@@ -1191,7 +1203,17 @@ const fetchPersistedThreadHistory = async (
   }
 
   const payload = (await response.json().catch(() => null)) as unknown;
-  return parsePersistedThreadHistoryPayload(payload);
+  const messages = parsePersistedThreadHistoryPayload(payload);
+
+  // Add threadId metadata to restored messages for debug icon
+  return messages.map((message) => ({
+    ...message,
+    metadata: {
+      custom: {
+        threadId,
+      },
+    },
+  }));
 };
 
 /**
@@ -1496,12 +1518,58 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     [cancelHydration, restoreThreadHistory, selectThreadInUrl],
   );
 
+  const isForkingRef = React.useRef(false);
+
+  const forkConversation = React.useCallback(
+    async (atMessageIndex: number) => {
+      if (isForkingRef.current) {
+        return;
+      }
+
+      isForkingRef.current = true;
+      try {
+        const response = await fetch(`/api/chat/history?action=fork`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceThreadId: threadId,
+            atMessageIndex,
+            docId: docIdRef.current,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            (errorData as { error?: string }).error ||
+              "Failed to fork conversation",
+          );
+        }
+
+        const data = await response.json();
+        const newThreadId = (data as { newThreadId?: string }).newThreadId;
+
+        if (!newThreadId) {
+          throw new Error("No thread ID returned from fork");
+        }
+
+        // Switch to the new forked thread
+        await selectThread(newThreadId);
+      } finally {
+        isForkingRef.current = false;
+      }
+    },
+    [threadId, selectThread],
+  );
+
   return {
     runtime,
     threadId,
     isHydratingSession,
     startNewThread,
     selectThread,
+    forkConversation,
+    isForkingRef,
     selectedModel,
     setSelectedModel: handleSelectModel,
     isModelPickerOpen,
@@ -2398,7 +2466,9 @@ function SpreadsheetToolUIRegistry() {
 
 function AssistantMessageBody() {
   const { isAdmin } = React.useContext(AssistantDebugAccessContext);
+  const forkContext = React.useContext(ForkContext);
   const role = useMessage((message) => message.role);
+  const messageId = useMessage((message) => message.id);
   const userMessageText = useMessage((message) =>
     message.role !== "user"
       ? ""
@@ -2459,10 +2529,7 @@ function AssistantMessageBody() {
     !showTypingIndicatorBeforeText &&
     (hasAnyVisibleReasoning || hasAnyToolCall || hasAnyVisibleText);
   const showDebugIcon =
-    (process.env.NODE_ENV !== "production" || isAdmin) &&
-    role === "assistant" &&
-    debugUrl &&
-    !isMessageRunning;
+    isAdmin && role === "assistant" && debugUrl && !isMessageRunning;
   const [isUserCopySuccess, setIsUserCopySuccess] = React.useState(false);
   const handleCopyUserMessage = React.useCallback(async () => {
     if (!userMessageText) return;
@@ -2474,6 +2541,32 @@ function AssistantMessageBody() {
       // Ignore clipboard failures
     }
   }, [userMessageText]);
+
+  // Fork button: compute message index and show for non-running assistant messages
+  const threadMessages = useThread((thread) => thread.messages);
+  const messageIndex = React.useMemo(() => {
+    if (!messageId) return -1;
+    return threadMessages.findIndex((m) => m.id === messageId);
+  }, [threadMessages, messageId]);
+  // Show fork button for all assistant messages when not actively generating
+  const showForkButton =
+    role === "assistant" && !isMessageRunning && messageIndex >= 0;
+  const [isForking, setIsForking] = React.useState(false);
+  const handleFork = React.useCallback(async () => {
+    if (messageIndex < 0 || isForking) return;
+    if (!forkContext) {
+      console.warn("Fork context not available");
+      return;
+    }
+    setIsForking(true);
+    try {
+      await forkContext.forkConversation(messageIndex);
+    } catch (error) {
+      console.error("Fork failed:", error);
+    } finally {
+      setIsForking(false);
+    }
+  }, [forkContext, messageIndex, isForking]);
 
   return (
     <div
@@ -2546,8 +2639,6 @@ function AssistantMessageBody() {
               tooltip="Copy"
               type="button"
               onClick={handleCopyUserMessage}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-black/5 hover:text-foreground"
-              title="Copy message"
               aria-label="Copy message"
             >
               {isUserCopySuccess ? (
@@ -2558,18 +2649,32 @@ function AssistantMessageBody() {
             </IconButton>
           </div>
         )}
-        {showDebugIcon && (
-          <a
-            href={debugUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground transition-colors"
-            title="View in LangSmith"
-          >
-            <Bug className="h-3 w-3" />
-            <span>Debug</span>
-          </a>
-        )}
+        {showDebugIcon || showForkButton ? (
+          <div className="flex message-action-button">
+            {showDebugIcon && (
+              <IconButton tooltip="View in LangSmith" asChild>
+                <a href={debugUrl} target="_blank" rel="noopener noreferrer">
+                  <Bug className="h-3 w-3" />
+                </a>
+              </IconButton>
+            )}
+            {showForkButton && (
+              <IconButton
+                tooltip="Forl conversation from here"
+                type="button"
+                onClick={handleFork}
+                disabled={isForking}
+                title="Fork conversation from this point"
+              >
+                {isForking ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <GitFork className="h-3 w-3" />
+                )}
+              </IconButton>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -3464,12 +3569,14 @@ function SessionPickerButton({
   onSelectSession,
   onSessionRestoreStart,
   onStartNewSession,
+  onRestoreModel,
 }: {
   iconOnly?: boolean;
   currentThreadId?: string;
   onSelectSession?: (threadId: string) => void | Promise<void>;
   onSessionRestoreStart?: () => void;
   onStartNewSession?: () => void;
+  onRestoreModel?: (model: string) => void;
 }) {
   const runtime = useAssistantRuntime();
   const [isOpen, setIsOpen] = React.useState(false);
@@ -3551,10 +3658,17 @@ function SessionPickerButton({
         return;
       }
 
+      // Find the session to get its model
+      const session = sessions.find((s) => s.threadId === normalizedThreadId);
+
       setLoadError("");
       setIsSwitchingSession(true);
       try {
         onSessionRestoreStart?.();
+        // Restore the model before loading history
+        if (session?.model && onRestoreModel) {
+          onRestoreModel(session.model);
+        }
         await onSelectSession?.(normalizedThreadId);
         setIsOpen(false);
       } catch {
@@ -3563,7 +3677,13 @@ function SessionPickerButton({
         setIsSwitchingSession(false);
       }
     },
-    [currentThreadId, onSelectSession, onSessionRestoreStart],
+    [
+      currentThreadId,
+      onSelectSession,
+      onSessionRestoreStart,
+      onRestoreModel,
+      sessions,
+    ],
   );
 
   const handleDeleteSession = React.useCallback(
@@ -3727,6 +3847,8 @@ type WorkspaceAssistantPanelProps = {
   threadId?: string;
   onNewSession?: () => void;
   onSelectSession?: (threadId: string) => void | Promise<void>;
+  onForkConversation?: (atMessageIndex: number) => Promise<void>;
+  isForkingRef?: React.MutableRefObject<boolean>;
   isHydratingSession?: boolean;
   selectedModel: string;
   selectedModelLabel: string;
@@ -3767,6 +3889,15 @@ type AssistantComposerProps = Omit<WorkspaceAssistantPanelProps, "prompts"> & {
 const AssistantDebugAccessContext = React.createContext<{ isAdmin: boolean }>({
   isAdmin: false,
 });
+
+type ForkContextValue = {
+  forkConversation: (atMessageIndex: number) => Promise<void>;
+  threadId: string | undefined;
+  docId: string | undefined;
+  isForkingRef: React.MutableRefObject<boolean>;
+};
+
+const ForkContext = React.createContext<ForkContextValue | null>(null);
 
 function AssistantComposer({
   selectedModel,
@@ -4166,6 +4297,8 @@ function WorkspaceAssistantPanel({
   threadId,
   onNewSession,
   onSelectSession,
+  onForkConversation,
+  isForkingRef,
   isHydratingSession = false,
   selectedModel,
   selectedModelLabel,
@@ -4189,6 +4322,22 @@ function WorkspaceAssistantPanel({
   const [isCreditsLoading, setIsCreditsLoading] = React.useState(true);
   const [isRestoringSessionFromPicker, setIsRestoringSessionFromPicker] =
     React.useState(false);
+
+  // Fork context: use provided ref or create a fallback
+  const fallbackForkingRef = React.useRef(false);
+  const actualForkingRef = isForkingRef ?? fallbackForkingRef;
+  const forkContextValue = React.useMemo<ForkContextValue | null>(
+    () =>
+      onForkConversation
+        ? {
+            forkConversation: onForkConversation,
+            threadId,
+            docId,
+            isForkingRef: actualForkingRef,
+          }
+        : null,
+    [onForkConversation, threadId, docId, actualForkingRef],
+  );
 
   const loadCredits = React.useCallback(async () => {
     try {
@@ -4306,6 +4455,7 @@ function WorkspaceAssistantPanel({
                 onSelectSession={onSelectSession}
                 onSessionRestoreStart={handleSessionRestoreStart}
                 onStartNewSession={onNewSession}
+                onRestoreModel={setSelectedModel}
               />
             )}
             <NewSessionButton
@@ -4321,91 +4471,95 @@ function WorkspaceAssistantPanel({
       </div>
 
       <AssistantDebugAccessContext.Provider value={{ isAdmin }}>
-        <ThreadPrimitive.Root
-          key={threadId || "active-thread"}
-          className="relative flex min-h-0 flex-1 flex-col"
-        >
-          <SpreadsheetToolUIRegistry />
-          <ThreadPrimitive.Viewport
-            className={cn(
-              "min-h-0 overflow-y-auto px-5",
-              isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
-            )}
+        <ForkContext.Provider value={forkContextValue}>
+          <ThreadPrimitive.Root
+            key={threadId || "active-thread"}
+            className="relative flex min-h-0 flex-1 flex-col"
           >
-            <div className="space-y-4">
-              <ThreadPrimitive.Messages
-                components={{
-                  UserMessage: AssistantMessage,
-                  AssistantMessage,
-                }}
-              />
-            </div>
-          </ThreadPrimitive.Viewport>
+            <SpreadsheetToolUIRegistry />
+            <ThreadPrimitive.Viewport
+              className={cn(
+                "min-h-0 overflow-y-auto px-5",
+                isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
+              )}
+            >
+              <div className="space-y-4">
+                <ThreadPrimitive.Messages
+                  components={{
+                    UserMessage: AssistantMessage,
+                    AssistantMessage,
+                  }}
+                />
+              </div>
+            </ThreadPrimitive.Viewport>
 
-          <div
-            className={cn(
-              "rnc-assistant-divider w-full px-5 py-4",
-              isThreadEmpty ? "my-auto border-t-0" : "border-t border-black/8",
-            )}
-          >
-            <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
-              <AssistantComposer
-                selectedModel={selectedModel}
-                selectedModelLabel={selectedModelLabel}
-                isModelPickerOpen={isModelPickerOpen}
-                setIsModelPickerOpen={setIsModelPickerOpen}
-                setSelectedModel={setSelectedModel}
-                reasoningEnabled={reasoningEnabled}
-                setReasoningEnabled={setReasoningEnabled}
-                reasoningEnabledRef={reasoningEnabledRef}
-                forceCompactHeader={forceCompactHeader}
-                remainingCredits={remainingCredits}
-                isUnlimitedCredits={isUnlimitedCredits}
-                isCreditsLoading={isCreditsLoading}
-              />
-              <ThreadPrimitive.If empty>
-                <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
-                  <TooltipProvider delayDuration={200}>
-                    {prompts.map((prompt) => (
-                      <Tooltip key={prompt}>
-                        <TooltipTrigger asChild>
-                          <ThreadPrimitive.Suggestion
-                            prompt={prompt}
-                            send
-                            className="rnc-assistant-suggestion w-56 rounded-xl border border-black/10 bg-[#fff9f2] px-4 py-3 text-left text-sm leading-5 text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]"
-                          >
-                            <span
-                              className="block overflow-hidden"
-                              style={{
-                                display: "-webkit-box",
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: "vertical",
-                                textOverflow: "ellipsis",
-                              }}
+            <div
+              className={cn(
+                "rnc-assistant-divider w-full px-5 py-4",
+                isThreadEmpty
+                  ? "my-auto border-t-0"
+                  : "border-t border-black/8",
+              )}
+            >
+              <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
+                <AssistantComposer
+                  selectedModel={selectedModel}
+                  selectedModelLabel={selectedModelLabel}
+                  isModelPickerOpen={isModelPickerOpen}
+                  setIsModelPickerOpen={setIsModelPickerOpen}
+                  setSelectedModel={setSelectedModel}
+                  reasoningEnabled={reasoningEnabled}
+                  setReasoningEnabled={setReasoningEnabled}
+                  reasoningEnabledRef={reasoningEnabledRef}
+                  forceCompactHeader={forceCompactHeader}
+                  remainingCredits={remainingCredits}
+                  isUnlimitedCredits={isUnlimitedCredits}
+                  isCreditsLoading={isCreditsLoading}
+                />
+                <ThreadPrimitive.If empty>
+                  <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
+                    <TooltipProvider delayDuration={200}>
+                      {prompts.map((prompt) => (
+                        <Tooltip key={prompt}>
+                          <TooltipTrigger asChild>
+                            <ThreadPrimitive.Suggestion
+                              prompt={prompt}
+                              send
+                              className="rnc-assistant-suggestion w-56 rounded-xl border border-black/10 bg-[#fff9f2] px-4 py-3 text-left text-sm leading-5 text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]"
                             >
-                              {prompt}
-                            </span>
-                          </ThreadPrimitive.Suggestion>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" align="center">
-                          {prompt}
-                        </TooltipContent>
-                      </Tooltip>
-                    ))}
-                  </TooltipProvider>
-                </div>
-              </ThreadPrimitive.If>
-            </div>
-          </div>
-          {(isHydratingSession || isRestoringSessionFromPicker) && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
-              <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Restoring session...
+                              <span
+                                className="block overflow-hidden"
+                                style={{
+                                  display: "-webkit-box",
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: "vertical",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                {prompt}
+                              </span>
+                            </ThreadPrimitive.Suggestion>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="center">
+                            {prompt}
+                          </TooltipContent>
+                        </Tooltip>
+                      ))}
+                    </TooltipProvider>
+                  </div>
+                </ThreadPrimitive.If>
               </div>
             </div>
-          )}
-        </ThreadPrimitive.Root>
+            {(isHydratingSession || isRestoringSessionFromPicker) && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+                <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Restoring session...
+                </div>
+              </div>
+            )}
+          </ThreadPrimitive.Root>
+        </ForkContext.Provider>
       </AssistantDebugAccessContext.Provider>
     </Card>
   );
@@ -4423,6 +4577,8 @@ export function WorkspaceAssistantUI({
   threadId,
   onNewSession,
   onSelectSession,
+  onForkConversation,
+  isForkingRef,
   isHydratingSession,
   selectedModel,
   selectedModelLabel,
@@ -4442,6 +4598,8 @@ export function WorkspaceAssistantUI({
       threadId={threadId}
       onNewSession={onNewSession}
       onSelectSession={onSelectSession}
+      onForkConversation={onForkConversation}
+      isForkingRef={isForkingRef}
       isHydratingSession={isHydratingSession}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
@@ -4472,6 +4630,8 @@ export function WorkspaceAssistant({
         threadId={assistantRuntime.threadId}
         onNewSession={assistantRuntime.startNewThread}
         onSelectSession={assistantRuntime.selectThread}
+        onForkConversation={assistantRuntime.forkConversation}
+        isForkingRef={assistantRuntime.isForkingRef}
         isHydratingSession={assistantRuntime.isHydratingSession}
         selectedModel={assistantRuntime.selectedModel}
         selectedModelLabel={assistantRuntime.selectedModelLabel}

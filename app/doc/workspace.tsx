@@ -339,8 +339,8 @@ const pickSeededPrompts = (
   return shuffled.slice(0, count);
 };
 
-const ASSISTANT_PANEL_MIN_WIDTH = 350;
-const ASSISTANT_PANEL_DEFAULT_WIDTH = 840;
+const ASSISTANT_PANEL_MIN_WIDTH = "30%";
+const ASSISTANT_PANEL_DEFAULT_WIDTH = "50%";
 const MOBILE_LAYOUT_MEDIA_QUERY = "(max-width: 767px)";
 
 const useMediaQueryMatch = (query: string, initialValue = false) => {
@@ -1792,6 +1792,8 @@ export function NewWorkspace({
       threadId={assistantRuntime.threadId}
       onNewSession={assistantRuntime.startNewThread}
       onSelectSession={assistantRuntime.selectThread}
+      onForkConversation={assistantRuntime.forkConversation}
+      isForkingRef={assistantRuntime.isForkingRef}
       isHydratingSession={assistantRuntime.isHydratingSession}
       selectedModel={assistantRuntime.selectedModel}
       selectedModelLabel={assistantRuntime.selectedModelLabel}
@@ -1892,8 +1894,8 @@ export function NewWorkspace({
                 </PanelSeparator>
                 <Panel
                   id={ASSISTANT_PANEL_ID}
-                  minSize={`${ASSISTANT_PANEL_MIN_WIDTH}px`}
-                  maxSize={`${ASSISTANT_PANEL_DEFAULT_WIDTH}px`}
+                  minSize={ASSISTANT_PANEL_MIN_WIDTH}
+                  maxSize={ASSISTANT_PANEL_DEFAULT_WIDTH}
                   groupResizeBehavior="preserve-pixel-size"
                   className="min-w-0"
                 >
