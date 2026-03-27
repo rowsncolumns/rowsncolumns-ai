@@ -432,7 +432,11 @@ export const createSpreadsheetInterface = (
 
   // Rebuild graph
   if (rebuildGraph) {
-    spreadsheet.rebuildGraph();
+    try {
+      spreadsheet.rebuildGraph();
+    } catch (err) {
+      console.log("Rebuild Graph: Error when rebuilding graph", err);
+    }
   }
 
   return spreadsheet;
