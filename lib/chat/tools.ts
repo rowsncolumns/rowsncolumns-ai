@@ -1410,139 +1410,57 @@ export const spreadsheetFormatRangeTool = tool(handleSpreadsheetFormatRange, {
   name: "spreadsheet_formatRange",
   description: `Apply visual formatting to a rectangular region of a spreadsheet.
 
-OVERVIEW:
-This tool applies formatting (styles) to a 2D grid of cells at a specified range using A1 notation. It only affects the cells covered by the provided cells array — no other part of the sheet is changed.
+CELL STRUCTURE (CRITICAL):
+Each cell MUST use the "cellStyles" wrapper. This is required:
+  ✓ CORRECT: {"cellStyles": {"textFormat": {"bold": true}}}
+  ✗ WRONG:   {"textFormat": {"bold": true}}  // Missing cellStyles wrapper!
 
-WHEN TO USE THIS TOOL:
-- Making text bold, italic, underlined, or strikethrough
-- Changing font colors or background colors
-- Applying borders to cells
-- Setting number formats (currency, percentage, etc.)
-- Aligning text horizontally or vertically
+The cells parameter is a 2D array (rows of cells):
+  [[{"cellStyles": {...}}, {"cellStyles": {...}}], ...]
 
-FORMATTING BEHAVIOR:
-- Auto-format lightly by default to make outputs look presentable
-- For small edits on existing sheets, avoid broad cosmetic reformatting unless the user explicitly requests it
-- Preserve existing cell formatting by default
-- When writing data, match the format of surrounding cells if present
-- Do not apply bold to entire tables/ranges by default; reserve bold for headers, section labels, and totals
+Use {} for cells with no formatting changes.
 
-WHEN FORMATTING IS APPLIED, use these standards:
-- Numbers: right-align, use thousands separator (#,##0)
-- Currency: '$#,##0.00' with parentheses for negatives '($#,##0.00)'
-- Percentages: '0.0%', right-align
-- Text: left-align
-- Headers: bold, center-align
-- Totals: bold with top border
-- Column headers (Year 1, Year 2, etc.): bold, center-align
-- Data body cells: regular weight (non-bold) unless emphasis is explicitly requested
-
-BORDERS - USE THEM LIBERALLY:
-Borders make tables readable and professional. Apply borders proactively when creating/formatting tables:
-- Table outline: Apply borders around the entire table perimeter
-- Header row: Bottom border to separate headers from data
-- Total/summary rows: Top border (single or double) above totals
-- Column separators: Optional light vertical borders between columns
-- Grid style: For data-heavy tables, apply borders to all cells
-
-Border syntax: {borders: {bottom: {style: "thin", color: "#000000"}}}
-- Styles: "thin", "medium", "thick", "dashed", "dotted", "double"
-- Colors: Hex "#000000" OR theme {theme: 4} OR theme with tint {theme: 1, tint: -0.25}
-- Apply to: top, right, bottom, left (or any combination)
-
-INPUT CELL CONVENTION (financial models only, when requested):
-- Light blue background
-- No background = formula/calculated
-
-CELLSTYLES PROPERTIES (CellFormat):
+CELLSTYLES PROPERTIES:
 - textFormat: {bold, italic, underline, strikethrough, fontFamily, fontSize, color}
-- backgroundColor: Hex color string (e.g., '#FF0000') or theme object
-- borders: {top, right, bottom, left} with style, width, color
-- numberFormat: {type, pattern}
+- backgroundColor: Hex string '#FF0000' or theme {theme: 4, tint: 0.2}
+- borders: {top, right, bottom, left} each with {style, color}
+  - styles: "thin", "medium", "thick", "dashed", "dotted", "double"
+- numberFormat: {type, pattern} - types: NUMBER, CURRENCY, PERCENT, DATE
 - horizontalAlignment: 'left', 'center', 'right'
 - verticalAlignment: 'top', 'middle', 'bottom'
 - wrapStrategy: 'overflow', 'wrap', 'clip'
 
-SHORTHAND SUPPORT:
-For convenience, you can use shorthand properties in cellStyles:
-- {fontWeight: "bold"} → {textFormat: {bold: true}}
-- {fontStyle: "italic"} → {textFormat: {italic: true}}
+AUTO-EXPANSION:
+If you provide exactly ONE cell [[{"cellStyles": {...}}]], it auto-expands to fill the entire range.
+Useful for applying uniform formatting. Only use for header-only or totals-only ranges when bolding.
 
-CRITICAL RULES:
-1. Range uses A1 notation (e.g., 'A1:C3', 'B2:D5').
-2. 'cells' must be a 2D array: list of rows.
-3. Each cell object should have 'cellStyles' with formatting properties.
-4. Use empty objects {} for cells that should not be formatted.
-5. Only the target range is modified — never affects data outside.
-6. AUTO-EXPANSION: If you provide exactly ONE cell [[{...}]], it will automatically expand to fill the entire range. This is useful when applying the same formatting to all cells in a range.
-7. If using AUTO-EXPANSION with textFormat.bold=true, only do so for header-only or totals-only ranges. Do not auto-expand bold across mixed header+data regions.
-8. BATCHING: Multiple tool calls are permitted and encouraged for large ranges. You can format in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability.
+FORMATTING STANDARDS:
+- Headers: bold, center-align, bottom border
+- Numbers: right-align, #,##0 format
+- Currency: '$#,##0.00', right-align
+- Totals: bold with top border (double for accounting style)
+- Data cells: regular weight (non-bold) unless emphasis requested
 
 EXAMPLES:
 
-Example 1 — Make A3:H3 italic (using auto-expansion):
-  range: "A3:H3"
-  cells: [[{"cellStyles": {"textFormat": {"italic": true, "fontSize": 11, "color": "#666666"}}}]]
-  // Single cell auto-expands to fill all 8 cells (A3:H3)
-
-Example 2 — Apply distinct formatting to header row (A1:C1):
-  range: "A1:C1"
-  cells: [
-    [
-      {"cellStyles": {"textFormat": {"bold": true, "fontSize": 14}, "backgroundColor": "#4A90E2"}},
-      {"cellStyles": {"textFormat": {"bold": true, "fontSize": 14}, "backgroundColor": "#50C878"}},
-      {"cellStyles": {"textFormat": {"bold": true, "fontSize": 14}, "backgroundColor": "#FF6B6B"}}
-    ]
-  ]
-  // Each cell gets its own distinct formatting (different background colors)
-
-Example 3 — Format range with mixed styles (A1:B3):
-  range: "A1:B3"
-  cells: [
-    [
-      {"cellStyles": {"backgroundColor": "#E8E8E8"}},
-      {"cellStyles": {"backgroundColor": "#E8E8E8"}}
-    ],
-    [
-      {"cellStyles": {"textFormat": {"italic": true}}},
-      {"cellStyles": {}}
-    ],
-    [
-      {"cellStyles": {"textFormat": {"underline": true}}},
-      {"cellStyles": {"backgroundColor": "#FFFACD"}}
-    ]
-  ]
-  // Row 1: Gray background
-  // Row 2: First cell italic, second cell no formatting
-  // Row 3: First cell underlined, second cell yellow background
-
-Example 4 — Apply borders to a header row (A1:D1):
+Example 1 — Bold header row with border (auto-expansion):
   range: "A1:D1"
   cells: [[{"cellStyles": {"textFormat": {"bold": true}, "borders": {"bottom": {"style": "medium", "color": "#000000"}}}}]]
-  // Auto-expands to all 4 cells: bold text with medium bottom border
 
-Example 5 — Apply borders to totals row (A10:D10):
+Example 2 — Format 2x2 range with different styles:
+  range: "A1:B2"
+  cells: [
+    [{"cellStyles": {"backgroundColor": "#E8E8E8"}}, {"cellStyles": {"backgroundColor": "#E8E8E8"}}],
+    [{"cellStyles": {"textFormat": {"italic": true}}}, {}]
+  ]
+
+Example 3 — Totals row with double top border:
   range: "A10:D10"
   cells: [[{"cellStyles": {"textFormat": {"bold": true}, "borders": {"top": {"style": "double", "color": "#000000"}}}}]]
-  // Double top border above totals (accounting style)
 
-Example 6 — Full table border (outline + header separator):
-  // Step 1: Header row with bottom border
-  range: "A1:D1"
-  cells: [[{"cellStyles": {"textFormat": {"bold": true}, "backgroundColor": "#F0F0F0", "borders": {"bottom": {"style": "thin", "color": "#000000"}}}}]]
-  // Step 2: All cells with thin borders (grid style)
-  range: "A1:D10"
-  cells: [[{"cellStyles": {"borders": {"top": {"style": "thin", "color": "#CCCCCC"}, "right": {"style": "thin", "color": "#CCCCCC"}, "bottom": {"style": "thin", "color": "#CCCCCC"}, "left": {"style": "thin", "color": "#CCCCCC"}}}}]]
-
-Example 7 — Using theme colors for borders:
-  range: "A1:D1"
-  cells: [[{"cellStyles": {"borders": {"bottom": {"style": "medium", "color": {"theme": 4}}}}}]]
-  // Uses theme color 4 (typically accent color) for the border
-
-Example 8 — Theme color with tint adjustment:
-  range: "A10:D10"
-  cells: [[{"cellStyles": {"borders": {"top": {"style": "thin", "color": {"theme": 1, "tint": -0.25}}}}}]]
-  // Uses theme color 1 darkened by 25% (tint: -0.25 darkens, +0.25 lightens)`,
+Example 4 — Theme colors:
+  cells: [[{"cellStyles": {"backgroundColor": {"theme": 4}, "borders": {"bottom": {"color": {"theme": 1, "tint": -0.25}}}}}]]
+  // theme: 0-9 (accent colors), tint: -1 to 1 (darken/lighten)`,
   schema: SpreadsheetFormatRangeSchema,
 });
 

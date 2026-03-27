@@ -374,15 +374,17 @@ const CellFormatSchema = z
 const CellStyleDataSchema = z
   .object({
     cellStyles: CellFormatSchema.optional().describe(
-      "The cell's formatting. Use this to apply visual styles.",
+      'Formatting properties. Example: {"textFormat": {"bold": true}, "backgroundColor": "#FF0000"}',
     ),
   })
-  .describe("A single cell's formatting data with optional cellStyles");
+  .describe(
+    'Cell with formatting. MUST use cellStyles wrapper: {"cellStyles": {"textFormat": {"bold": true}}}',
+  );
 
 // Spreadsheet FormatRange
 export const SpreadsheetFormatRangeSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().describe("The sheet ID"),
+  sheetId: z.number().int().optional().describe("The sheet ID (default: 1)"),
   range: z.string().describe("The A1 notation range (e.g., 'A1:C3')"),
   cells: z
     .union([
@@ -390,7 +392,10 @@ export const SpreadsheetFormatRangeSchema = z.object({
       z.string().describe("JSON string representation of 2D cell style array"),
     ])
     .describe(
-      "2D array of CellStyleData objects. Each cell has 'cellStyles' with formatting properties like backgroundColor, textFormat, borders, etc.",
+      '2D array where each cell MUST have cellStyles wrapper. ' +
+        'Structure: [[{"cellStyles": {...}}, {"cellStyles": {...}}], ...]. ' +
+        'Example for bold A1:B1: [[{"cellStyles": {"textFormat": {"bold": true}}}, {"cellStyles": {"textFormat": {"bold": true}}}]]. ' +
+        'Use {} for cells with no formatting.',
     ),
   ...ToolExplanationSchemaShape,
 });
