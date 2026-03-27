@@ -330,6 +330,62 @@ const getChatRequestUrl = () => {
   return CHAT_API_ENDPOINT;
 };
 
+const getChatResumeUrl = () => {
+  if (CHAT_EXTERNAL_API_ENABLED) {
+    const base = CHAT_EXTERNAL_API_BASE_URL.replace(/\/+$/, "");
+    return `${base}/chat/resume`;
+  }
+  return "/api/chat/resume";
+};
+
+type ChatRunResumeResponse = {
+  run: {
+    runId: string;
+    threadId: string;
+    status: "running" | "completed" | "failed";
+    startedAt: string;
+    completedAt?: string;
+    errorMessage?: string;
+  };
+  events: Array<{
+    id: number;
+    type: string;
+    data: {
+      type: string;
+      [key: string]: unknown;
+    };
+  }>;
+  hasMore: boolean;
+};
+
+const fetchChatRunResume = async (input: {
+  threadId?: string;
+  runId?: string;
+  lastEventId?: number;
+  signal?: AbortSignal;
+}): Promise<ChatRunResumeResponse | null> => {
+  const params = new URLSearchParams();
+  if (input.threadId) params.set("threadId", input.threadId);
+  if (input.runId) params.set("runId", input.runId);
+  if (input.lastEventId) params.set("lastEventId", String(input.lastEventId));
+
+  try {
+    const response = await fetch(`${getChatResumeUrl()}?${params}`, {
+      method: "GET",
+      credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
+      signal: input.signal,
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as ChatRunResumeResponse;
+  } catch {
+    return null;
+  }
+};
+
 const setAssistantContextSnapshot = (
   documentId: string,
   context: SpreadsheetAssistantContext,
@@ -771,90 +827,125 @@ const buildStreamingYield = (
   },
 });
 
-async function* streamAssistantResponse(
-  stream: ReadableStream<Uint8Array>,
+type StreamingState = {
+  runId: string | null;
+  parts: StreamingContentPart[];
+  toolPartIndexById: Map<string, number>;
+};
+
+const processStreamEvent = (
+  event: { type: string; [key: string]: unknown },
+  state: StreamingState,
   threadId: string,
-) {
-  // Single event-to-UI pipeline used by both assistant runtime entry points.
-  const streamingParts: StreamingContentPart[] = [];
-  const toolPartIndexById = new Map<string, number>();
+): { yield: ReturnType<typeof buildStreamingYield>; done: boolean } | null => {
+  if (event.type === "message.start" && "runId" in event) {
+    state.runId = (event.runId as string) ?? null;
+    return { yield: buildStreamingYield(state.parts, threadId), done: false };
+  }
 
-  for await (const event of parseChatStream(stream)) {
-    if (event.type === "reasoning.start") {
-      yield buildStreamingYield(streamingParts, threadId);
-      continue;
-    }
+  if (event.type === "reasoning.start") {
+    return { yield: buildStreamingYield(state.parts, threadId), done: false };
+  }
 
-    if (event.type === "reasoning.delta") {
-      appendStreamingDelta(streamingParts, "reasoning", event.delta);
-      yield buildStreamingYield(streamingParts, threadId);
-      continue;
-    }
+  if (event.type === "reasoning.delta" && "delta" in event) {
+    appendStreamingDelta(state.parts, "reasoning", event.delta as string);
+    return { yield: buildStreamingYield(state.parts, threadId), done: false };
+  }
 
-    if (event.type === "message.delta") {
-      appendStreamingDelta(streamingParts, "text", event.delta);
-      yield buildStreamingYield(streamingParts, threadId);
-      continue;
-    }
+  if (event.type === "message.delta" && "delta" in event) {
+    appendStreamingDelta(state.parts, "text", event.delta as string);
+    return { yield: buildStreamingYield(state.parts, threadId), done: false };
+  }
 
-    if (event.type === "tool.call") {
-      const toolCallId = event.toolCallId ?? event.toolName;
-      upsertStreamingToolCall(
-        streamingParts,
-        toolPartIndexById,
-        toolCallId,
-        event.toolName,
-        event.args ?? {},
-      );
-      yield buildStreamingYield(streamingParts, threadId);
-      continue;
-    }
+  if (event.type === "tool.call") {
+    const toolCallId =
+      (event.toolCallId as string) ?? (event.toolName as string);
+    upsertStreamingToolCall(
+      state.parts,
+      state.toolPartIndexById,
+      toolCallId,
+      event.toolName as string,
+      (event.args as Record<string, unknown>) ?? {},
+    );
+    return { yield: buildStreamingYield(state.parts, threadId), done: false };
+  }
 
-    if (event.type === "tool.result") {
-      const toolCallId = event.toolCallId ?? event.toolName;
-      setStreamingToolResult(
-        streamingParts,
-        toolPartIndexById,
-        toolCallId,
-        event.toolName,
-        event.result,
-        event.args,
-        event.isError === true,
-      );
-      yield buildStreamingYield(streamingParts, threadId);
-      continue;
-    }
+  if (event.type === "tool.result") {
+    const toolCallId =
+      (event.toolCallId as string) ?? (event.toolName as string);
+    setStreamingToolResult(
+      state.parts,
+      state.toolPartIndexById,
+      toolCallId,
+      event.toolName as string,
+      event.result,
+      event.args as Record<string, unknown> | undefined,
+      event.isError === true,
+    );
+    return { yield: buildStreamingYield(state.parts, threadId), done: false };
+  }
 
-    if (event.type === "message.complete") {
-      finalizePendingToolCalls(streamingParts);
-      yield buildStreamingYield(
-        streamingParts,
+  if (event.type === "message.complete") {
+    finalizePendingToolCalls(state.parts);
+    return {
+      yield: buildStreamingYield(
+        state.parts,
         threadId,
         { type: "complete", reason: "stop" },
-        event.message,
-      );
-      return;
-    }
+        event.message as string,
+      ),
+      done: true,
+    };
+  }
 
-    if (event.type === "error") {
-      const errorMessage = normalizeAssistantErrorMessage(
-        event.error ?? "",
-        "Assistant request failed.",
-      );
-      appendStreamingDelta(streamingParts, "text", `\n\n${errorMessage}`);
-      finalizePendingToolCalls(streamingParts);
-      yield buildStreamingYield(
-        streamingParts,
+  if (event.type === "error") {
+    const errorMessage = normalizeAssistantErrorMessage(
+      (event.error as string) ?? "",
+      "Assistant request failed.",
+    );
+    appendStreamingDelta(state.parts, "text", `\n\n${errorMessage}`);
+    finalizePendingToolCalls(state.parts);
+    return {
+      yield: buildStreamingYield(
+        state.parts,
         threadId,
         { type: "complete", reason: "stop" },
         errorMessage,
-      );
-      return;
+      ),
+      done: true,
+    };
+  }
+
+  return null;
+};
+
+async function* streamAssistantResponse(
+  stream: ReadableStream<Uint8Array>,
+  threadId: string,
+  onRunId?: (runId: string) => void,
+) {
+  const state: StreamingState = {
+    runId: null,
+    parts: [],
+    toolPartIndexById: new Map(),
+  };
+
+  for await (const event of parseChatStream(stream)) {
+    // Capture runId from message.start for reconnection
+    if (event.type === "message.start" && "runId" in event && event.runId) {
+      state.runId = event.runId as string;
+      onRunId?.(state.runId);
+    }
+
+    const result = processStreamEvent(event, state, threadId);
+    if (result) {
+      yield result.yield;
+      if (result.done) return;
     }
   }
 
-  finalizePendingToolCalls(streamingParts);
-  yield buildStreamingYield(streamingParts, threadId, {
+  finalizePendingToolCalls(state.parts);
+  yield buildStreamingYield(state.parts, threadId, {
     type: "complete",
     reason: "stop",
   });
@@ -903,6 +994,97 @@ const buildTerminalAssistantMessage = (text: string) => ({
   content: [{ type: "text" as const, text }],
   status: { type: "complete" as const, reason: "stop" as const },
 });
+
+async function* resumeAssistantResponse(
+  threadId: string,
+  runId: string | null,
+  existingState: StreamingState | null,
+  signal?: AbortSignal,
+) {
+  const state: StreamingState = existingState ?? {
+    runId,
+    parts: [],
+    toolPartIndexById: new Map(),
+  };
+
+  let lastEventId = 0;
+  const maxRetries = 30; // Poll for up to ~30 seconds
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    if (signal?.aborted) return;
+
+    const resumeData = await fetchChatRunResume({
+      threadId,
+      runId: runId ?? undefined,
+      lastEventId,
+      signal,
+    });
+
+    if (!resumeData) {
+      // Resume endpoint failed, give up
+      finalizePendingToolCalls(state.parts);
+      yield buildStreamingYield(
+        state.parts,
+        threadId,
+        { type: "complete", reason: "stop" },
+        state.parts.length > 0
+          ? undefined
+          : "Connection lost. Please refresh to see the response.",
+      );
+      return;
+    }
+
+    // Process any new events
+    for (const event of resumeData.events) {
+      const result = processStreamEvent(event.data, state, threadId);
+      if (result) {
+        yield result.yield;
+        if (result.done) return;
+      }
+      lastEventId = Math.max(lastEventId, event.id);
+    }
+
+    // Check if the run is complete
+    if (resumeData.run.status === "completed") {
+      finalizePendingToolCalls(state.parts);
+      yield buildStreamingYield(state.parts, threadId, {
+        type: "complete",
+        reason: "stop",
+      });
+      return;
+    }
+
+    if (resumeData.run.status === "failed") {
+      const errorMessage =
+        resumeData.run.errorMessage ?? "Assistant request failed.";
+      appendStreamingDelta(state.parts, "text", `\n\n${errorMessage}`);
+      finalizePendingToolCalls(state.parts);
+      yield buildStreamingYield(
+        state.parts,
+        threadId,
+        { type: "complete", reason: "stop" },
+        errorMessage,
+      );
+      return;
+    }
+
+    // Still running, wait and poll again
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    retries++;
+  }
+
+  // Timeout - run is still going but we hit max retries
+  finalizePendingToolCalls(state.parts);
+  yield buildStreamingYield(
+    state.parts,
+    threadId,
+    { type: "complete", reason: "stop" },
+    state.parts.length > 0
+      ? undefined
+      : "The response is still being generated. Please refresh in a moment.",
+  );
+}
 
 const parsePersistedThreadHistoryContentPart = (
   value: unknown,
@@ -1357,6 +1539,8 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           return;
         }
 
+        let currentRunId: string | null = null;
+
         try {
           markThreadStarted();
           const model = selectedModelRef.current;
@@ -1385,9 +1569,34 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             throw new Error("Assistant stream is unavailable.");
           }
 
-          yield* streamAssistantResponse(response.body, threadId);
+          yield* streamAssistantResponse(response.body, threadId, (runId) => {
+            currentRunId = runId;
+          });
         } catch (error) {
           if (isAbortError(error)) {
+            return;
+          }
+
+          // Try to reconnect if we have a runId or threadId
+          // This handles mobile app switching / network disconnection
+          const isNetworkError =
+            error instanceof TypeError ||
+            (error instanceof Error &&
+              (error.message.includes("Load failed") ||
+                error.message.includes("network") ||
+                error.message.includes("fetch")));
+
+          if (isNetworkError && (currentRunId || threadId)) {
+            console.log(
+              "[assistant] Connection lost, attempting to resume...",
+              { threadId, runId: currentRunId },
+            );
+            yield* resumeAssistantResponse(
+              threadId,
+              currentRunId,
+              null,
+              abortSignal,
+            );
             return;
           }
 

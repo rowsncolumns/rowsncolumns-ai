@@ -2,6 +2,7 @@ export type ChatStreamEvent =
   | {
       type: "message.start";
       threadId: string;
+      runId?: string;
     }
   | {
       type: "message.delta";

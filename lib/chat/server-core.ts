@@ -461,9 +461,13 @@ export const executeChatRunStream = async (input: {
         );
       }
 
-      await persistAndEmit(
-        event.type === "message.complete" ? { ...event, runId } : event,
-      );
+      // Add runId to message.start and message.complete for client reconnection
+      const augmentedEvent =
+        event.type === "message.start" || event.type === "message.complete"
+          ? { ...event, runId }
+          : event;
+
+      await persistAndEmit(augmentedEvent);
     }
   } catch (error) {
     const abortReason = input.abortSignal?.aborted

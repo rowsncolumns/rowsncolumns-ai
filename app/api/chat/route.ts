@@ -100,21 +100,19 @@ export async function POST(request: Request) {
     const chatServerTimeoutMs = parseChatServerTimeoutMs();
     const runAbortController = new AbortController();
 
-    const abortFromClientSignal = () => {
-      if (runAbortController.signal.aborted) {
-        return;
-      }
-
-      runAbortController.abort({
-        code: "CLIENT_ABORT",
-        message: "Client aborted chat request.",
-      } satisfies ChatAbortReason);
+    // Track client disconnection - we'll stop writing but let the run complete
+    let clientDisconnected = false;
+    const onClientDisconnect = () => {
+      clientDisconnected = true;
+      console.log(
+        "[api/chat] Client disconnected, run will continue in background",
+      );
     };
 
     if (request.signal.aborted) {
-      abortFromClientSignal();
+      onClientDisconnect();
     } else {
-      request.signal.addEventListener("abort", abortFromClientSignal, {
+      request.signal.addEventListener("abort", onClientDisconnect, {
         once: true,
       });
     }
@@ -140,11 +138,15 @@ export async function POST(request: Request) {
             request: runRequest,
             userId,
             isAdmin,
+            persistEvents: true,
             abortSignal: runAbortController.signal,
             emitEvent: (event) => {
-              controller.enqueue(
-                encoder.encode(encodeChatStreamEvent(event as never)),
-              );
+              // Only write to stream if client is still connected
+              if (!clientDisconnected) {
+                controller.enqueue(
+                  encoder.encode(encodeChatStreamEvent(event as never)),
+                );
+              }
             },
           });
         } catch (streamError) {
@@ -164,7 +166,7 @@ export async function POST(request: Request) {
           );
         } finally {
           clearTimeout(timeoutHandle);
-          request.signal.removeEventListener("abort", abortFromClientSignal);
+          request.signal.removeEventListener("abort", onClientDisconnect);
           controller.close();
         }
       },
