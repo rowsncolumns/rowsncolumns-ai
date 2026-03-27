@@ -31,7 +31,7 @@ const DEFAULT_MODEL_TEMPERATURE = 0.2;
 const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096;
 const DEFAULT_ANTHROPIC_THINKING_BUDGET_TOKENS = 2048;
 const LOW_EFFORT_ANTHROPIC_THINKING_BUDGET_TOKENS = 1024;
-const DEFAULT_GRAPH_RECURSION_LIMIT = 75;
+const DEFAULT_GRAPH_RECURSION_LIMIT = 150;
 const DEFAULT_LANGGRAPH_CHECKPOINT_SCHEMA = "public";
 const CLAUDE_MODEL_PATTERN = /^claude/i;
 const REASONING_MODEL_PATTERN = /^(o\d|gpt-5|codex)/i;
@@ -50,8 +50,7 @@ const isReasoningModel = (model: string) =>
 const isClaudeModel = (model: string) =>
   CLAUDE_MODEL_PATTERN.test(model.trim());
 const isLowEffortModel = (model: string) => model.trim().endsWith("-low");
-const normalizeModelName = (model: string) =>
-  model.trim().replace(/-low$/, "");
+const normalizeModelName = (model: string) => model.trim().replace(/-low$/, "");
 
 const getEnv = (name: string) => {
   const value = process.env[name]?.trim();
@@ -1716,7 +1715,10 @@ export async function forkThreadAtMessage(input: {
   // (persisted messages exclude tool-only messages, so indices differ)
   const persistedMessages = buildPersistedThreadMessages(rawMessages);
 
-  if (input.atMessageIndex < 0 || input.atMessageIndex >= persistedMessages.length) {
+  if (
+    input.atMessageIndex < 0 ||
+    input.atMessageIndex >= persistedMessages.length
+  ) {
     throw new Error(
       `Invalid message index: ${input.atMessageIndex}. Thread has ${persistedMessages.length} messages.`,
     );
@@ -1774,7 +1776,9 @@ export async function forkThreadAtMessage(input: {
     // Ignore - we'll generate a new title
   }
 
-  const newTitle = sourceTitle ? `Fork of ${sourceTitle}` : "Forked conversation";
+  const newTitle = sourceTitle
+    ? `Fork of ${sourceTitle}`
+    : "Forked conversation";
 
   // Create session record for new thread (preserve model from source)
   await upsertAssistantSession({
@@ -1790,7 +1794,11 @@ export async function forkThreadAtMessage(input: {
     userId: input.userId,
   });
 
-  await graph.updateState(newConfig, { messages: slicedMessages }, "call-model");
+  await graph.updateState(
+    newConfig,
+    { messages: slicedMessages },
+    "call-model",
+  );
 
   console.log("[graph] Forked thread:", {
     sourceThreadId: input.sourceThreadId,
@@ -1859,7 +1867,8 @@ export async function resolveSpreadsheetAssistantSessionTitle(input: {
       new SystemMessage(SESSION_TITLE_SYSTEM_PROMPT),
       new HumanMessage(input.message),
     ]);
-    const rawTitle = contentToText(titleResponse.content).split(/\r?\n/)[0] ?? "";
+    const rawTitle =
+      contentToText(titleResponse.content).split(/\r?\n/)[0] ?? "";
     const normalizedTitle = normalizeSessionTitle(rawTitle);
     if (normalizedTitle) {
       return normalizedTitle;
