@@ -123,6 +123,22 @@ import {
   getStableThreadMessageRenderKey,
   groupStableMessageParts,
 } from "@/lib/assistant/stable-rendering";
+import {
+  CHAT_EXTERNAL_API_ENABLED,
+  CHAT_HISTORY_API_ENDPOINT,
+  DEFAULT_MODEL,
+  FORK_BUTTON_ENABLED,
+  getChatRequestUrl,
+  getChatResumeUrl,
+  INSUFFICIENT_CREDITS_ERROR_CODE,
+  MODEL_OPTIONS,
+  MODEL_OPTION_GROUPS,
+  MODEL_OPTION_VALUES,
+  MODEL_STORAGE_KEY,
+  OUT_OF_CREDITS_MESSAGE,
+  REASONING_STORAGE_KEY,
+  SKILLS_API_ENDPOINT,
+} from "@/lib/assistant/workspace-assistant-config";
 import type {
   SpreadsheetAssistantContext,
   ChartSummary,
@@ -170,131 +186,10 @@ export type WorkspaceAssistantUIProps = {
   reasoningEnabledRef: React.MutableRefObject<boolean>;
   forceCompactHeader?: boolean;
 };
-type ModelOption = {
-  value: string;
-  label: string;
-};
-
-type ModelOptionGroup = {
-  label: string;
-  options: ModelOption[];
-};
-
 type AssistantChatErrorPayload = {
   error?: string;
   code?: string;
 };
-
-const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
-  {
-    label: "Anthropic",
-    options: [
-      {
-        value: "claude-sonnet-4-6-low",
-        label: "Claude Sonnet 4.6 (Low Effort)",
-      },
-      {
-        value: "claude-opus-4-6",
-        label: "Claude Opus 4.6",
-      },
-      {
-        value: "claude-sonnet-4-6",
-        label: "Claude Sonnet 4.6",
-      },
-      {
-        value: "claude-sonnet-4-5-20250929",
-        label: "Claude Sonnet 4.5",
-      },
-      {
-        value: "claude-opus-4-5-20251101",
-        label: "Claude Opus 4.5",
-      },
-      {
-        value: "claude-haiku-4-5-20251001",
-        label: "Claude Haiku 4.5",
-      },
-      {
-        value: "claude-opus-4-1-20250805",
-        label: "Claude Opus 4.1",
-      },
-    ],
-  },
-  {
-    label: "OpenAI",
-    options: [
-      {
-        value: "gpt-5.4",
-        label: "GPT-5.4",
-      },
-      {
-        value: "gpt-5.4-mini",
-        label: "GPT-5.4 Mini",
-      },
-      {
-        value: "gpt-5.4-nano",
-        label: "GPT-5.4 Nano",
-      },
-      {
-        value: "gpt-5.2-chat-latest",
-        label: "GPT-5.2 Chat",
-      },
-      {
-        value: "gpt-5-mini",
-        label: "GPT-5 Mini",
-      },
-      {
-        value: "gpt-5-nano",
-        label: "GPT-5 Nano",
-      },
-      {
-        value: "gpt-4.1",
-        label: "GPT-4.1",
-      },
-      {
-        value: "gpt-4.1-mini",
-        label: "GPT-4.1 Mini",
-      },
-      {
-        value: "gpt-4.1-nano",
-        label: "GPT-4.1 Nano",
-      },
-      {
-        value: "o3",
-        label: "o3",
-      },
-      {
-        value: "o4-mini",
-        label: "o4-mini",
-      },
-    ],
-  },
-];
-
-const DEFAULT_MODEL =
-  MODEL_OPTION_GROUPS[0]?.options[0]?.value ?? "gpt-5.2-chat-latest";
-
-const MODEL_OPTIONS: ModelOption[] = MODEL_OPTION_GROUPS.flatMap(
-  (group) => group.options,
-);
-const MODEL_OPTION_VALUES = new Set<string>(
-  MODEL_OPTIONS.map((option) => option.value),
-);
-const MODEL_STORAGE_KEY = "rnc.ai.workspace-assistant.model";
-const REASONING_STORAGE_KEY = "rnc.ai.workspace-assistant.reasoning-enabled";
-const SKILLS_API_ENDPOINT = "/api/skills";
-const CHAT_API_ENDPOINT = "/api/chat";
-const CHAT_HISTORY_API_ENDPOINT = "/api/chat/history";
-const INSUFFICIENT_CREDITS_ERROR_CODE = "INSUFFICIENT_CREDITS";
-const OUT_OF_CREDITS_MESSAGE =
-  "You've run out of credits for today. Credits reset to 30 at the next daily reset.";
-const CHAT_EXTERNAL_API_BASE_URL = (
-  process.env.NEXT_PUBLIC_CHAT_API_BASE_URL ?? ""
-).trim();
-const CHAT_EXTERNAL_API_PATH = (
-  process.env.NEXT_PUBLIC_CHAT_API_PATH ?? "/chat"
-).trim();
-const CHAT_EXTERNAL_API_ENABLED = CHAT_EXTERNAL_API_BASE_URL.length > 0;
-const FORK_BUTTON_ENABLED = false; // Set to true to enable fork conversation button
 const ASSISTANT_CONTEXT_BY_DOCUMENT_ID = new Map<
   string,
   SpreadsheetAssistantContext
@@ -326,30 +221,6 @@ type SessionListCacheEntry = {
 let sessionListCache: SessionListCacheEntry | null = null;
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
-
-const buildExternalChatApiUrl = () => {
-  const base = CHAT_EXTERNAL_API_BASE_URL.replace(/\/+$/, "");
-  const path = CHAT_EXTERNAL_API_PATH.startsWith("/")
-    ? CHAT_EXTERNAL_API_PATH
-    : `/${CHAT_EXTERNAL_API_PATH}`;
-  return `${base}${path}`;
-};
-
-const getChatRequestUrl = () => {
-  if (CHAT_EXTERNAL_API_ENABLED) {
-    return buildExternalChatApiUrl();
-  }
-
-  return CHAT_API_ENDPOINT;
-};
-
-const getChatResumeUrl = () => {
-  if (CHAT_EXTERNAL_API_ENABLED) {
-    const base = CHAT_EXTERNAL_API_BASE_URL.replace(/\/+$/, "");
-    return `${base}/chat/resume`;
-  }
-  return "/api/chat/resume";
-};
 
 type ChatRunResumeResponse = {
   run: {

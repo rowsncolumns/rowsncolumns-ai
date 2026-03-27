@@ -2186,11 +2186,6 @@
     echarts "^5.6.0"
     formik "^2.4.6"
 
-"@rowsncolumns/common-types@^3.0.14":
-  version "3.0.14"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/common-types/3.0.14/0f6863473f10be6cffbe6c49c0f656cca1912a8a#0f6863473f10be6cffbe6c49c0f656cca1912a8a"
-  integrity sha512-EznKkjK8YmJf2hIhNbGhKycUoGY51Mmk9cqRvBEc3fHCEqZRAE5dPgQfEZx9//zcz5+2b9+e7/q72HHONiYwHw==
-
 "@rowsncolumns/common-types@^3.0.15":
   version "3.0.15"
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/common-types/3.0.15/73f37a4c2abd1fc289b30e89a62805eb5c7ffd64#73f37a4c2abd1fc289b30e89a62805eb5c7ffd64"
@@ -2220,14 +2215,7 @@
     jsonpath-plus "^10.2.0"
     jstat "^1.9.6"
 
-"@rowsncolumns/functions@^7.0.12":
-  version "7.0.14"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/functions/7.0.14/9e9b7e5875ab5bec3a096fdbf4a122fc00c93b24#9e9b7e5875ab5bec3a096fdbf4a122fc00c93b24"
-  integrity sha512-Z0dSJXgS3j6x1CDWBZVPzCLIAIqok6Y7JCVVFGDpcOW4C9bQQEkDTBJBrmxuarLQr7ubRKjUhXdqk6UCwJWKUw==
-  dependencies:
-    xlsx "^0.18.5"
-
-"@rowsncolumns/functions@^7.0.15":
+"@rowsncolumns/functions@^7.0.12", "@rowsncolumns/functions@^7.0.15":
   version "7.0.15"
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/functions/7.0.15/cc4d117cddcd13a9ba86cde7f9af947c0d4a8d8f#cc4d117cddcd13a9ba86cde7f9af947c0d4a8d8f"
   integrity sha512-jwEmvC+JIEAFyvwNFe6GxB4TN+gaZSJL5awK2g5CTRN0Gy7D2hMlf/D+rndw2mcUnr0iJx3DFRbOsdxhKbq2MA==
@@ -2311,35 +2299,6 @@
     uzip "^0.20201231.0"
     xlsx "^0.18.5"
 
-"@rowsncolumns/ui@^8.0.13":
-  version "8.0.15"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/ui/8.0.15/ed50c0f44c81a323c3b099cbeeb38d342c6214ad#ed50c0f44c81a323c3b099cbeeb38d342c6214ad"
-  integrity sha512-m18J0hdzVdvCxE+Td6q5NWM0gJA+sJtl4ERZQNlMiF5f/2rNBOt3a5CvOxT+QukaryivlMK6k31O9f7H5hgScA==
-  dependencies:
-    "@radix-ui/react-dialog" "^1.1.14"
-    "@radix-ui/react-dropdown-menu" "^2.1.15"
-    "@radix-ui/react-popover" "^1.1.14"
-    "@radix-ui/react-progress" "^1.1.7"
-    "@radix-ui/react-select" "^2.2.5"
-    "@radix-ui/react-separator" "^1.1.7"
-    "@radix-ui/react-tabs" "^1.1.12"
-    "@radix-ui/react-tooltip" "^1.2.7"
-    class-variance-authority "^0.7.1"
-    clsx "^2.1.1"
-    date-fns "^4.1.0"
-    match-sorter "^8.2.0"
-    prosemirror-commands "^1.7.1"
-    prosemirror-history "^1.4.1"
-    prosemirror-keymap "^1.2.3"
-    prosemirror-model "^1.25.2"
-    prosemirror-state "^1.4.3"
-    prosemirror-view "^1.40.1"
-    react-colorful "^5.6.1"
-    react-day-picker "^8.10.1"
-    react-draggable "^4.4.6"
-    react-error-boundary "^4.1.2"
-    tailwind-merge "^3.3.0"
-
 "@rowsncolumns/ui@^8.0.16":
   version "8.0.16"
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/ui/8.0.16/03ed89039fb95895d2d5f2772fcb21d33d561811#03ed89039fb95895d2d5f2772fcb21d33d561811"
@@ -2369,15 +2328,7 @@
     react-error-boundary "^4.1.2"
     tailwind-merge "^3.3.0"
 
-"@rowsncolumns/utils@^7.0.12":
-  version "7.0.14"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/utils/7.0.14/73d4791dbad43e0b8a815ee264e8161da729bd67#73d4791dbad43e0b8a815ee264e8161da729bd67"
-  integrity sha512-/vkLEjya/NCUKzk6YykHvAh+ygD0sww3XdDPhf8Pxpz4tIjHHyd1nxdvEPH3lOZ8L17CqzjqFc9nEkvfwvAM8w==
-  dependencies:
-    "@rowsncolumns/common-types" "^3.0.14"
-    numfmt "^3.2.2"
-
-"@rowsncolumns/utils@^7.0.15":
+"@rowsncolumns/utils@^7.0.12", "@rowsncolumns/utils@^7.0.15":
   version "7.0.15"
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/utils/7.0.15/0c72c293ca1fbd2e09a3d5989573cc6a80f43be7#0c72c293ca1fbd2e09a3d5989573cc6a80f43be7"
   integrity sha512-id4OG0dc83+NQgnl4eWYrwcX7PYfSAnnKQnh9Fl7wG5+3EJWlbllMCWjw8L6riI/TRF6Tamw8IGaqTOzVgNoBQ==

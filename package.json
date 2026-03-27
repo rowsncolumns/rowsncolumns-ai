@@ -48,7 +48,7 @@
     "@rowsncolumns/sharedb": "^1.0.22",
     "@rowsncolumns/spreadsheet": "^8.0.24",
     "@rowsncolumns/spreadsheet-state": "^21.0.44",
-    "@rowsncolumns/ui": "^8.0.13",
+    "@rowsncolumns/ui": "^8.0.16",
     "@rowsncolumns/utils": "^7.0.12",
     "canvas": "^3.2.2",
     "clsx": "^2.1.1",
