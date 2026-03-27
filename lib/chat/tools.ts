@@ -501,7 +501,7 @@ const handleSpreadsheetCreateSheet = async (
           });
         }
 
-        const spreadsheet = createSpreadsheetInterface(data);
+        const spreadsheet = createSpreadsheetInterface(data, false);
 
         if (!isNil(activeSheetId)) {
           spreadsheet.activeSheetId = activeSheetId;
@@ -728,7 +728,7 @@ const handleSpreadsheetUpdateSheet = async (
           });
         }
 
-        const spreadsheet = createSpreadsheetInterface(data);
+        const spreadsheet = createSpreadsheetInterface(data, false);
 
         // Build sheet spec for updateSheet
         const spec: Partial<Sheet> = {};
@@ -1009,7 +1009,7 @@ const handleSpreadsheetGetSheetMetadata = async (
         });
       }
 
-      const spreadsheet = createSpreadsheetInterface(data);
+      const spreadsheet = createSpreadsheetInterface(data, false);
       const sheetId = inputSheetId ?? 1;
       const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
 
@@ -1523,7 +1523,7 @@ const handleSpreadsheetModifyRowsCols = async (
           });
         }
 
-        const spreadsheet = createSpreadsheetInterface(data);
+        const spreadsheet = createSpreadsheetInterface(data, false);
         let message = "";
 
         if (action === "insert") {
@@ -1673,7 +1673,7 @@ const handleSpreadsheetQueryRange = async (
         });
       }
 
-      const spreadsheet = createSpreadsheetInterface(data);
+      const spreadsheet = createSpreadsheetInterface(data, false);
       const results: Array<{
         range: string;
         layer: string;
@@ -2127,7 +2127,7 @@ const handleSpreadsheetReadDocument = async (
         });
       }
 
-      const spreadsheet = createSpreadsheetInterface(data);
+      const spreadsheet = createSpreadsheetInterface(data, false);
       const sharedStrings = spreadsheet.sharedStrings;
 
       // Determine which sheets to read
@@ -2592,7 +2592,7 @@ const handleSpreadsheetGetRowColMetadata = async (
         return failTool("NO_DOCUMENT_DATA", "Document has no data");
       }
 
-      const spreadsheet = createSpreadsheetInterface(data);
+      const spreadsheet = createSpreadsheetInterface(data, false);
       const sheet = spreadsheet.sheets.find((item) => item.sheetId === sheetId);
 
       if (!sheet) {
@@ -2803,7 +2803,7 @@ const handleSpreadsheetSetRowColDimensions = async (
           return failTool("NO_DOCUMENT_DATA", "Document has no data");
         }
 
-        const spreadsheet = createSpreadsheetInterface(data);
+        const spreadsheet = createSpreadsheetInterface(data, false);
 
         // Apply the dimension change
         if (dimensionSpec.type === "autofit") {
@@ -2963,7 +2963,7 @@ const handleSpreadsheetDuplicateSheet = async (
           return failTool("NO_DOCUMENT_DATA", "Document has no data");
         }
 
-        const spreadsheet = createSpreadsheetInterface(data);
+        const spreadsheet = createSpreadsheetInterface(data, false);
 
         // Check if source sheet exists
         const sourceSheet = spreadsheet.sheets.find(
@@ -3364,7 +3364,7 @@ const handleSpreadsheetInsertNote = async (
           return failTool("NO_DOCUMENT_DATA", "Document has no data");
         }
 
-        const spreadsheet = createSpreadsheetInterface(data);
+        const spreadsheet = createSpreadsheetInterface(data, false);
 
         // Parse cell from A1 notation with sheet name support
         const cellParsed = parseRangeWithSheetName(
@@ -4308,7 +4308,7 @@ const handleSpreadsheetChart = async (
           if (!data)
             return failTool("NO_DOCUMENT_DATA", "Document has no data");
 
-          const spreadsheet = createSpreadsheetInterface(data);
+          const spreadsheet = createSpreadsheetInterface(data, false);
 
           // Parse domain range with potential sheet name
           const domainParsed = parseRangeWithSheetName(
@@ -4440,7 +4440,7 @@ const handleSpreadsheetChart = async (
           if (!data)
             return failTool("NO_DOCUMENT_DATA", "Document has no data");
 
-          const spreadsheet = createSpreadsheetInterface(data);
+          const spreadsheet = createSpreadsheetInterface(data, false);
           const charts = spreadsheet.charts || [];
           const chart = charts.find((c) => String(c.chartId) === chartId);
 
@@ -4583,7 +4583,7 @@ const handleSpreadsheetChart = async (
           if (!data)
             return failTool("NO_DOCUMENT_DATA", "Document has no data");
 
-          const spreadsheet = createSpreadsheetInterface(data);
+          const spreadsheet = createSpreadsheetInterface(data, false);
           const charts = spreadsheet.charts || [];
           const chart = charts.find((c) => String(c.chartId) === chartId);
 
@@ -4701,7 +4701,7 @@ const handleSpreadsheetDataValidation = async (
           if (!data)
             return failTool("NO_DOCUMENT_DATA", "Document has no data");
 
-          const spreadsheet = createSpreadsheetInterface(data);
+          const spreadsheet = createSpreadsheetInterface(data, false);
           let validations = spreadsheet.dataValidations || [];
 
           // Filter by sheetId if provided - use type assertion
@@ -4789,7 +4789,7 @@ const handleSpreadsheetDataValidation = async (
           if (!data)
             return failTool("NO_DOCUMENT_DATA", "Document has no data");
 
-          const spreadsheet = createSpreadsheetInterface(data);
+          const spreadsheet = createSpreadsheetInterface(data, false);
 
           // Parse range with sheet name support
           const rangeParsed = parseRangeWithSheetName(

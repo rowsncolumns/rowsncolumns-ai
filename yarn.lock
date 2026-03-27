@@ -2244,10 +2244,10 @@
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.23/4ac69e3c2f2da097920809324a09c162df67050d#4ac69e3c2f2da097920809324a09c162df67050d"
   integrity sha512-V9/OddTUdfCOzcKzL/WJkpGzWTGwxnT9saM5olKzXiA532ke7ne6tvp0mrE39I2ULp3ajRxTh1Lnn8fBBYNyOw==
 
-"@rowsncolumns/spreadsheet-state@^21.0.44":
-  version "21.0.44"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.44/c558142ce004e18b51dbe45ba29da1dbd9f04e35#c558142ce004e18b51dbe45ba29da1dbd9f04e35"
-  integrity sha512-Hv/Tjsn//bLmeqkG7jPhuf0oce2PF9wFmvZhODxVjmt6lzLr9dvwowSOl9Q1yuCED9DkypGiYaoUhqjhuCUpKQ==
+"@rowsncolumns/spreadsheet-state@^21.0.45":
+  version "21.0.45"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet-state/21.0.45/90aebc6a021f82cdf20de8869d5903bb86dee6d7#90aebc6a021f82cdf20de8869d5903bb86dee6d7"
+  integrity sha512-JZ7vwCbyat35CbefHD0U3fVz+S/xcYH6Tcof9dj2ZRzP+HprDX/80PHtESPUa2J8bgbs9Vaac5DLrfFb3kMjxA==
   dependencies:
     "@rowsncolumns/calculation-worker" "^2.0.16"
     "@rowsncolumns/date-parser" "^5.0.15"
@@ -2328,7 +2328,7 @@
     react-error-boundary "^4.1.2"
     tailwind-merge "^3.3.0"
 
-"@rowsncolumns/utils@^7.0.12", "@rowsncolumns/utils@^7.0.15":
+"@rowsncolumns/utils@^7.0.15":
   version "7.0.15"
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/utils/7.0.15/0c72c293ca1fbd2e09a3d5989573cc6a80f43be7#0c72c293ca1fbd2e09a3d5989573cc6a80f43be7"
   integrity sha512-id4OG0dc83+NQgnl4eWYrwcX7PYfSAnnKQnh9Fl7wG5+3EJWlbllMCWjw8L6riI/TRF6Tamw8IGaqTOzVgNoBQ==

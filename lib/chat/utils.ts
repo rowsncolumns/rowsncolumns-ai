@@ -405,6 +405,7 @@ export const cellsToCitations = (
  */
 export const createSpreadsheetInterface = (
   data: ShareDBSpreadsheetDoc<SpreadsheetCellData>,
+  rebuildGraph = true,
 ) => {
   const spreadsheet = new Spreadsheet({
     createCalculationWorker: () =>
@@ -430,7 +431,9 @@ export const createSpreadsheetInterface = (
   );
 
   // Rebuild graph
-  spreadsheet.rebuildGraph();
+  if (rebuildGraph) {
+    spreadsheet.rebuildGraph();
+  }
 
   return spreadsheet;
 };
