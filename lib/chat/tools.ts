@@ -395,88 +395,23 @@ const handleSpreadsheetChangeBatch = async (
  */
 export const spreadsheetChangeBatchTool = tool(handleSpreadsheetChangeBatch, {
   name: "spreadsheet_changeBatch",
-  description: `Write data into a rectangular region of a spreadsheet.
+  description: `Write data to a rectangular range.
 
-OVERVIEW:
-This tool writes a 2D grid of cell data into a sheet at a specified range using A1 notation. It only edits the cells covered by the provided cells array — no other part of the sheet is changed. The sheet automatically expands if needed.
+RULES:
+- range: A1 notation (e.g., "A1:C3"). Dimensions MUST match cells array.
+- cells: 2D array of rows. Each cell: {value?, formula?, citation?} or {} to skip.
+- Write values BEFORE formulas that reference them.
+- Batch multiple rows per call. For sequences, use auto-fill instead.
+- citation: URL with optional ?excerpt= for source tracking.
+- To display formula as text: {"value": "'=SUM(4,4)"} (leading apostrophe)
 
-WHEN TO USE THIS TOOL:
-- Writing tabular data into a spreadsheet
-- Filling in or updating a block of cells
-- Creating or overwriting tables with headers + rows
-- Inserting form/template values into a known range
-- Updating cells with formulas or static values
-- Updating a single cell or a multi-cell region
-
-CRITICAL RULES:
-1. Range uses A1 notation (e.g., 'A1:C3', 'B2:D5').
-2. 'cells' must be a 2D array: list of rows. Dimensions MUST match the range.
-3. Each cell object can have 'value', 'formula', and/or 'citation' (or be empty {}).
-4. Use empty objects {} for blank cells you want to skip.
-5. Only the target range is modified — never affects data outside.
-6. IMPORTANT: Write data values BEFORE formulas that reference them.
-   If a formula references cell B5, make sure B5 has a value first.
-7. FORMULA ERRORS: When you see errors in formulaResults (e.g., #ERROR!, #REF!, #NAME?, #VALUE!, #DIV/0!, #NULL!, #N/A), you MUST attempt to fix them:
-   - #REF!: Formula references a cell that was deleted or moved. Update the reference.
-   - #NAME?: Unrecognized function or named range. Check spelling.
-   - #VALUE!: Wrong type of argument. Ensure numbers aren't stored as text.
-   - #DIV/0!: Division by zero. Add a check like =IF(B1=0, 0, A1/B1).
-   - #N/A: Value not found in lookup. Verify the lookup value exists.
-   - #ERROR!: General error. Review the formula syntax and cell references.
-   Never leave formula errors unaddressed - always investigate and fix them.
-8. PREFER FORMULAS: When referencing data from other cells, creating financial models, or building tabular content, prefer using formulas over hardcoded values. Formulas ensure data stays in sync and calculations update automatically.
-9. BATCHING: Prefer combining multiple rows into a single tool call rather than making separate calls for each row. Use your judgment on batch size based on the data.
-10. USE APPLYFILL FOR SEQUENCES: When writing sequential patterns (1, 2, 3... or Jan, Feb, Mar... or dates), DO NOT manually list each value. Instead:
-    - Write only the first 1-2 values to establish the pattern
-    - Use spreadsheet_applyFill to extend the sequence automatically
-    Example: For "Fiscal Month 1, 2, 3...12" across B5:M5:
-      Step 1: Write range "B5:C5" with cells [[{"value": 1}, {"value": 2}]]
-      Step 2: applyFill with sourceRange "B5:C5", fillRange "D5:M5" (starts at D, NOT B!)
-    This saves tokens and is more efficient than listing all 12 values.
-11. CITATIONS: Use the 'citation' field to track data sources. Citations MUST be accompanied by a 'value' or 'formula'.
-    - Format: URL with optional 'excerpt' query param for scroll-to-text highlighting
-    - Example: "https://example.com/report.pdf?excerpt=Q3%20revenue%20was%20%2412M"
-12. DISPLAYING RAW FORMULAS AS TEXT: To show a formula as literal text (not evaluated), prefix the value with an apostrophe.
-    - Use the 'value' field (not 'formula') with a leading apostrophe
-    - Example: {"value": "'=SUM(4,4)"} displays the text "=SUM(4,4)" instead of calculating 8
-    - The apostrophe is not displayed in the cell, it just prevents formula evaluation
-
-EXAMPLES:
-
-Example 1 — Write a table with values and formulas at A1:D4:
-  range: "A1:D4"
-  cells: [
-    [{"value": "Item"}, {"value": "Qty"}, {"value": "Price"}, {"value": "Total"}],
-    [{"value": "Apples"}, {"value": 10}, {"value": 1.5}, {"formula": "=B2*C2"}],
-    [{"value": "Oranges"}, {"value": 5}, {"value": 2.0}, {"formula": "=B3*C3"}],
-    [{"value": "Grand Total"}, {}, {}, {"formula": "=SUM(D2:D3)"}]
-  ]
-
-Example 2 — Update a single cell with a formula:
-  range: "B10"
-  cells: [[{"formula": "=SUM(B1:B9)"}]]
-
-Example 3 — Fill a row with values:
-  range: "A1:C1"
-  cells: [[{"value": "Name"}, {"value": "Age"}, {"value": "City"}]]
-
-Example 4 — Create a financial calculation block:
-  range: "A1:B5"
-  cells: [
-    [{"value": "Revenue"}, {"value": 100000}],
-    [{"value": "Costs"}, {"value": 60000}],
-    [{"value": "Gross Profit"}, {"formula": "=B1-B2"}],
-    [{"value": "Tax Rate"}, {"value": 0.25}],
-    [{"value": "Net Profit"}, {"formula": "=B3*(1-B4)"}]
-  ]
-
-Example 5 — Write values with citations to track data sources:
-  range: "A1:B3"
-  cells: [
-    [{"value": "Metric"}, {"value": "Value"}],
-    [{"value": "Q3 Revenue"}, {"value": 12000000, "citation": "https://example.com/annual-report.pdf?excerpt=Q3%20revenue%20was%20%2412M"}],
-    [{"value": "Growth Rate"}, {"value": 0.15, "citation": "https://example.com/analysis.pdf?excerpt=15%25%20year-over-year%20growth"}]
-  ]`,
+EXAMPLE:
+range: "A1:C3"
+cells: [
+  [{"value": "Item"}, {"value": "Qty"}, {"value": "Total"}],
+  [{"value": "Apples"}, {"value": 10}, {"formula": "=B2*2"}],
+  [{"value": "Sum"}, {}, {"formula": "=SUM(C2:C2)"}]
+]`,
   schema: SpreadsheetChangeBatchSchema,
 });
 
@@ -650,48 +585,16 @@ const handleSpreadsheetCreateSheet = async (
  */
 export const spreadsheetCreateSheetTool = tool(handleSpreadsheetCreateSheet, {
   name: "spreadsheet_createSheet",
-  description: `Create a new sheet (tab) in a spreadsheet document.
+  description: `Create a new sheet (tab).
 
-OVERVIEW:
-This tool creates a new sheet/tab in an existing spreadsheet. You can optionally configure the sheet's properties like title, frozen rows/columns, tab color, and more.
+PARAMS:
+- title: sheet name
+- frozenRowCount, frozenColumnCount: freeze panes
+- tabColor: "#4285F4" or {theme: 4, tint: 0.4}
+- merges: ["A1:C1"] for merged cells
+- hideRows: [2,3], hideCols: ["A","B"]
 
-WHEN TO USE THIS TOOL:
-- Adding a new worksheet to organize data separately
-- Creating a dedicated sheet for charts, summaries, or reports
-- Setting up multi-sheet workbooks
-
-EXAMPLES:
-
-Example 1 — Create a simple sheet with default settings:
-  docId: "abc123"
-
-Example 2 — Create a named sheet with frozen header row:
-  docId: "abc123"
-  title: "Sales Report"
-  frozenRowCount: 1
-
-Example 3 — Create a colored sheet with hex color:
-  docId: "abc123"
-  title: "Dashboard"
-  frozenRowCount: 2
-  frozenColumnCount: 1
-  tabColor: "#4285F4"
-
-Example 4 — Create a sheet with theme-based color:
-  docId: "abc123"
-  title: "Summary"
-  tabColor: { "theme": 4, "tint": 0.4 }
-
-Example 5 — Create a sheet with merged cells:
-  docId: "abc123"
-  title: "Report"
-  merges: ["A1:C1", "A2:A5"]
-
-Example 6 — Create a sheet with hidden rows/columns:
-  docId: "abc123"
-  title: "Data"
-  hideRows: [2, 3, 4]
-  hideCols: ["A", "B"]`,
+EXAMPLE: title: "Sales Report", frozenRowCount: 1`,
   schema: SpreadsheetCreateSheetSchema,
 });
 
@@ -942,72 +845,18 @@ const handleSpreadsheetUpdateSheet = async (
  */
 export const spreadsheetUpdateSheetTool = tool(handleSpreadsheetUpdateSheet, {
   name: "spreadsheet_updateSheet",
-  description: `Update an existing sheet (tab) in a spreadsheet document.
+  description: `Update existing sheet properties.
 
-OVERVIEW:
-This tool updates properties of an existing sheet/tab. Use this to change sheet title, tab color, frozen rows/columns, merges, and hide/show rows/columns.
+PARAMS:
+- title: rename sheet
+- tabColor: "#4285F4" or null to remove
+- frozenRowCount, frozenColumnCount
+- merges: ["A1:C1"], removeMerges: ["A1:C1"]
+- hideRows: [2,3], showRows: [2,3]
+- hideCols: ["A"], showCols: ["A"]
+- hidden: true/false
 
-WHEN TO USE THIS TOOL:
-- Renaming a sheet tab
-- Changing tab color
-- Setting frozen rows/columns
-- Adding or modifying cell merges (use A1 notation)
-- Hiding/showing rows or columns
-- Showing/hiding grid lines
-- Hiding/unhiding a sheet
-
-EXAMPLES:
-
-Example 1 — Rename a sheet:
-  docId: "abc123"
-  sheetId: 1
-  title: "Q1 Sales"
-
-Example 2 — Change tab color:
-  docId: "abc123"
-  sheetId: 1
-  tabColor: "#4285F4"
-
-Example 3 — Remove tab color:
-  docId: "abc123"
-  sheetId: 1
-  tabColor: null
-
-Example 4 — Freeze header row and first column:
-  docId: "abc123"
-  sheetId: 1
-  frozenRowCount: 1
-  frozenColumnCount: 1
-
-Example 5 — Merge cells using A1 notation:
-  docId: "abc123"
-  sheetId: 1
-  merges: ["A1:C1", "A2:A5", "D3:F3"]
-
-Example 6 — Remove existing merges:
-  docId: "abc123"
-  sheetId: 1
-  removeMerges: ["A1:C1", "D3:F3"]
-
-Example 7 — Hide specific rows:
-  docId: "abc123"
-  sheetId: 1
-  hideRows: [2, 3, 4, 5]
-
-Example 8 — Show previously hidden rows:
-  docId: "abc123"
-  sheetId: 1
-  showRows: [2, 3]
-
-Example 9 — Hide columns A and B:
-  docId: "abc123"
-  sheetId: 1
-  hideCols: ["A", "B"]
-
-Example 10 — Show hidden columns:
-  docId: "abc123"
-  sheetId: 1
-  showCols: ["A", "B", "C"]`,
+EXAMPLE: sheetId: 1, title: "Q1 Sales", frozenRowCount: 1`,
   schema: SpreadsheetUpdateSheetSchema,
 });
 
@@ -1098,36 +947,9 @@ export const spreadsheetGetSheetMetadataTool = tool(
   handleSpreadsheetGetSheetMetadata,
   {
     name: "spreadsheet_getSheetMetadata",
-    description: `Get metadata for a specific sheet (tab) in a spreadsheet.
+    description: `Get sheet properties (title, frozen rows/cols, tab color, merges, visibility). Does not include row/column sizes.
 
-OVERVIEW:
-Returns sheet properties including title, frozen rows/columns, tab color, merges (in A1 notation), visibility, and grid line settings. Does NOT include row/column metadata (sizes, hidden state).
-
-WHEN TO USE THIS TOOL:
-- To check current sheet settings before making updates
-- To get list of merged cell ranges
-- To verify frozen rows/columns configuration
-- To check if a sheet is hidden
-
-RETURNS:
-- sheetId: The sheet ID
-- title: Sheet name
-- hidden: Whether the sheet is hidden
-- frozenRowCount: Number of frozen rows
-- frozenColumnCount: Number of frozen columns
-- showGridLines: Whether grid lines are visible
-- tabColor: Tab color (hex string or theme reference)
-- merges: Array of merged ranges in A1 notation (e.g., ["A1:C1", "D3:F5"])
-- index: Sheet order/position
-
-EXAMPLES:
-
-Example 1 — Get metadata for sheet 1:
-  docId: "abc123"
-  sheetId: 1
-
-Example 2 — Get metadata for default sheet:
-  docId: "abc123"`,
+RETURNS: {sheetId, title, hidden, frozenRowCount, frozenColumnCount, showGridLines, tabColor, merges: ["A1:C1"], index}`,
     schema: SpreadsheetGetSheetMetadataSchema,
   },
 );
@@ -1422,59 +1244,23 @@ const handleSpreadsheetFormatRange = async (
  */
 export const spreadsheetFormatRangeTool = tool(handleSpreadsheetFormatRange, {
   name: "spreadsheet_formatRange",
-  description: `Apply visual formatting to a rectangular region of a spreadsheet.
+  description: `Apply visual formatting to a range.
 
-CELL STRUCTURE (CRITICAL):
-Each cell MUST use the "cellStyles" wrapper. This is required:
-  ✓ CORRECT: {"cellStyles": {"textFormat": {"bold": true}}}
-  ✗ WRONG:   {"textFormat": {"bold": true}}  // Missing cellStyles wrapper!
+STRUCTURE: cells is 2D array. Each cell MUST use "cellStyles" wrapper:
+  [[{"cellStyles": {"textFormat": {"bold": true}}}]]
+  Use {} for no changes. Single cell auto-expands to fill range.
 
-The cells parameter is a 2D array (rows of cells):
-  [[{"cellStyles": {...}}, {"cellStyles": {...}}], ...]
+CELLSTYLES:
+- textFormat: {bold, italic, underline, fontFamily, fontSize, color}
+- backgroundColor: "#FF0000" or {theme: 4, tint: 0.2}
+- borders: {top,right,bottom,left}: {style: "thin"|"medium"|"thick"|"double", color}
+- numberFormat: {type: "NUMBER"|"CURRENCY"|"PERCENT"|"DATE", pattern}
+- horizontalAlignment: "left"|"center"|"right"
+- verticalAlignment: "top"|"middle"|"bottom"
 
-Use {} for cells with no formatting changes.
-
-CELLSTYLES PROPERTIES:
-- textFormat: {bold, italic, underline, strikethrough, fontFamily, fontSize, color}
-- backgroundColor: Hex string '#FF0000' or theme {theme: 4, tint: 0.2}
-- borders: {top, right, bottom, left} each with {style, color}
-  - styles: "thin", "medium", "thick", "dashed", "dotted", "double"
-- numberFormat: {type, pattern} - types: NUMBER, CURRENCY, PERCENT, DATE
-- horizontalAlignment: 'left', 'center', 'right'
-- verticalAlignment: 'top', 'middle', 'bottom'
-- wrapStrategy: 'overflow', 'wrap', 'clip'
-
-AUTO-EXPANSION:
-If you provide exactly ONE cell [[{"cellStyles": {...}}]], it auto-expands to fill the entire range.
-Useful for applying uniform formatting. Only use for header-only or totals-only ranges when bolding.
-
-FORMATTING STANDARDS:
-- Headers: bold, center-align, bottom border
-- Numbers: right-align, #,##0 format
-- Currency: '$#,##0.00', right-align
-- Totals: bold with top border (double for accounting style)
-- Data cells: regular weight (non-bold) unless emphasis requested
-
-EXAMPLES:
-
-Example 1 — Bold header row with border (auto-expansion):
-  range: "A1:D1"
-  cells: [[{"cellStyles": {"textFormat": {"bold": true}, "borders": {"bottom": {"style": "medium", "color": "#000000"}}}}]]
-
-Example 2 — Format 2x2 range with different styles:
-  range: "A1:B2"
-  cells: [
-    [{"cellStyles": {"backgroundColor": "#E8E8E8"}}, {"cellStyles": {"backgroundColor": "#E8E8E8"}}],
-    [{"cellStyles": {"textFormat": {"italic": true}}}, {}]
-  ]
-
-Example 3 — Totals row with double top border:
-  range: "A10:D10"
-  cells: [[{"cellStyles": {"textFormat": {"bold": true}, "borders": {"top": {"style": "double", "color": "#000000"}}}}]]
-
-Example 4 — Theme colors:
-  cells: [[{"cellStyles": {"backgroundColor": {"theme": 4}, "borders": {"bottom": {"color": {"theme": 1, "tint": -0.25}}}}}]]
-  // theme: 0-9 (accent colors), tint: -1 to 1 (darken/lighten)`,
+EXAMPLE:
+range: "A1:D1"
+cells: [[{"cellStyles": {"textFormat": {"bold": true}, "borders": {"bottom": {"style": "medium"}}}}]]`,
   schema: SpreadsheetFormatRangeSchema,
 });
 
@@ -1623,41 +1409,18 @@ export const spreadsheetModifyRowsColsTool = tool(
   handleSpreadsheetModifyRowsCols,
   {
     name: "spreadsheet_modifyRowsCols",
-    description: `Insert or delete rows/columns in a spreadsheet.
+    description: `Insert or delete rows/columns.
 
-OVERVIEW:
-Consolidated tool to insert or delete rows and columns. Use this instead of separate insert/delete tools.
-
-PARAMETERS:
-- action: "insert" or "delete"
-- dimension: "row" or "column"
-- For insert: provide index (where to insert) and count (how many, default 1)
-- For delete rows: provide indexes array of row numbers [1, 3, 5]
-- For delete columns: provide columns array of letters ["A", "C", "AA"]
+PARAMS:
+- action: "insert" | "delete"
+- dimension: "row" | "column"
+- insert: index (1-based position), count (default 1)
+- delete rows: indexes: [1, 3, 5]
+- delete columns: columns: ["A", "C"]
 
 EXAMPLES:
-
-Example 1 — Insert 3 rows at row 5:
-  action: "insert"
-  dimension: "row"
-  index: 5
-  count: 3
-
-Example 2 — Insert 2 columns at column B (index 2):
-  action: "insert"
-  dimension: "column"
-  index: 2
-  count: 2
-
-Example 3 — Delete rows 1, 3, and 5:
-  action: "delete"
-  dimension: "row"
-  indexes: [1, 3, 5]
-
-Example 4 — Delete columns A and C:
-  action: "delete"
-  dimension: "column"
-  columns: ["A", "C"]`,
+Insert 3 rows at row 5: {action: "insert", dimension: "row", index: 5, count: 3}
+Delete rows 1,3,5: {action: "delete", dimension: "row", indexes: [1, 3, 5]}`,
     schema: SpreadsheetModifyRowsColsSchema,
   },
 );
@@ -1945,70 +1708,18 @@ const handleSpreadsheetQueryRange = async (
  */
 export const spreadsheetQueryRangeTool = tool(handleSpreadsheetQueryRange, {
   name: "spreadsheet_queryRange",
-  description: `Query multiple ranges of cells from an  spreadsheet to get cell data.
+  description: `Query cell data from specific ranges. Use for reading before edits or validating changes.
 
-ROUTING GUIDANCE (PRIMARY TOOL FOR TARGETED READS):
-- Use this tool whenever the user asks for specific cells/ranges, even for a single sheet.
-- Use this tool for spot checks, validations after edits, and any scoped read.
-- Prefer this over spreadsheet_readDocument when the target range/sheet section is known.
-
-⚠️ CRITICAL: When querying based on a screenshot or visual inspection:
-• ALWAYS query the FULL visible range shown in the screenshot
-• If you see columns up to L in the screenshot, query through column L
-• If you see rows up to 50, query through row 50
-• Do NOT stop at the last column/row with visible data - query the entire visible grid
-• Empty cells are still valid cells that should be included in queries
-
-WHEN TO USE THIS TOOL:
-- Reading cell values before making modifications
-- Understanding the current state of a range
-- Getting formatting information to match existing styles
-- Validating data after changes
-
-PARAMETERS:
-- docId: The ID of the spreadsheet asset
-- items: List of range queries, each specifying:
-  - sheetId: (optional) The numeric sheet ID to query
-  - sheetName: (optional) The sheet name to query
-  - range: A1 notation range - MUST include sheet name prefix (e.g., "'Sheet 1'!A1:D10")
-  - layer: 'values' or 'formatting'
-
-⚠️ CRITICAL: Range MUST always include the sheet name prefix!
-  ❌ WRONG:  "A1:D10" (missing sheet name - ambiguous which sheet!)
-  ✓ CORRECT: "'Sheet 1'!A1:D10" (explicit sheet name)
-  ✓ CORRECT: "'Sales Data'!B2:F20" (sheet names with spaces need quotes)
+PARAMS:
+- items: [{sheetId?, range, layer: "values"|"formatting"}]
+- Use sheetId OR include sheet name in range: "'Sheet 1'!A1:D10"
 
 RETURNS:
-BatchOperationResponse with per-item results containing:
-- For 'values' layer: {"cells": {"A1": value, ...}}
-  Values are returned in one of three formats:
-  1. Plain value when formatted equals effective: "A1": "Hello" or "A1": 42
-  2. [formatted, effective] when formatting differs: "B1": ["$12.00", 12]
-  3. [formatted, effective, formula] for formula cells: "C1": ["200", 200, "=SUM(A1)"]
-  Example: {"cells": {"A1": "Income", "B1": ["$12.00", 12], "C1": ["200", 200, "=SUM(A1)"]}}
-- For 'formatting' layer: {"styles": {"A1": CellFormat, ...}}
-  Returns CellFormat objects with styling information (backgroundColor, textFormat, etc.)
+- values: {"cells": {"A1": value}} or {"A1": [formatted, effective, formula?]}
+- formatting: {"styles": {"A1": CellFormat}}
 
-EXAMPLES:
-
-Example 1 — Query values from a single range:
-  docId: "abc123"
-  items: [{"range": "'Sheet 1'!A1:D10", "layer": "values"}]
-
-Example 2 — Query multiple ranges from the same sheet:
-  docId: "abc123"
-  items: [
-    {"range": "'Sheet 1'!A1:D10", "layer": "values"},
-    {"range": "'Sheet 1'!A1:A10", "layer": "formatting"}
-  ]
-
-Example 3 — Query from multiple different sheets:
-  docId: "abc123"
-  items: [
-    {"range": "'Sheet 1'!A1:C20", "layer": "values"},
-    {"range": "'Sales Data'!B2:F10", "layer": "values"},
-    {"range": "'Summary'!A1:D5", "layer": "formatting"}
-  ]`,
+EXAMPLE:
+items: [{"sheetId": 1, "range": "A1:C10", "layer": "values"}]`,
   schema: SpreadsheetQueryRangeSchema,
 });
 
@@ -2111,13 +1822,9 @@ export const spreadsheetSetIterativeModeTool = tool(
   handleSpreadsheetSetIterativeMode,
   {
     name: "spreadsheet_setIterativeMode",
-    description: `Enable or disable iterative calculation mode.
+    description: `Enable or disable iterative calculation mode. Required for intentional circular references (LBO models, goal-seek).
 
-This tool updates iterative calculation settings used by the client spreadsheet instance.
-
-Args:
-  docId: The document ID of the spreadsheet.
-  enabled: Whether iterative mode is enabled.`,
+PARAMS: enabled: true/false`,
     schema: SpreadsheetSetIterativeModeSchema,
   },
 );
@@ -2418,80 +2125,16 @@ const handleSpreadsheetReadDocument = async (
  */
 export const spreadsheetReadDocumentTool = tool(handleSpreadsheetReadDocument, {
   name: "spreadsheet_readDocument",
-  description: `Read content from a spreadsheet and return values in a workbook format.
+  description: `Read spreadsheet content. Use for initial exploration; for targeted reads use query range instead.
 
-OVERVIEW:
-This tool reads cell data from a spreadsheet and returns it in a structured format. You can read all sheets, a specific sheet by ID or name, or a specific range within a sheet.
-
-ROUTING GUIDANCE (OVERVIEW-FIRST TOOL):
-- Use this tool for broad workbook or sheet exploration and structural understanding.
-- If the user asks for specific cells/ranges (targeted reads), use spreadsheet_queryRange instead.
-- Prefer spreadsheet_readDocument when deciding what ranges to query next, not for repeated scoped reads.
-
-WHEN TO USE THIS TOOL:
-- Getting an overview of the entire spreadsheet structure
-- Reading all data from one or more sheets
-- Understanding the layout and content of a workbook
-- Initial exploration of a spreadsheet before making modifications
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: Optional sheet ID to read from (1-based). If provided, takes priority over sheetName.
-- sheetName: Optional sheet name to read from. Used if sheetId is not provided.
-- range: Optional A1 notation range (e.g., 'A1:B10'). Only applies when sheetId or sheetName is provided.
+PARAMS:
+- docId (required)
+- sheetId or sheetName (optional): read specific sheet
+- range (optional): A1 notation, only with sheetId/sheetName
 
 RETURNS:
-JSON with workbook structure:
-{
-  "success": true,
-  "metadata": {
-    "totalSheets": 3,
-    "sheets": [
-      {"title": "Sheet1", "sheetId": 1, "rowCount": 14, "columnCount": 4},
-      {"title": "Sheet2", "sheetId": 2, "rowCount": 8, "columnCount": 3}
-    ]
-  },
-  "workbook": {
-    "sheets": [
-      {
-        "sheetName": "Sheet1",
-        "sheetId": 1,
-        "dimension": "A1:D14",
-        "cells": {
-          "A1": "value" or ["formatted", effective_value] or ["formatted", effective_value, formula]
-        },
-        "styles": {}
-      }
-    ]
-  }
-}
-
-The metadata object always includes ALL sheets in the workbook, even when reading a single sheet, providing full context about the workbook structure.
-
-Cell values are returned in one of three formats:
-- Plain value (string/number/boolean) when formatted equals effective
-- [formatted_value, effective_value] when formatting differs (e.g., currency)
-- [formatted_value, effective_value, formula] when cell has a formula
-
-Empty cells are ignored (not included in the cells object).
-
-EXAMPLES:
-
-Example 1 — Read all sheets:
-  docId: "abc123"
-
-Example 2 — Read specific sheet by ID:
-  docId: "abc123"
-  sheetId: 1
-
-Example 3 — Read specific sheet by name:
-  docId: "abc123"
-  sheetName: "Sales Report"
-
-Example 4 — Read specific range from a sheet:
-  docId: "abc123"
-  sheetId: 1
-  range: "A1:B10"`,
+- metadata: all sheets with {title, sheetId, rowCount, columnCount}
+- workbook.sheets[]: {sheetName, sheetId, dimension, cells: {"A1": value|[formatted,effective,formula?]}}`,
   schema: SpreadsheetReadDocumentSchema,
 });
 
@@ -2709,45 +2352,10 @@ export const spreadsheetGetRowColMetadataTool = tool(
   handleSpreadsheetGetRowColMetadata,
   {
     name: "spreadsheet_getRowColMetadata",
-    description: `Get row heights or column widths from sheet metadata.
+    description: `Get row heights or column widths. Read-only inspection before resizing.
 
-OVERVIEW:
-This is a read-only tool that returns row/column dimension metadata for a range.
-Use this before resizing to inspect current sizes and visibility flags.
-
-DEFAULT SIZES:
-- Default row height: 21px
-- Default column width: 100px
-- Returned sizes use pixels (sizeUnit = "px")
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (default: 1)
-- range: Row or column range (e.g., '1:5', 'A:G', 'A1:H1', 'B2:B20')
-- dimensionType: Optional disambiguation hint ('row' or 'column')
-
-RETURNS:
-{
-  "success": true,
-  "sheetId": 1,
-  "range": "A:C",
-  "dimensionType": "column",
-  "indexBase": 1,
-  "sizeUnit": "px",
-  "defaultSize": 100,
-  "count": 3,
-  "dimensions": [
-    {
-      "index": 1,
-      "a1Range": "A:A",
-      "size": 120,
-      "resizedByUser": true,
-      "hiddenByUser": false,
-      "hiddenByFilter": false,
-      "isDefaultSize": false
-    }
-  ]
-}`,
+Defaults: row height 21px, column width 100px. Returns dimensions array with size, visibility flags.
+Range formats: '1:5' (rows), 'A:G' (columns), 'A1:H1'. Use dimensionType to disambiguate if needed.`,
     schema: SpreadsheetGetRowColMetadataSchema,
   },
 );
@@ -2892,67 +2500,15 @@ export const spreadsheetSetRowColDimensionsTool = tool(
   handleSpreadsheetSetRowColDimensions,
   {
     name: "spreadsheet_setRowColMetadata",
-    description: `Set the width of columns or height of rows in a spreadsheet.
+    description: `Set column widths or row heights. Supports 'autofit' or fixed 'pixels'.
 
-Use this tool to adjust column widths or row heights. Supports autofit
-(automatically adjust to content) or fixed pixel sizes.
+Defaults: row 21px, column 100px.
 
-DEFAULT SIZES:
-- Default row height: 21px
-- Default column width: 100px
+CRITICAL: Size columns for DATA values, not headers. Long header + short values = narrow column (80-100px). Use text wrapping for long headers instead.
 
-IMPORTANT - Context-Aware Sizing:
-Before setting column widths, EXAMINE ALL DATA in the column (not just headers).
-The width should accommodate the TYPICAL DATA VALUES, not the longest header text.
+Width guidelines: short values 80-100px, medium 120-150px, long text 200-300px.
 
-Pixel Width Guidelines:
-- Short text/numbers (dates, IDs, small numbers): 80-100px
-- Medium text (names, short descriptions): 120-150px
-- Long text (descriptions, URLs): 200-300px
-- Currency/percentages: 80-100px
-
-Anti-Pattern Warning:
-DO NOT set wide columns (200px+) just because the header is long.
-If a column has a long header like 'Total Revenue for Q4 2024' but contains
-short values like '$1,234', use a narrow width (80-100px) for the data.
-
-Alternative for Long Headers:
-Instead of widening columns for long headers, consider using text wrapping
-(via spreadsheet_formatRange with wrapStrategy='wrap') to wrap header text
-within a narrower column.
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (default: 1)
-- range: A1 notation for columns (e.g., 'A:G') or rows (e.g., '1:5')
-- width: Width specification for columns (required when range is columns)
-  - type: 'autofit' or 'pixels'
-  - value: Size in pixels (required when type is 'pixels')
-- height: Height specification for rows (required when range is rows)
-  - type: 'autofit' or 'pixels'
-  - value: Size in pixels (required when type is 'pixels')
-
-EXAMPLES:
-
-Example 1 — Set columns A through G to 120 pixels wide:
-  docId: "abc123"
-  range: "A:G"
-  width: { "type": "pixels", "value": 120 }
-
-Example 2 — Set column B to autofit:
-  docId: "abc123"
-  range: "B:B"
-  width: { "type": "autofit" }
-
-Example 3 — Set rows 1 through 5 to 40 pixels tall:
-  docId: "abc123"
-  range: "1:5"
-  height: { "type": "pixels", "value": 40 }
-
-Example 4 — Set row 1 (header row) to a larger height:
-  docId: "abc123"
-  range: "1:1"
-  height: { "type": "pixels", "value": 30 }`,
+Use width for columns (range: 'A:G'), height for rows (range: '1:5').`,
     schema: SpreadsheetSetRowColDimensionsSchema,
   },
 );
@@ -3060,34 +2616,9 @@ export const spreadsheetDuplicateSheetTool = tool(
   handleSpreadsheetDuplicateSheet,
   {
     name: "spreadsheet_duplicateSheet",
-    description: `Copies an existing sheet to a new sheet in an  spreadsheet.
+    description: `Duplicate an existing sheet (copies all data, formatting, structure).
 
-OVERVIEW:
-This tool duplicates an existing sheet (tab) including all its data, formatting, and structure. The new sheet will be an exact copy of the source sheet.
-
-WHEN TO USE THIS TOOL:
-- Creating a backup copy of a sheet before making changes
-- Using an existing sheet as a template for a new sheet
-- Duplicating a sheet to create variations (e.g., monthly reports)
-
-IMPORTANT:
-- All indices are 1-based
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based) of the sheet to duplicate (default: 1)
-- newSheetId: Optional sheet ID for the new duplicated sheet. If not provided, one will be auto-generated.
-
-EXAMPLES:
-
-Example 1 — Duplicate the first sheet:
-  docId: "abc123"
-  sheetId: 1
-
-Example 2 — Duplicate a specific sheet with a specific new ID:
-  docId: "abc123"
-  sheetId: 2
-  newSheetId: 5`,
+PARAMS: sheetId (source, default 1), newSheetId (optional)`,
     schema: SpreadsheetDuplicateSheetSchema,
   },
 );
@@ -3253,105 +2784,21 @@ const handleSpreadsheetApplyFill = async (
  */
 export const spreadsheetApplyFillTool = tool(handleSpreadsheetApplyFill, {
   name: "spreadsheet_applyFill",
-  description: `Apply Excel-style fill operation to extend data patterns across a range.
+  description: `Extend data patterns (sequences, formulas, values) across a range. Prefer this over writing many values.
 
-OVERVIEW:
-This tool replicates Excel's fill functionality (drag-to-fill or Ctrl+D/Ctrl+R), automatically extending:
-• Values (copy same value)
-• Number sequences (1, 2, 3... or 10, 20, 30...)
-• Date sequences (incrementing days, months, years)
-• Formulas (adjusting cell references automatically)
-• Formatting from source cells to target cells
+CRITICAL: fillRange must NOT overlap sourceRange!
+- Fill DOWN: fillRange starts at row AFTER source ends
+- Fill RIGHT: fillRange starts at column AFTER source ends
 
-WHEN TO USE THIS TOOL (PREFER THIS OVER changeBatch FOR SEQUENCES):
-- Extending number sequences (1, 2, 3... or 10, 20, 30... or fiscal months 1-12)
-- Extending date sequences (Jan, Feb, Mar... or Q1, Q2, Q3...)
-- Copying formulas down/across with auto-adjusted references
-- Replicating values or formatting patterns
-- Creating series like months, weekdays, or custom patterns
+PARAMS:
+- sourceRange: pattern source (e.g., "A1:A2" with values 1,2)
+- fillRange: destination ONLY (e.g., "A3:A10" - NOT "A1:A10"!)
+- activeCell: top-left of source
 
-TOKEN EFFICIENCY:
-Instead of writing 12 values with changeBatch like:
-  cells: [[{"value": 1}, {"value": 2}, {"value": 3}, ... {"value": 12}]]
-Use this approach:
-  1. changeBatch: Write first 2 values to establish pattern (e.g., 1, 2 in B5:C5)
-  2. applyFill: Extend to remaining cells (sourceRange: "B5:C5", fillRange: "D5:M5")
+For >50 rows: split into multiple calls of ≤50 rows each.
 
-⚠️ CRITICAL - fillRange must NOT include sourceRange:
-- fillRange specifies ONLY the destination cells to be filled
-- For fill DOWN: fillRange starts at the row AFTER sourceRange ends
-- For fill RIGHT: fillRange starts at the column AFTER sourceRange ends
-
-WRONG vs CORRECT examples:
-
-Fill DOWN (extending row 12 to rows 13-22):
-  ❌ WRONG:  sourceRange: "A12:H12", fillRange: "A12:H22" (includes source row 12!)
-  ✓ CORRECT: sourceRange: "A12:H12", fillRange: "A13:H22" (starts at row 13)
-
-Fill DOWN (extending rows 1-2 pattern to rows 3-10):
-  ❌ WRONG:  sourceRange: "A1:A2", fillRange: "A1:A10" (includes source rows 1-2!)
-  ✓ CORRECT: sourceRange: "A1:A2", fillRange: "A3:A10" (starts at row 3)
-
-Fill RIGHT (extending columns A-B to columns C-F):
-  ❌ WRONG:  sourceRange: "A1:B1", fillRange: "A1:F1" (includes source columns A-B!)
-  ✓ CORRECT: sourceRange: "A1:B1", fillRange: "C1:F1" (starts at column C)
-
-⚠️ MANDATORY BATCHING FOR LARGE FILLS:
-- If fillRange spans MORE than 50 rows, you MUST split into multiple calls of ≤50 rows each
-- Example: To fill F3:F361 (359 rows), make 8 calls:
-  Call 1: fillRange "F3:F52" (50 rows)
-  Call 2: fillRange "F53:F102" (50 rows)
-  Call 3: fillRange "F103:F152" (50 rows)
-  Call 4: fillRange "F153:F202" (50 rows)
-  Call 5: fillRange "F203:F252" (50 rows)
-  Call 6: fillRange "F253:F302" (50 rows)
-  Call 7: fillRange "F303:F352" (50 rows)
-  Call 8: fillRange "F353:F361" (9 rows)
-- NEVER do a single fill of more than 50 rows - it will fail or timeout
-
-OTHER NOTES:
-- All indices are 1-based
-- The tool auto-detects patterns (numbers, dates, series)
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based, default: 1)
-- activeCell: A1 notation for the active cell, typically the top-left of the source (e.g., 'A1')
-- sourceRange: A1 notation for the source range containing the pattern (e.g., 'A1:A2')
-- fillRange: A1 notation for the DESTINATION cells only, NOT including the source (e.g., 'A3:A10')
-
-EXAMPLES:
-
-Example 1 — Fill down a number sequence (1, 2 in A1:A2 → fills 3, 4, 5 in A3:A5):
-  docId: "abc123"
-  sheetId: 1
-  activeCell: "A1"
-  sourceRange: "A1:A2"
-  fillRange: "A3:A5"
-
-Example 2 — Copy a formula down (formula in B2 → copy to B3:B10):
-  docId: "abc123"
-  activeCell: "B2"
-  sourceRange: "B2"
-  fillRange: "B3:B10"
-
-Example 3 — Fill right with a value (value in A1 → copy to B1:E1):
-  docId: "abc123"
-  activeCell: "A1"
-  sourceRange: "A1"
-  fillRange: "B1:E1"
-
-Example 4 — Extend a date series (Jan, Feb in A1:A2 → fills Mar, Apr... in A3:A12):
-  docId: "abc123"
-  activeCell: "A1"
-  sourceRange: "A1:A2"
-  fillRange: "A3:A12"
-
-Example 5 — Fill fiscal months 1-12 across row (1, 2 in B5:C5 → fills 3-12 in D5:M5):
-  docId: "abc123"
-  activeCell: "B5"
-  sourceRange: "B5:C5"
-  fillRange: "D5:M5"`,
+EXAMPLE (1,2 → 3,4,5...):
+sourceRange: "A1:A2", fillRange: "A3:A10", activeCell: "A1"`,
   schema: SpreadsheetApplyFillSchema,
 });
 
@@ -3455,42 +2902,11 @@ const handleSpreadsheetInsertNote = async (
  */
 export const spreadsheetInsertNoteTool = tool(handleSpreadsheetInsertNote, {
   name: "spreadsheet_insertNote",
-  description: `Insert, update, or remove a note (comment) on a cell.
+  description: `Add, update, or remove a cell note (visible on hover).
 
-OVERVIEW:
-This tool adds a note/comment to a specific cell. Notes are visible when hovering over the cell and can contain explanatory text, instructions, or comments.
+PARAMS: cell (A1 notation), note (text, omit to remove)
 
-WHEN TO USE THIS TOOL:
-- Adding explanatory notes to cells
-- Providing context or instructions for specific data
-- Leaving comments for collaborators
-- Removing existing notes (by omitting the note parameter)
-
-IMPORTANT:
-- All indices are 1-based
-- To remove a note, call without the note parameter or with an empty string
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based, default: 1)
-- cell: A1 notation for the cell (e.g., 'A1', 'B5')
-- note: The note text (optional - omit to remove existing note)
-
-EXAMPLES:
-
-Example 1 — Add a note to a cell:
-  docId: "abc123"
-  cell: "A1"
-  note: "This is the header row"
-
-Example 2 — Update an existing note:
-  docId: "abc123"
-  cell: "B5"
-  note: "Updated calculation method"
-
-Example 3 — Remove a note from a cell:
-  docId: "abc123"
-  cell: "A1"`,
+EXAMPLE: cell: "A1", note: "This is the header row"`,
   schema: SpreadsheetInsertNoteSchema,
 });
 
@@ -3570,28 +2986,9 @@ const handleSpreadsheetDeleteSheet = async (
 
 export const spreadsheetDeleteSheetTool = tool(handleSpreadsheetDeleteSheet, {
   name: "spreadsheet_deleteSheet",
-  description: `Delete a sheet from the spreadsheet.
+  description: `Delete a sheet permanently. Cannot delete the last sheet in a workbook.
 
-OVERVIEW:
-This tool permanently removes a sheet and all its contents from the workbook.
-
-WHEN TO USE THIS TOOL:
-- Removing unwanted sheets
-- Cleaning up temporary sheets
-- Reorganizing workbook structure
-
-WARNING:
-- This action is permanent and cannot be undone
-- All data, formatting, and charts on the sheet will be lost
-- Cannot delete the last remaining sheet in a workbook
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID to delete (required)
-
-EXAMPLE:
-  docId: "abc123"
-  sheetId: 2`,
+PARAMS: sheetId (required)`,
   schema: SpreadsheetDeleteSheetSchema,
 });
 
@@ -3918,42 +3315,13 @@ const handleSpreadsheetClearCells = async (
 
 export const spreadsheetClearCellsTool = tool(handleSpreadsheetClearCells, {
   name: "spreadsheet_clearCells",
-  description: `Clear cell values, formatting, or both from specified ranges.
+  description: `Clear cell values, formatting, or both (without deleting rows/columns).
 
-OVERVIEW:
-This tool clears contents and/or formatting from cells without deleting rows or columns. Choose what to clear: values only, formatting only, or both.
+PARAMS:
+- ranges: ["A1:B5", "D3:F10"]
+- clear: "values" | "formatting" | "all"
 
-WHEN TO USE:
-- Deleting data while preserving formatting (clear: "values")
-- Resetting formatting while keeping values (clear: "formatting")
-- Completely clearing ranges including both (clear: "all")
-- Removing unwanted formatting from imported data
-- Preparing cells before writing new data
-
-IMPORTANT:
-- This clears cell contents, not the cells themselves (use delete rows/columns for structural changes)
-- Cell values and formulas are removed when clearing "values" or "all"
-- Cell formatting (colors, borders, fonts, number formats) is removed when clearing "formatting" or "all"
-
-PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID (required)
-- ranges: Array of A1 notation ranges (e.g., ['A1:B5', 'D3:F10'])
-- clear: 'values' | 'formatting' | 'all'
-
-EXAMPLES:
-
-Example 1 — Clear values only (keep formatting):
-  sheetId: 1, ranges: ["A1:C10"], clear: "values"
-
-Example 2 — Clear formatting only (keep values):
-  sheetId: 1, ranges: ["A1:B5"], clear: "formatting"
-
-Example 3 — Clear everything:
-  sheetId: 1, ranges: ["A1:Z100"], clear: "all"
-
-Example 4 — Clear multiple ranges:
-  sheetId: 1, ranges: ["A1:B5", "D3:F10", "H1:H20"], clear: "values"`,
+EXAMPLE: sheetId: 1, ranges: ["A1:C10"], clear: "values"`,
   schema: SpreadsheetClearCellsSchema,
 });
 
@@ -4214,51 +3582,22 @@ const handleSpreadsheetTable = async (
 
 export const spreadsheetTableTool = tool(handleSpreadsheetTable, {
   name: "spreadsheet_table",
-  description: `Create, update, or delete tables in the spreadsheet.
-
-OVERVIEW:
-This tool converts a cell range into a structured table with headers, optional styling, and filtering capabilities. Tables support structured references in formulas (e.g., TableName[Column]).
-
-WHEN TO USE:
-- Converting raw data into a formatted table
-- Adding filter buttons to column headers
-- Applying alternating row colors (banding)
-- Creating calculated columns with formulas
-- Updating table properties or deleting tables
+  description: `Create, update, or delete tables. Tables add headers, filtering, and support structured references (TableName[Column]).
 
 ACTIONS:
-- create: sheetId, range, title (unique), columns required
-- update: sheetId, tableId or tableName required, plus properties to change
-- delete: sheetId, tableId required
+- create: sheetId, range, title (unique), columns [{name, formula?, filterButton?}]
+- update: sheetId, tableId or tableName, plus properties to change
+- delete: sheetId, tableId
 
-IMPORTANT:
-- The first row of the range becomes the header row
-- Table names must be unique within the workbook
-- When showRowStripes is true, you MUST also provide bandedRange
+PARAMS:
+- range: A1 notation (first row = headers)
+- title: unique table name
+- columns: [{name, formula?}] - formula uses structured refs like "=[Price]*[Qty]"
+- theme: "none"|"light"|"medium"|"dark"
+- showRowStripes: true (requires bandedRange)
 
-PARAMETERS:
-- range: A1 notation range (e.g., 'A1:D10')
-- title: Table name (required for create, must be unique)
-- columns: Column definitions [{name, formula?, filterButton?}]
-- theme: 'none' | 'light' | 'medium' | 'dark'
-- headerRow: Show header row (default: true)
-- totalRow: Show totals row (default: false)
-- showRowStripes: Enable alternating row colors (requires bandedRange)
-- bandedRange: Color definitions for row/column banding
-
-EXAMPLES:
-
-Example 1 — Simple table:
-  action: "create", sheetId: 1, range: "A1:C10", title: "SalesData", columns: [{name: "Product"}, {name: "Price"}, {name: "Quantity"}]
-
-Example 2 — Table with calculated column:
-  action: "create", sheetId: 1, range: "A1:D10", title: "Invoice", columns: [{name: "Item"}, {name: "Price"}, {name: "Qty"}, {name: "Total", formula: "=[Price]*[Qty]"}], theme: "medium"
-
-Example 3 — Update table theme:
-  action: "update", sheetId: 1, tableName: "Sales", theme: "dark"
-
-Example 4 — Delete table:
-  action: "delete", sheetId: 1, tableId: "tbl_123"`,
+EXAMPLE:
+action: "create", sheetId: 1, range: "A1:D10", title: "Sales", columns: [{name: "Item"}, {name: "Price"}, {name: "Qty"}, {name: "Total", formula: "=[Price]*[Qty]"}]`,
   schema: SpreadsheetTableSchema,
 });
 
@@ -4646,65 +3985,27 @@ const handleSpreadsheetChart = async (
 
 export const spreadsheetChartTool = tool(handleSpreadsheetChart, {
   name: "spreadsheet_chart",
-  description: `Create, update, or delete charts in the spreadsheet.
-
-OVERVIEW:
-This tool creates chart visualizations. You specify the domain (X-axis categories) and series (Y-axis data) explicitly.
-
-WHEN TO USE:
-- Creating bar, column, line, pie, or area charts
-- Visualizing tabular data
-- Updating chart titles, data ranges, or styling
-- Removing existing charts
+  description: `Create, update, or delete charts.
 
 ACTIONS:
 - create: sheetId, domain, series, chartType required
 - update: chartId required, plus properties to change
 - delete: chartId required
 
-IMPORTANT - DATA RANGES:
-- domain: Range for X-axis labels/categories (e.g., 'A2:A10'). Usually a single column. DO NOT include header row.
-- series: Array of ranges for data series (e.g., ['B2:B10', 'C2:C10']). Each range becomes a separate line/bar. DO NOT include header rows.
+CRITICAL: domain and series ranges must EXCLUDE header rows!
+- domain: X-axis categories (e.g., "A2:A10" - NOT "A1:A10")
+- series: Y-axis data arrays (e.g., ["B2:B10", "C2:C10"])
 
-CHART TYPES:
-1. 'bar' - Horizontal bars
-2. 'column' - Vertical bars (most common)
-3. 'line' - Line chart with points
-4. 'pie' - Circular pie chart
-5. 'area' - Filled area chart
-6. 'scatter' - XY scatter plot
+CHART TYPES: "bar"|"column"|"line"|"pie"|"area"|"scatter"
 
-PARAMETERS:
-- domain: A1 notation range for X-axis categories, excluding header (required)
-- series: Array of A1 notation ranges for data series, excluding headers (required)
-- chartType: Type of chart (required)
-- title: Chart title
-- subtitle: Chart subtitle
-- anchorCell: Where to place chart (e.g., 'F1')
-- width: Chart width in pixels (default: 400)
-- height: Chart height in pixels (default: 300)
-- stackedType: 'stacked' | 'percentStacked' | 'unstacked' (for bar/column/area, default: unstacked)
-- xAxisTitle: Horizontal axis title
-- yAxisTitle: Vertical axis title
+PARAMS:
+- anchorCell: chart position (e.g., "F1")
+- width/height: pixels (default 400x300)
+- stackedType: "stacked"|"percentStacked"|"unstacked"
+- title, subtitle, xAxisTitle, yAxisTitle
 
-EXAMPLES:
-
-Given data in A1:C5:
-  | Month | Sales | Profit |
-  | Jan   | 100   | 20     |
-  | Feb   | 150   | 35     |
-
-Example 1 — Column chart with two series:
-  action: "create", sheetId: 1, domain: "A2:A5", series: ["B2:B5", "C2:C5"], chartType: "column", title: "Monthly Performance"
-
-Example 2 — Line chart with single series:
-  action: "create", sheetId: 1, domain: "A2:A5", series: ["B2:B5"], chartType: "line", title: "Sales Trend", anchorCell: "E1"
-
-Example 3 — Update chart title:
-  action: "update", chartId: "chart_123", title: "New Title"
-
-Example 4 — Delete chart:
-  action: "delete", chartId: "chart_123"`,
+EXAMPLE:
+action: "create", sheetId: 1, domain: "A2:A5", series: ["B2:B5", "C2:C5"], chartType: "column", title: "Sales"`,
   schema: SpreadsheetChartSchema,
 });
 
@@ -5101,81 +4402,28 @@ export const spreadsheetDataValidationTool = tool(
   handleSpreadsheetDataValidation,
   {
     name: "spreadsheet_dataValidation",
-    description: `Create, update, delete, or query data validation rules.
-
-OVERVIEW:
-This tool adds input validation to cells, such as dropdown lists, number ranges, or custom formulas. Use action parameter for create/update/delete/query.
-
-WHEN TO USE:
-- Creating dropdown lists for user selection
-- Restricting input to numbers, dates, or custom formulas
-- Finding existing validation rules on a sheet
-- Updating or removing existing validation rules
+    description: `Create, update, delete, or query data validation (dropdowns, number/date constraints).
 
 ACTIONS:
 - create: sheetId, range, validationType required
-- update: sheetId, validationId required, plus properties to change
-- delete: sheetId, validationId required
-- query: optional sheetId/range filters to find existing rules
+- update: sheetId, validationId, plus properties to change
+- delete: sheetId, validationId
+- query: optional sheetId/range filters
 
 VALIDATION TYPES:
+- list: listValues: ["A","B","C"] OR listRange: "Sheet2!A1:A10"
+- number/wholeNumber: numberOperator + minValue/maxValue
+- date: dateOperator + minDate/maxDate
+- custom: customFormula (must return TRUE)
 
-1. LIST - Dropdown with predefined values:
-   validationType: "list"
-   listValues: ["Option1", "Option2", "Option3"]
-   OR
-   listRange: "Sheet2!A1:A10" (reference another range)
+Operators: "between"|"equal"|"greaterThan"|"lessThan"|etc.
 
-2. NUMBER - Numeric validation:
-   validationType: "number" (decimals allowed) or "wholeNumber" (integers only)
-   numberOperator: "between" | "notBetween" | "equal" | "notEqual" | "greaterThan" | "greaterThanOrEqual" | "lessThan" | "lessThanOrEqual"
-   minValue: 0
-   maxValue: 100
+OPTIONS: allowBlank, showDropdown, errorStyle ("stop"|"warning"|"information")
 
-3. DATE - Date validation:
-   validationType: "date"
-   dateOperator: "between" | "notBetween" | "equal" | "notEqual" | "before" | "onOrBefore" | "after" | "onOrAfter"
-   minDate: "2024-01-01"
-   maxDate: "2024-12-31"
+IMPORTANT: Use exact range specified. Don't expand "E1" to "E1:E100".
 
-4. CUSTOM - Formula-based validation:
-   validationType: "custom"
-   customFormula: "=A1>0" (must return TRUE for valid values)
-
-COMMON OPTIONS:
-- allowBlank: Allow empty cells (default: true)
-- showDropdown: Show dropdown arrow for lists (default: true)
-- errorStyle: "stop" (reject) | "warning" | "information"
-- errorTitle/errorMessage: Custom error dialog
-- inputTitle/inputMessage: Help text when cell is selected
-
-IMPORTANT: Use EXACTLY the range the user specifies. If they say "E1", use "E1" - do NOT expand to "E1:E100".
-
-EXAMPLES:
-
-Example 1 — Dropdown for a single cell:
-  action: "create", sheetId: 1, range: "E1", validationType: "list", listValues: ["Option1", "Option2"]
-
-Example 2 — Dropdown for a column range:
-  action: "create", sheetId: 1, range: "B2:B50", validationType: "list", listValues: ["Pending", "In Progress", "Done"]
-
-Example 3 — Number validation between range:
-  action: "create", sheetId: 1, range: "C5", validationType: "number", numberOperator: "between", minValue: 1, maxValue: 100
-
-Example 4 — Date validation:
-  action: "create", sheetId: 1, range: "D2:D50", validationType: "date", dateOperator: "between", minDate: "2024-01-01", maxDate: "2024-12-31"
-
-Example 5 — Custom formula validation:
-  action: "create", sheetId: 1, range: "A1:A10", validationType: "custom", customFormula: "=LEN(A1)<=50"
-
-Example 6 — Query existing validations:
-  action: "query", sheetId: 1
-
-Example 7 — Update validation:
-  action: "update", sheetId: 1, validationId: "val_123", listValues: ["New Option1", "New Option2"]
-
-Example 8 — Delete validation:
-  action: "delete", sheetId: 1, validationId: "val_123"`,
+EXAMPLE:
+action: "create", sheetId: 1, range: "B2:B50", validationType: "list", listValues: ["Pending", "Done"]`,
     schema: SpreadsheetDataValidationSchema,
   },
 );
@@ -5584,80 +4832,26 @@ export const spreadsheetConditionalFormatTool = tool(
     name: "spreadsheet_conditionalFormat",
     description: `Create, update, delete, or query conditional formatting rules.
 
-OVERVIEW:
-This tool applies visual formatting based on cell values or conditions. Use action parameter to create/update/delete/query rules.
-
-WHEN TO USE:
-- Highlighting cells based on value conditions (>, <, =, between, etc.)
-- Applying color scales/heatmaps to numeric data
-- Highlighting top/bottom N values or percentages
-- Highlighting duplicate or unique values
-- Updating or removing existing conditional format rules
-
 ACTIONS:
 - create: sheetId, range, ruleType required
-- update: sheetId, ruleId required, plus properties to change
-- delete: sheetId, ruleId required
-- query: optional sheetId/range filters to find existing rules
+- update: sheetId, ruleId, plus properties to change
+- delete: sheetId, ruleId
+- query: optional sheetId/range filters
 
 RULE TYPES:
+1. condition: conditionType + conditionValues + backgroundColor/textColor/bold/italic
+   conditionTypes: "greaterThan"|"lessThan"|"equal"|"between"|"textContains"|"blank"|"custom"
+   customFormula: "=A1>B1" (for custom only)
 
-1. CONDITION - Format cells based on value conditions:
-   ruleType: "condition"
-   conditionType: "greaterThan" | "greaterThanOrEqual" | "lessThan" | "lessThanOrEqual" | "equal" | "notEqual" | "between" | "notBetween" | "textContains" | "textNotContains" | "textStartsWith" | "textEndsWith" | "blank" | "notBlank" | "custom"
-   conditionValues: [50] or [10, 90] for between/notBetween
-   customFormula: "=A1>B1" (for custom type only)
-   backgroundColor: "#FFCCCC"
-   textColor: "#FF0000"
-   bold: true/false
-   italic: true/false
+2. colorScale: colorScaleType ("2color"|"3color") + minColor/midColor/maxColor
 
-2. COLOR SCALE - Gradient colors based on values:
-   ruleType: "colorScale"
-   colorScaleType: "2color" or "3color"
-   minColor: "#FF0000" (red for low values)
-   midColor: "#FFFF00" (yellow for mid, only for 3color)
-   maxColor: "#00FF00" (green for high values)
+3. topBottom: topBottomType ("top"|"bottom") + rank + isPercent + format
 
-3. TOP/BOTTOM - Highlight top or bottom values:
-   ruleType: "topBottom"
-   topBottomType: "top" or "bottom"
-   rank: 10 (number of items)
-   isPercent: true (top 10%) or false (top 10 items)
-   backgroundColor/textColor/bold/italic for format
-
-4. DUPLICATES - Highlight duplicate or unique values:
-   ruleType: "duplicates"
-   duplicateType: "duplicate" or "unique"
-   backgroundColor/textColor/bold/italic for format
-
-IMPORTANT: Use EXACTLY the range the user specifies.
+4. duplicates: duplicateType ("duplicate"|"unique") + format
 
 EXAMPLES:
-
-Example 1 — Highlight cells > 100 with red background:
-  action: "create", sheetId: 1, range: "C2:C50", ruleType: "condition", conditionType: "greaterThan", conditionValues: [100], backgroundColor: "#FFCCCC"
-
-Example 2 — 3-color scale (red → yellow → green):
-  action: "create", sheetId: 1, range: "D2:D50", ruleType: "colorScale", colorScaleType: "3color", minColor: "#FF0000", midColor: "#FFFF00", maxColor: "#00FF00"
-
-Example 3 — Highlight top 10%:
-  action: "create", sheetId: 1, range: "E2:E50", ruleType: "topBottom", topBottomType: "top", rank: 10, isPercent: true, backgroundColor: "#90EE90"
-
-Example 4 — Highlight duplicates:
-  action: "create", sheetId: 1, range: "A2:A100", ruleType: "duplicates", duplicateType: "duplicate", backgroundColor: "#FFB6C1"
-
-Example 5 — Custom formula (highlight if A > B):
-  action: "create", sheetId: 1, range: "A1:A100", ruleType: "condition", conditionType: "custom", customFormula: "=A1>B1", backgroundColor: "#FFFFCC"
-
-Example 6 — Query existing rules:
-  action: "query", sheetId: 1
-
-Example 7 — Update rule format:
-  action: "update", sheetId: 1, ruleId: "xyz789", backgroundColor: "#CCCCFF"
-
-Example 8 — Delete rule:
-  action: "delete", sheetId: 1, ruleId: "xyz789"`,
+Highlight >100: action:"create", sheetId:1, range:"C2:C50", ruleType:"condition", conditionType:"greaterThan", conditionValues:[100], backgroundColor:"#FFCCCC"
+Color scale: ruleType:"colorScale", colorScaleType:"3color", minColor:"#FF0000", midColor:"#FFFF00", maxColor:"#00FF00"`,
     schema: SpreadsheetConditionalFormatSchema,
   },
 );
