@@ -5038,10 +5038,10 @@ function AssistantComposer({
                 role="combobox"
                 aria-expanded={isReasoningPickerOpen}
                 className={cn(
-                  "inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-none transition",
+                  "inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-none transition text-foreground",
                   reasoningEnabled
                     ? "border-(--panel-border-strong) bg-(--assistant-chip-hover) text-foreground hover:bg-(--assistant-suggestion-hover) hover:text-foreground"
-                    : "rnc-assistant-chip border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground) hover:bg-(--assistant-chip-hover) hover:text-foreground",
+                    : "rnc-assistant-chip border-(--panel-border) bg-(--assistant-chip-bg) ",
                 )}
                 aria-label={`Reasoning ${reasoningEnabled ? "on" : "off"}`}
                 title={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
@@ -5049,9 +5049,7 @@ function AssistantComposer({
                 <Sparkles
                   className={cn(
                     "h-3.5 w-3.5 transition-colors",
-                    reasoningEnabled
-                      ? "text-(--accent)"
-                      : "text-(--muted-foreground)",
+                    reasoningEnabled ? "text-(--accent)" : "",
                   )}
                 />
               </IconButton>
