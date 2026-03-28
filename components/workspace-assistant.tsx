@@ -72,6 +72,7 @@ import {
   Sparkles,
   Trash2,
   X,
+  Edit,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
@@ -185,6 +186,7 @@ export type WorkspaceAssistantUIProps = {
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
   forceCompactHeader?: boolean;
+  onClose?: () => void;
 };
 type AssistantChatErrorPayload = {
   error?: string;
@@ -3912,7 +3914,7 @@ function NewSessionButton({
       aria-label="New session"
       title="Start new session"
     >
-      <RotateCcw className="h-3.5 w-3.5" />
+      <Edit className="h-3.5 w-3.5" />
       {!iconOnly && <span>New session</span>}
     </Button>
   );
@@ -4216,6 +4218,7 @@ type WorkspaceAssistantPanelProps = {
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
   forceCompactHeader?: boolean;
+  onClose?: () => void;
 };
 
 const ASSISTANT_TAGLINE =
@@ -4668,6 +4671,7 @@ function WorkspaceAssistantPanel({
   setReasoningEnabled,
   reasoningEnabledRef,
   forceCompactHeader = false,
+  onClose,
 }: WorkspaceAssistantPanelProps) {
   const assistantHeaderRef = React.useRef<HTMLDivElement | null>(null);
   const [isAssistantHeaderCompact, setIsAssistantHeaderCompact] =
@@ -4822,6 +4826,15 @@ function WorkspaceAssistantPanel({
               onNewSession={onNewSession}
             />
             <SkillsManagerButton iconOnly={isAssistantHeaderCompact} />
+            {onClose && (
+              <IconButton
+                tooltip="Minimize Assistant"
+                size="sm"
+                onClick={onClose}
+              >
+                <X className="h-4 w-4" />
+              </IconButton>
+            )}
           </div>
         </div>
         <p className="mt-1 text-sm leading-6 text-(--muted-foreground)">
@@ -4966,6 +4979,7 @@ export function WorkspaceAssistantUI({
   setReasoningEnabled,
   reasoningEnabledRef,
   forceCompactHeader,
+  onClose,
 }: WorkspaceAssistantUIProps) {
   return (
     <WorkspaceAssistantPanel
@@ -4989,6 +5003,7 @@ export function WorkspaceAssistantUI({
       setReasoningEnabled={setReasoningEnabled}
       reasoningEnabledRef={reasoningEnabledRef}
       forceCompactHeader={forceCompactHeader}
+      onClose={onClose}
     />
   );
 }

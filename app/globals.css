@@ -445,6 +445,48 @@ body.rnc-dark .hero-grid {
   animation: expand 0.2s ease-out;
 }
 
+/* Assistant bubble animations */
+@keyframes bubble-entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.8);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-bubble-entrance {
+  animation: bubble-entrance 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.assistant-bubble {
+  animation: none;
+}
+
+.assistant-bubble.animate-bubble-entrance {
+  animation: bubble-entrance 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.assistant-bubble:hover {
+  animation-play-state: paused;
+  box-shadow: 0 25px 50px -5px rgba(251, 146, 60, 0.5), 0 20px 25px -6px rgba(251, 146, 60, 0.4);
+  transform: translateY(-2px);
+}
+
+.assistant-bubble:hover .bubble-icon {
+  transform: rotate(-12deg) scale(1.1);
+}
+
+.assistant-bubble:active {
+  transform: translateY(0);
+  box-shadow: 0 10px 25px -5px rgba(251, 146, 60, 0.4), 0 8px 10px -6px rgba(251, 146, 60, 0.3);
+}
+
 /* Markdown prose styling */
 .prose {
   line-height: 1.6;

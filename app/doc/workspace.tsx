@@ -155,6 +155,7 @@ import { useShareDBSpreadsheet } from "@rowsncolumns/sharedb";
 import ShareDBClient from "sharedb/lib/client";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { selectionFromActiveCell } from "@rowsncolumns/grid";
+import { MessageSquare } from "lucide-react";
 
 const getShareDbUrl = () => {
   const configured = process.env.NEXT_PUBLIC_SHAREDB_URL?.trim();
@@ -1740,6 +1741,9 @@ export function NewWorkspace({
     initialIsMobileLayout,
   );
   const [mobileTab, setMobileTab] = useState<"chat" | "sheet">("chat");
+  const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [showAssistantBubbleEntrance, setShowAssistantBubbleEntrance] =
+    useState(false);
   // Create the assistant runtime at this level so both panes can use it
   const assistantRuntime = useSpreadsheetAssistantRuntime({
     docId: documentId,
@@ -1753,6 +1757,22 @@ export function NewWorkspace({
       ),
     [documentId],
   );
+
+  useEffect(() => {
+    if (!isAssistantCollapsed) {
+      setShowAssistantBubbleEntrance(false);
+      return;
+    }
+
+    setShowAssistantBubbleEntrance(true);
+    const timeoutId = window.setTimeout(() => {
+      setShowAssistantBubbleEntrance(false);
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isAssistantCollapsed]);
 
   const handleLayoutChanged = (layout: Record<string, number>) => {
     const spreadsheet = layout[SPREADSHEET_PANEL_ID];
@@ -1804,6 +1824,7 @@ export function NewWorkspace({
       setReasoningEnabled={assistantRuntime.setReasoningEnabled}
       reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
       forceCompactHeader={isMobileLayout}
+      onClose={() => setIsAssistantCollapsed(true)}
     />
   );
 
@@ -1875,33 +1896,54 @@ export function NewWorkspace({
                 </div>
               </Tabs>
             ) : (
-              <Group
-                id={PANEL_GROUP_ID}
-                orientation="horizontal"
-                defaultLayout={defaultLayout}
-                onLayoutChanged={handleLayoutChanged}
-                className="min-h-0 flex-1 flex"
-                resizeTargetMinimumSize={{ coarse: 32, fine: 16 }}
-              >
-                <Panel
-                  id={SPREADSHEET_PANEL_ID}
-                  className="min-w-0 flex flex-col relative"
+              <>
+                <Group
+                  id={PANEL_GROUP_ID}
+                  orientation="horizontal"
+                  defaultLayout={defaultLayout}
+                  onLayoutChanged={handleLayoutChanged}
+                  className="min-h-0 flex-1 flex"
+                  resizeTargetMinimumSize={{ coarse: 32, fine: 16 }}
                 >
-                  {spreadsheetPane}
-                </Panel>
-                <PanelSeparator className="group flex w-4 cursor-col-resize touch-none select-none items-center justify-center bg-transparent outline-none transition-colors hover:bg-black/5 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0">
-                  <div className="pointer-events-none flex h-12 w-1 items-center justify-center rounded-full bg-black/15 transition-colors duration-150 group-hover:bg-black/30" />
-                </PanelSeparator>
-                <Panel
-                  id={ASSISTANT_PANEL_ID}
-                  minSize={ASSISTANT_PANEL_MIN_WIDTH}
-                  maxSize={ASSISTANT_PANEL_DEFAULT_WIDTH}
-                  groupResizeBehavior="preserve-pixel-size"
-                  className="min-w-0"
-                >
-                  {assistantPane}
-                </Panel>
-              </Group>
+                  <Panel
+                    id={SPREADSHEET_PANEL_ID}
+                    className="min-w-0 flex flex-col relative"
+                  >
+                    {spreadsheetPane}
+                  </Panel>
+                  {!isAssistantCollapsed && (
+                    <>
+                      <PanelSeparator className="group flex w-4 cursor-col-resize touch-none select-none items-center justify-center bg-transparent outline-none transition-colors hover:bg-black/5 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0">
+                        <div className="pointer-events-none flex h-12 w-1 items-center justify-center rounded-full bg-black/15 transition-colors duration-150 group-hover:bg-black/30" />
+                      </PanelSeparator>
+                      <Panel
+                        id={ASSISTANT_PANEL_ID}
+                        minSize={ASSISTANT_PANEL_MIN_WIDTH}
+                        maxSize={ASSISTANT_PANEL_DEFAULT_WIDTH}
+                        groupResizeBehavior="preserve-pixel-size"
+                        className="min-w-0"
+                      >
+                        {assistantPane}
+                      </Panel>
+                    </>
+                  )}
+                </Group>
+                {/* Floating bubble when assistant is collapsed */}
+                {isAssistantCollapsed && (
+                  <button
+                    onClick={() => setIsAssistantCollapsed(false)}
+                    className={`assistant-bubble ${
+                      showAssistantBubbleEntrance
+                        ? "animate-bubble-entrance"
+                        : ""
+                    } fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-full bg-linear-to-br from-orange-400 to-orange-500 pl-4 pr-5 text-white transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2`}
+                    aria-label="Open assistant"
+                  >
+                    <MessageSquare className="bubble-icon h-5 w-5 transition-transform duration-300" />
+                    <span className="text-sm font-medium">Ask AI</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
         </SpreadsheetProvider>
