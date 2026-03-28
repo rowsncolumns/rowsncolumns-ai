@@ -645,27 +645,34 @@ export type SpreadsheetApplyFillInput = z.infer<
   typeof SpreadsheetApplyFillSchema
 >;
 
-// Spreadsheet InsertNote
-export const SpreadsheetInsertNoteSchema = z.object({
+// Consolidated Note tool schema (set/delete)
+export const SpreadsheetNoteSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().describe("The sheet ID (1-based)"),
+  action: z
+    .enum(["set", "delete"])
+    .describe(
+      "The action to perform: 'set' to insert or update a note, 'delete' to remove a note",
+    ),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe("The sheet ID (1-based, default: 1)"),
   cell: z
     .string()
     .describe(
-      "The cell in A1 notation where to insert/update the note (e.g., 'A1', 'B5').",
+      "The cell in A1 notation (e.g., 'A1', 'B5'). Can include sheet name like 'Sheet2!A1'.",
     ),
   note: z
     .string()
     .optional()
     .describe(
-      "The note text to insert. If omitted or empty, the existing note will be removed.",
+      "The note text (required for 'set' action, ignored for 'delete')",
     ),
   ...ToolExplanationSchemaShape,
 });
 
-export type SpreadsheetInsertNoteInput = z.infer<
-  typeof SpreadsheetInsertNoteSchema
->;
+export type SpreadsheetNoteInput = z.infer<typeof SpreadsheetNoteSchema>;
 
 // Spreadsheet DeleteRows
 export const SpreadsheetDeleteRowsSchema = z.object({

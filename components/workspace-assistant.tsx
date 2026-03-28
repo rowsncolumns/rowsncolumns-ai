@@ -1973,11 +1973,6 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Applied fill",
     failed: "Failed to apply fill",
   },
-  spreadsheet_insertNote: {
-    running: "Inserting note",
-    success: "Inserted note",
-    failed: "Failed to insert note",
-  },
   // Consolidated tools
   spreadsheet_clearCells: {
     running: "Clearing cells",
@@ -2042,6 +2037,18 @@ const CONSOLIDATED_TOOL_COPY: Record<
       running: "Duplicating sheet",
       success: "Duplicated sheet",
       failed: "Failed to duplicate sheet",
+    },
+  },
+  spreadsheet_note: {
+    set: {
+      running: "Setting note",
+      success: "Set note",
+      failed: "Failed to set note",
+    },
+    delete: {
+      running: "Deleting note",
+      success: "Deleted note",
+      failed: "Failed to delete note",
     },
   },
   spreadsheet_table: {
@@ -2729,8 +2736,8 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_getRowColMetadata",
   "spreadsheet_setRowColDimensions",
   "spreadsheet_applyFill",
-  "spreadsheet_insertNote",
   // Consolidated tools
+  "spreadsheet_note",
   "spreadsheet_clearCells",
   "spreadsheet_table",
   "spreadsheet_chart",
@@ -2960,15 +2967,7 @@ function AssistantMessageBody() {
       >
         {role === "assistant" &&
           (hasAnyVisibleReasoning || hasAnyVisibleText || hasAnyToolCall) && (
-            <>
-              {isLastMessage && isThreadRunning ? (
-                <StableMessageContent components={assistantContentComponents} />
-              ) : (
-                <MessagePrimitive.Content
-                  components={assistantContentComponents}
-                />
-              )}
-            </>
+            <StableMessageContent components={assistantContentComponents} />
           )}
         {role === "assistant" && showTypingIndicatorBeforeText && (
           <Card className="rnc-assistant-bubble-ai w-fit border-black/10 bg-[#fff7f1]">

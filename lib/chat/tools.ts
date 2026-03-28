@@ -32,8 +32,8 @@ import {
   SpreadsheetChangeBatchSchema,
   type SpreadsheetFormatRangeInput,
   SpreadsheetFormatRangeSchema,
-  type SpreadsheetInsertNoteInput,
-  SpreadsheetInsertNoteSchema,
+  type SpreadsheetNoteInput,
+  SpreadsheetNoteSchema,
   type SpreadsheetModifyRowsColsInput,
   SpreadsheetModifyRowsColsSchema,
   type SpreadsheetQueryRangeInput,
@@ -2661,28 +2661,32 @@ Example 5 — Fill fiscal months 1-12 across row (1, 2 in B5:C5 → fills 3-12 i
 });
 
 /**
- * Handler for the spreadsheet_insertNote tool
- * Inserts or updates a note (comment) on a cell
+ * Consolidated handler for spreadsheet_note tool (set/delete)
  */
-const handleSpreadsheetInsertNote = async (
-  input: SpreadsheetInsertNoteInput,
+const handleSpreadsheetNote = async (
+  input: SpreadsheetNoteInput,
 ): Promise<string> => {
-  const { docId, sheetId: inputSheetId, cell, note } = input;
+  const { docId, action, sheetId: inputSheetId, cell, note } = input;
 
   if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to insert a note", {
-      field: "docId",
-    });
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
   }
 
   if (!cell) {
     return failTool("MISSING_CELL", "cell is required", { field: "cell" });
   }
 
+  if (action === "set" && !note) {
+    return failTool("MISSING_NOTE", "note is required for 'set' action", {
+      field: "note",
+      action,
+    });
+  }
+
   const defaultSheetId = inputSheetId ?? 1;
 
   return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_insertNote] Starting:", {
+    console.log(`[spreadsheet_note:${action}] Starting:`, {
       docId,
       sheetId: defaultSheetId,
       cell,
@@ -2721,82 +2725,84 @@ const handleSpreadsheetInsertNote = async (
           columnIndex: cellParsed.selection.range.startColumnIndex,
         };
 
-        // Insert or remove note
-        spreadsheet.insertNote(sheetId, cellInterface, note);
+        // Set or delete note
+        const noteValue = action === "set" ? note : undefined;
+        spreadsheet.insertNote(sheetId, cellInterface, noteValue);
 
         // Persist changes
         const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
 
-        const action = note ? "inserted/updated" : "removed";
-        console.log("[spreadsheet_insertNote] Completed:", {
+        const actionLabel = action === "set" ? "Set" : "Deleted";
+        console.log(`[spreadsheet_note:${action}] Completed:`, {
           docId,
           sheetId,
           cell,
-          action,
           patchCount: patchTuples.length,
         });
 
         return JSON.stringify({
           success: true,
-          message: `Successfully ${action} note on cell ${cell}`,
+          message: `${actionLabel} note on cell ${cell}`,
           cell,
         });
       } finally {
         close();
       }
     } catch (error) {
-      console.error("[spreadsheet_insertNote] Error:", error);
+      console.error(`[spreadsheet_note:${action}] Error:`, error);
 
       return failTool(
-        "INSERT_NOTE_FAILED",
-        error instanceof Error ? error.message : "Failed to insert note",
+        "NOTE_OPERATION_FAILED",
+        error instanceof Error ? error.message : `Failed to ${action} note`,
       );
     }
   });
 };
 
 /**
- * The spreadsheet_insertNote tool for LangChain
+ * The consolidated spreadsheet_note tool for LangChain
  */
-export const spreadsheetInsertNoteTool = tool(handleSpreadsheetInsertNote, {
-  name: "spreadsheet_insertNote",
-  description: `Insert, update, or remove a note (comment) on a cell.
+export const spreadsheetNoteTool = tool(handleSpreadsheetNote, {
+  name: "spreadsheet_note",
+  description: `Manage notes (comments) on cells - set or delete.
 
 OVERVIEW:
-This tool adds a note/comment to a specific cell. Notes are visible when hovering over the cell and can contain explanatory text, instructions, or comments.
+This tool manages cell notes/comments. Use the 'action' parameter to specify what you want to do:
+- "set": Add or update a note on a cell
+- "delete": Remove a note from a cell
 
 WHEN TO USE THIS TOOL:
 - Adding explanatory notes to cells
+- Updating existing notes with new content
+- Removing notes from cells
 - Providing context or instructions for specific data
-- Leaving comments for collaborators
-- Removing existing notes (by omitting the note parameter)
-
-IMPORTANT:
-- All indices are 1-based
-- To remove a note, call without the note parameter or with an empty string
 
 PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based, default: 1)
-- cell: A1 notation for the cell (e.g., 'A1', 'B5')
-- note: The note text (optional - omit to remove existing note)
+- docId: The document ID (required)
+- action: "set" | "delete" (required)
+- cell: A1 notation for the cell (e.g., 'A1', 'Sheet2!B5')
+- sheetId: The sheet ID (optional, default: 1)
+- note: The note text (required for 'set' action)
 
 EXAMPLES:
 
 Example 1 — Add a note to a cell:
+  action: "set"
   docId: "abc123"
   cell: "A1"
   note: "This is the header row"
 
 Example 2 — Update an existing note:
+  action: "set"
   docId: "abc123"
   cell: "B5"
   note: "Updated calculation method"
 
-Example 3 — Remove a note from a cell:
+Example 3 — Delete a note from a cell:
+  action: "delete"
   docId: "abc123"
   cell: "A1"`,
-  schema: SpreadsheetInsertNoteSchema,
+  schema: SpreadsheetNoteSchema,
 });
 
 /**
@@ -5830,7 +5836,8 @@ export const spreadsheetTools = [
   spreadsheetGetRowColMetadataTool,
   spreadsheetSetRowColDimensionsTool,
   spreadsheetApplyFillTool,
-  spreadsheetInsertNoteTool,
+  // Consolidated: set/delete note
+  spreadsheetNoteTool,
   // Consolidated tools
   spreadsheetClearCellsTool,
   spreadsheetTableTool,
