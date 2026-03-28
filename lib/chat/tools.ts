@@ -217,7 +217,7 @@ const parseCells = (input: unknown): CellData[][] => {
 };
 
 // Configuration for document write locking
-const ENABLE_DOCUMENT_WRITE_LOCK = true;
+const ENABLE_DOCUMENT_WRITE_LOCK = false;
 
 // In-memory lock map: docId -> Promise chain
 const documentLocks = new Map<string, Promise<unknown>>();
@@ -425,7 +425,7 @@ CRITICAL RULES:
    - #ERROR!: General error. Review the formula syntax and cell references.
    Never leave formula errors unaddressed - always investigate and fix them.
 8. PREFER FORMULAS: When referencing data from other cells, creating financial models, or building tabular content, prefer using formulas over hardcoded values. Formulas ensure data stays in sync and calculations update automatically.
-9. BATCHING: Multiple tool calls are permitted and encouraged for large datasets. You can write data in batches (e.g., 5-10 rows at a time) using separate tool calls. This improves reliability and allows for incremental progress.
+9. BATCHING: Prefer combining multiple rows into a single tool call rather than making separate calls for each row. Use your judgment on batch size based on the data.
 10. USE APPLYFILL FOR SEQUENCES: When writing sequential patterns (1, 2, 3... or Jan, Feb, Mar... or dates), DO NOT manually list each value. Instead:
     - Write only the first 1-2 values to establish the pattern
     - Use spreadsheet_applyFill to extend the sequence automatically
