@@ -190,6 +190,16 @@ const parseCells = (input: unknown): CellData[][] => {
           );
         }
 
+        // Guard rail: auto-prepend '=' to formulas that don't start with it
+        let normalizedFormula = formula as string | undefined;
+        if (
+          normalizedFormula !== undefined &&
+          normalizedFormula.length > 0 &&
+          !normalizedFormula.startsWith("=")
+        ) {
+          normalizedFormula = `=${normalizedFormula}`;
+        }
+
         if (citation !== undefined && typeof citation !== "string") {
           throw new Error(
             `Cell at row ${rowIdx}, col ${colIdx} has invalid citation type: ${typeof citation}`,
@@ -201,7 +211,7 @@ const parseCells = (input: unknown): CellData[][] => {
             value === undefined
               ? undefined
               : (value as string | number | boolean | null),
-          formula: formula as string | undefined,
+          formula: normalizedFormula,
           citation: citation as string | undefined,
         });
       } else {
