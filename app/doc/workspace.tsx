@@ -134,6 +134,7 @@ import {
   useSpreadsheetAssistantRuntime,
   WorkspaceAssistantUI,
 } from "@/components/workspace-assistant";
+import { useThread } from "@assistant-ui/react";
 import { MagnifyingGlassIcon } from "@rowsncolumns/icons";
 import { Citation } from "@rowsncolumns/common-types";
 import { addressToSelection, uuid } from "@rowsncolumns/utils";
@@ -155,7 +156,7 @@ import { useShareDBSpreadsheet } from "@rowsncolumns/sharedb";
 import ShareDBClient from "sharedb/lib/client";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { selectionFromActiveCell } from "@rowsncolumns/grid";
-import { MessageSquare } from "lucide-react";
+import { Loader2, MessageSquare } from "lucide-react";
 
 const getShareDbUrl = () => {
   const configured = process.env.NEXT_PUBLIC_SHAREDB_URL?.trim();
@@ -1695,6 +1696,39 @@ type SpreadsheetOnlyWorkspaceProps = {
   currency: string;
 };
 
+type CollapsedAssistantButtonProps = {
+  isRunningSignal: boolean;
+  showAssistantBubbleEntrance: boolean;
+  onOpen: () => void;
+};
+
+function CollapsedAssistantButton({
+  isRunningSignal,
+  showAssistantBubbleEntrance,
+  onOpen,
+}: CollapsedAssistantButtonProps) {
+  const isThreadRunning = useThread((thread) => thread.isRunning);
+  const isBusy = isThreadRunning || isRunningSignal;
+
+  return (
+    <button
+      onClick={onOpen}
+      className={`assistant-bubble ${
+        showAssistantBubbleEntrance ? "animate-bubble-entrance" : ""
+      } fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-full bg-linear-to-br from-orange-400 to-orange-500 pl-4 pr-5 text-white transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2`}
+      aria-label={isBusy ? "Open assistant (run in progress)" : "Open assistant"}
+    >
+      <MessageSquare className="bubble-icon h-5 w-5 transition-transform duration-300" />
+      <span className="text-sm font-medium">Ask AI</span>
+      {isBusy && (
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function SpreadsheetOnlyWorkspace({
   documentId,
   currentUser,
@@ -1811,6 +1845,8 @@ export function NewWorkspace({
       onForkConversation={assistantRuntime.forkConversation}
       isForkingRef={assistantRuntime.isForkingRef}
       isHydratingSession={assistantRuntime.isHydratingSession}
+      isResumingRun={assistantRuntime.isResumingRun}
+      isReconnecting={assistantRuntime.isReconnecting}
       selectedModel={assistantRuntime.selectedModel}
       selectedModelLabel={assistantRuntime.selectedModelLabel}
       isModelPickerOpen={assistantRuntime.isModelPickerOpen}
@@ -1926,18 +1962,15 @@ export function NewWorkspace({
                 </Group>
                 {/* Floating bubble when assistant is collapsed */}
                 {isAssistantCollapsed && (
-                  <button
-                    onClick={() => setIsAssistantCollapsed(false)}
-                    className={`assistant-bubble ${
-                      showAssistantBubbleEntrance
-                        ? "animate-bubble-entrance"
-                        : ""
-                    } fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-full bg-linear-to-br from-orange-400 to-orange-500 pl-4 pr-5 text-white transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2`}
-                    aria-label="Open assistant"
-                  >
-                    <MessageSquare className="bubble-icon h-5 w-5 transition-transform duration-300" />
-                    <span className="text-sm font-medium">Ask AI</span>
-                  </button>
+                  <CollapsedAssistantButton
+                    showAssistantBubbleEntrance={showAssistantBubbleEntrance}
+                    isRunningSignal={
+                      assistantRuntime.isHydratingSession ||
+                      assistantRuntime.isResumingRun ||
+                      assistantRuntime.isReconnecting
+                    }
+                    onOpen={() => setIsAssistantCollapsed(false)}
+                  />
                 )}
               </>
             )}

@@ -4603,7 +4603,7 @@ const handleSpreadsheetDataValidation = async (
             maxDate: rest.maxDate,
           } as SpreadsheetCreateDataValidationInput);
 
-          const validationRule = {
+          const validationRule: DataValidationRuleRecord = {
             id: newValidationId,
             sheetId: resolvedSheetId,
             ranges: [
@@ -4623,6 +4623,7 @@ const handleSpreadsheetDataValidation = async (
               rest.errorStyle !== "warning" &&
               rest.errorStyle !== "information",
             showDropdown: rest.showDropdown ?? true,
+            allowBlank: rest.allowBlank ?? true,
             inputMessage: rest.inputMessage
               ? {
                   message: rest.inputMessage,
@@ -4736,6 +4737,8 @@ const handleSpreadsheetDataValidation = async (
 
           if (rest.showDropdown !== undefined)
             updates.showDropdown = rest.showDropdown;
+          if (rest.allowBlank !== undefined)
+            updates.allowBlank = rest.allowBlank;
           if (rest.errorStyle !== undefined) {
             updates.strict =
               rest.errorStyle !== "warning" &&
