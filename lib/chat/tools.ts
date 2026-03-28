@@ -424,32 +424,12 @@ CRITICAL RULES:
 3. Each cell object can have 'value', 'formula', and/or 'citation' (or be empty {}).
 4. Use empty objects {} for blank cells you want to skip.
 5. Only the target range is modified — never affects data outside.
-6. IMPORTANT: Write data values BEFORE formulas that reference them.
-   If a formula references cell B5, make sure B5 has a value first.
-7. FORMULA ERRORS: When you see errors in formulaResults (e.g., #ERROR!, #REF!, #NAME?, #VALUE!, #DIV/0!, #NULL!, #N/A), you MUST attempt to fix them:
-   - #REF!: Formula references a cell that was deleted or moved. Update the reference.
-   - #NAME?: Unrecognized function or named range. Check spelling.
-   - #VALUE!: Wrong type of argument. Ensure numbers aren't stored as text.
-   - #DIV/0!: Division by zero. Add a check like =IF(B1=0, 0, A1/B1).
-   - #N/A: Value not found in lookup. Verify the lookup value exists.
-   - #ERROR!: General error. Review the formula syntax and cell references.
-   Never leave formula errors unaddressed - always investigate and fix them.
-8. PREFER FORMULAS: When referencing data from other cells, creating financial models, or building tabular content, prefer using formulas over hardcoded values. Formulas ensure data stays in sync and calculations update automatically.
-9. BATCHING: Prefer combining multiple rows into a single tool call rather than making separate calls for each row. Use your judgment on batch size based on the data.
-10. USE APPLYFILL FOR SEQUENCES: When writing sequential patterns (1, 2, 3... or Jan, Feb, Mar... or dates), DO NOT manually list each value. Instead:
-    - Write only the first 1-2 values to establish the pattern
-    - Use spreadsheet_applyFill to extend the sequence automatically
-    Example: For "Fiscal Month 1, 2, 3...12" across B5:M5:
-      Step 1: Write range "B5:C5" with cells [[{"value": 1}, {"value": 2}]]
-      Step 2: applyFill with sourceRange "B5:C5", fillRange "D5:M5" (starts at D, NOT B!)
-    This saves tokens and is more efficient than listing all 12 values.
-11. CITATIONS: Use the 'citation' field to track data sources. Citations MUST be accompanied by a 'value' or 'formula'.
-    - Format: URL with optional 'excerpt' query param for scroll-to-text highlighting
-    - Example: "https://example.com/report.pdf?excerpt=Q3%20revenue%20was%20%2412M"
-12. DISPLAYING RAW FORMULAS AS TEXT: To show a formula as literal text (not evaluated), prefix the value with an apostrophe.
-    - Use the 'value' field (not 'formula') with a leading apostrophe
-    - Example: {"value": "'=SUM(4,4)"} displays the text "=SUM(4,4)" instead of calculating 8
-    - The apostrophe is not displayed in the cell, it just prevents formula evaluation
+6. Write input values before formulas that reference them.
+7. If formulaResults reports formula errors, repair them in follow-up tool calls and verify the affected range.
+8. Prefer formulas over hardcoded derived values when references are available.
+9. For sequences (numbers/dates/months), write 1-2 seed cells with changeBatch, then extend with spreadsheet_applyFill.
+10. Citations: use the 'citation' field with a 'value' or 'formula' (URL with optional 'excerpt' query param).
+11. To display a formula as plain text, write it in 'value' with a leading apostrophe (example: {"value": "'=SUM(4,4)"}).
 
 EXAMPLES:
 
@@ -1955,7 +1935,7 @@ const handleSpreadsheetQueryRange = async (
  */
 export const spreadsheetQueryRangeTool = tool(handleSpreadsheetQueryRange, {
   name: "spreadsheet_queryRange",
-  description: `Query multiple ranges of cells from an  spreadsheet to get cell data.
+  description: `Query multiple ranges of cells from a spreadsheet to get cell data.
 
 ROUTING GUIDANCE (PRIMARY TOOL FOR TARGETED READS):
 - Use this tool whenever the user asks for specific cells/ranges, even for a single sheet.
@@ -1980,13 +1960,14 @@ PARAMETERS:
 - items: List of range queries, each specifying:
   - sheetId: (optional) The numeric sheet ID to query
   - sheetName: (optional) The sheet name to query
-  - range: A1 notation range - MUST include sheet name prefix (e.g., "'Sheet 1'!A1:D10")
+  - range: A1 notation range (e.g., "A1:D10" or "'Sheet 1'!A1:D10")
   - layer: 'values' or 'formatting'
 
-⚠️ CRITICAL: Range MUST always include the sheet name prefix!
-  ❌ WRONG:  "A1:D10" (missing sheet name - ambiguous which sheet!)
-  ✓ CORRECT: "'Sheet 1'!A1:D10" (explicit sheet name)
-  ✓ CORRECT: "'Sales Data'!B2:F20" (sheet names with spaces need quotes)
+SHEET RESOLUTION ORDER:
+- If sheetId is provided, it is used.
+- Else if sheetName is provided, it is used.
+- Else if range includes a sheet name, that is used.
+- Else the active sheet is used.
 
 RETURNS:
 BatchOperationResponse with per-item results containing:
@@ -2003,7 +1984,7 @@ EXAMPLES:
 
 Example 1 — Query values from a single range:
   docId: "abc123"
-  items: [{"range": "'Sheet 1'!A1:D10", "layer": "values"}]
+  items: [{"range": "A1:D10", "layer": "values"}]
 
 Example 2 — Query multiple ranges from the same sheet:
   docId: "abc123"
@@ -2015,9 +1996,9 @@ Example 2 — Query multiple ranges from the same sheet:
 Example 3 — Query from multiple different sheets:
   docId: "abc123"
   items: [
-    {"range": "'Sheet 1'!A1:C20", "layer": "values"},
-    {"range": "'Sales Data'!B2:F10", "layer": "values"},
-    {"range": "'Summary'!A1:D5", "layer": "formatting"}
+    {"sheetName": "Sheet 1", "range": "A1:C20", "layer": "values"},
+    {"sheetName": "Sales Data", "range": "B2:F10", "layer": "values"},
+    {"sheetName": "Summary", "range": "A1:D5", "layer": "formatting"}
   ]`,
   schema: SpreadsheetQueryRangeSchema,
 });
@@ -3287,41 +3268,20 @@ Use this approach:
   1. changeBatch: Write first 2 values to establish pattern (e.g., 1, 2 in B5:C5)
   2. applyFill: Extend to remaining cells (sourceRange: "B5:C5", fillRange: "D5:M5")
 
-⚠️ CRITICAL - fillRange must NOT include sourceRange:
+CRITICAL:
+- fillRange must NOT include sourceRange.
 - fillRange specifies ONLY the destination cells to be filled
 - For fill DOWN: fillRange starts at the row AFTER sourceRange ends
 - For fill RIGHT: fillRange starts at the column AFTER sourceRange ends
-
-WRONG vs CORRECT examples:
-
-Fill DOWN (extending row 12 to rows 13-22):
-  ❌ WRONG:  sourceRange: "A12:H12", fillRange: "A12:H22" (includes source row 12!)
-  ✓ CORRECT: sourceRange: "A12:H12", fillRange: "A13:H22" (starts at row 13)
-
-Fill DOWN (extending rows 1-2 pattern to rows 3-10):
-  ❌ WRONG:  sourceRange: "A1:A2", fillRange: "A1:A10" (includes source rows 1-2!)
-  ✓ CORRECT: sourceRange: "A1:A2", fillRange: "A3:A10" (starts at row 3)
-
-Fill RIGHT (extending columns A-B to columns C-F):
-  ❌ WRONG:  sourceRange: "A1:B1", fillRange: "A1:F1" (includes source columns A-B!)
-  ✓ CORRECT: sourceRange: "A1:B1", fillRange: "C1:F1" (starts at column C)
-
-⚠️ MANDATORY BATCHING FOR LARGE FILLS:
-- If fillRange spans MORE than 50 rows, you MUST split into multiple calls of ≤50 rows each
-- Example: To fill F3:F361 (359 rows), make 8 calls:
-  Call 1: fillRange "F3:F52" (50 rows)
-  Call 2: fillRange "F53:F102" (50 rows)
-  Call 3: fillRange "F103:F152" (50 rows)
-  Call 4: fillRange "F153:F202" (50 rows)
-  Call 5: fillRange "F203:F252" (50 rows)
-  Call 6: fillRange "F253:F302" (50 rows)
-  Call 7: fillRange "F303:F352" (50 rows)
-  Call 8: fillRange "F353:F361" (9 rows)
-- NEVER do a single fill of more than 50 rows - it will fail or timeout
+- For reliability, batch along the fill direction with a max span of 50 per call.
+- Vertical fills: if destination height is >50 rows, split into multiple applyFill calls.
+- Horizontal fills: if destination width is >50 columns, split into multiple applyFill calls.
+- Avoid single very large fills (for example hundreds or thousands of cells in one call), which can timeout or crash.
 
 OTHER NOTES:
 - All indices are 1-based
 - The tool auto-detects patterns (numbers, dates, series)
+- Source and fill ranges should be on the same sheet.
 
 PARAMETERS:
 - docId: The document ID of the spreadsheet (required)

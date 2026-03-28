@@ -4826,7 +4826,7 @@ function WorkspaceAssistantPanel({
               onNewSession={onNewSession}
             />
             <SkillsManagerButton iconOnly={isAssistantHeaderCompact} />
-            {onClose && (
+            {onClose && !forceCompactHeader && (
               <IconButton
                 tooltip="Minimize Assistant"
                 size="sm"
