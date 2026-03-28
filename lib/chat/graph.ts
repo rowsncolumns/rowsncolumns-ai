@@ -30,7 +30,7 @@ import {
   listAssistantSessions,
   upsertAssistantSession,
 } from "@/lib/chat/sessions-repository";
-import { spreadsheetTools } from "@/lib/chat/tools";
+import { assistantControlTools, spreadsheetTools } from "@/lib/chat/tools";
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.2-chat-latest";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929";
@@ -249,10 +249,13 @@ const buildSystemPrompt = (options?: {
     mode === "plan"
       ? `\n\n## Mode Override (Highest Priority)
 You are in plan mode.
-- Do not call any tools.
+- Do not call spreadsheet mutation/read tools.
 - Do not execute spreadsheet changes.
 - Provide a concise, ordered implementation plan that you would run in action mode.
-- If assumptions are needed, list them explicitly and keep them minimal.`
+- If assumptions are needed, list them explicitly and keep them minimal.
+- If the user asks you to execute now, or explicitly indicates approval to proceed (for example: "yes", "go ahead", "build it", "run it"), call the tool "assistant_requestModeSwitch" with targetMode="action" and a short reason.
+- Never render fake approval UI in plain text (no checkbox/bullet "Approve/Reject" blocks). Approval must be requested via the tool call.
+- Call that tool at most once per user request, then briefly state you are waiting for approval.`
       : mode === "ask"
         ? `\n\n## Mode Override (Highest Priority)
 You are in ask-only mode.
@@ -566,7 +569,10 @@ const getCheckpointer = async () => {
 
 const createGraph = async () => {
   const checkpointer = await getCheckpointer();
-  const toolNode = new ToolNode(spreadsheetTools);
+  const toolNode = new ToolNode([
+    ...spreadsheetTools,
+    ...assistantControlTools,
+  ]);
 
   return new StateGraph(MessagesAnnotation)
     .addNode(
@@ -595,7 +601,12 @@ const createGraph = async () => {
         const docId = runtimeConfig?.configurable?.docId;
         const systemInstructions =
           runtimeConfig?.configurable?.systemInstructions;
-        const availableTools = mode === "action" ? spreadsheetTools : [];
+        const availableTools =
+          mode === "action"
+            ? spreadsheetTools
+            : mode === "plan"
+              ? assistantControlTools
+              : [];
         const baseModel = getModel({
           model: modelOverride,
           provider: providerOverride,
@@ -623,17 +634,14 @@ const createGraph = async () => {
           ...messagesToSend,
         ]);
 
-        if (mode !== "action") {
+        if (mode === "ask") {
           const toolCalls = (response as { tool_calls?: unknown }).tool_calls;
           if (Array.isArray(toolCalls) && toolCalls.length > 0) {
             const fallbackText = contentToText(response.content).trim();
             return {
               messages: [
                 new AIMessage(
-                  fallbackText ||
-                    (mode === "plan"
-                      ? "Execution plan prepared without running tools."
-                      : "Answer prepared without running tools."),
+                  fallbackText || "Answer prepared without running tools.",
                 ),
               ],
             };
@@ -1769,7 +1777,10 @@ const buildPersistedThreadMessages = (
         continue;
       }
 
-      if (userContentParts.length === 1 && userContentParts[0]?.type === "text") {
+      if (
+        userContentParts.length === 1 &&
+        userContentParts[0]?.type === "text"
+      ) {
         persistedMessages.push({
           role,
           content: userContentParts[0].text,

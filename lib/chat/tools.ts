@@ -1,4 +1,5 @@
 import { tool } from "@langchain/core/tools";
+import { z } from "zod";
 import {
   DEFAULT_COLUMN_WIDTH,
   DEFAULT_ROW_HEIGHT,
@@ -5807,6 +5808,46 @@ Example 2 — Audit specific sheet:
     schema: SpreadsheetGetAuditSnapshotSchema,
   },
 );
+
+const assistantRequestModeSwitchSchema = z.object({
+  targetMode: z
+    .enum(["action"])
+    .describe("Target mode to switch to after user approval."),
+  reason: z
+    .string()
+    .optional()
+    .describe("Short reason for why execution should start now."),
+});
+
+type AssistantRequestModeSwitchInput = z.infer<
+  typeof assistantRequestModeSwitchSchema
+>;
+
+const handleAssistantRequestModeSwitch = async (
+  input: AssistantRequestModeSwitchInput,
+): Promise<string> => {
+  return JSON.stringify({
+    success: true,
+    pendingApproval: true,
+    targetMode: input.targetMode,
+    reason: input.reason?.trim() || null,
+    message: "User approval required to switch mode.",
+  });
+};
+
+export const assistantRequestModeSwitchTool = tool(
+  handleAssistantRequestModeSwitch,
+  {
+    name: "assistant_requestModeSwitch",
+    description: `Request user approval to switch assistant mode.
+
+Use this in plan mode when the user asks you to execute now.
+This tool does not change mode by itself; the UI will ask the user to approve.`,
+    schema: assistantRequestModeSwitchSchema,
+  },
+);
+
+export const assistantControlTools = [assistantRequestModeSwitchTool];
 
 /**
  * All available tools for the spreadsheet assistant

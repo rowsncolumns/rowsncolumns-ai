@@ -3,6 +3,7 @@
 import type {
   AssistantToolUIProps,
   ChatModelAdapter,
+  MessageStatus,
   ThreadAssistantMessagePart,
   ThreadMessage,
   ThreadMessageLike,
@@ -586,6 +587,7 @@ type StreamingToolCallPart = {
 type StreamingContentPart = StreamingTextPart | StreamingToolCallPart;
 
 const TOOL_INPUT_UNAVAILABLE_MARKER = "__rnc_tool_input_unavailable__";
+const HUMAN_APPROVAL_TOOL_NAME = "assistant_requestModeSwitch";
 
 const isUnavailableToolArgs = (value: unknown) =>
   isRecord(value) && value[TOOL_INPUT_UNAVAILABLE_MARKER] === true;
@@ -699,7 +701,7 @@ const buildCompletionContent = (
 const buildStreamingYield = (
   parts: StreamingContentPart[],
   threadId: string,
-  status?: { type: "complete"; reason: "stop" },
+  status?: Extract<MessageStatus, { type: "complete" | "requires-action" }>,
   fallbackMessage?: string,
 ) => ({
   content: status
@@ -717,6 +719,7 @@ type StreamingState = {
   runId: string | null;
   parts: StreamingContentPart[];
   toolPartIndexById: Map<string, number>;
+  hasPendingHumanApproval: boolean;
 };
 type ContextUsageStreamEvent = Extract<
   ChatStreamEvent,
@@ -757,10 +760,16 @@ const processStreamEvent = (
       event.toolName as string,
       (event.args as Record<string, unknown>) ?? {},
     );
+    if ((event.toolName as string) === HUMAN_APPROVAL_TOOL_NAME) {
+      state.hasPendingHumanApproval = true;
+    }
     return { yield: buildStreamingYield(state.parts, threadId), done: false };
   }
 
   if (event.type === "tool.result") {
+    if ((event.toolName as string) === HUMAN_APPROVAL_TOOL_NAME) {
+      return { yield: buildStreamingYield(state.parts, threadId), done: false };
+    }
     const toolCallId =
       (event.toolCallId as string) ?? (event.toolName as string);
     setStreamingToolResult(
@@ -776,6 +785,18 @@ const processStreamEvent = (
   }
 
   if (event.type === "message.complete") {
+    if (state.hasPendingHumanApproval) {
+      return {
+        yield: buildStreamingYield(
+          state.parts,
+          threadId,
+          { type: "requires-action", reason: "tool-calls" },
+          event.message as string,
+        ),
+        done: true,
+      };
+    }
+
     finalizePendingToolCalls(state.parts);
     return {
       yield: buildStreamingYield(
@@ -819,6 +840,7 @@ async function* streamAssistantResponse(
     runId: null,
     parts: [],
     toolPartIndexById: new Map(),
+    hasPendingHumanApproval: false,
   };
 
   for await (const event of parseChatStream(stream)) {
@@ -1405,11 +1427,38 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const chatAdapter = React.useMemo<ChatModelAdapter>(
     () => ({
       async *run({ messages, abortSignal }) {
+        const latestModeSwitchApproval = getLatestModeSwitchApproval(messages);
+        const latestUserMessageIndex = [...messages]
+          .map((message, index) => ({ message, index }))
+          .reverse()
+          .find(({ message }) => message.role === "user")?.index;
+        const shouldHandleModeSwitchApproval =
+          !!latestModeSwitchApproval &&
+          (latestUserMessageIndex === undefined ||
+            latestModeSwitchApproval.messageIndex > latestUserMessageIndex);
+        const shouldExecuteApprovedModeSwitch =
+          shouldHandleModeSwitchApproval &&
+          latestModeSwitchApproval.approved &&
+          latestModeSwitchApproval.targetMode === "action";
+        const shouldHandleDeclinedModeSwitch =
+          shouldHandleModeSwitchApproval && !latestModeSwitchApproval.approved;
+
         const latestUserMessage = [...messages]
           .reverse()
           .find((message) => message.role === "user");
-        const message = getMessageText(latestUserMessage);
-        const images = getMessageImages(latestUserMessage);
+        const userMessage = getMessageText(latestUserMessage);
+        const userImages = getMessageImages(latestUserMessage);
+        const message = shouldExecuteApprovedModeSwitch
+          ? "User approved execution. Switch to action mode and execute the approved plan now."
+          : userMessage;
+        const images = shouldExecuteApprovedModeSwitch ? [] : userImages;
+
+        if (shouldHandleDeclinedModeSwitch) {
+          yield buildTerminalAssistantMessage(
+            "Staying in plan mode. I will continue planning until you approve execution.",
+          );
+          return;
+        }
 
         if (!message && images.length === 0) {
           yield {
@@ -1428,6 +1477,12 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
         try {
           markThreadStarted();
+          if (shouldExecuteApprovedModeSwitch) {
+            handleSelectMode("action");
+          }
+          const mode = shouldExecuteApprovedModeSwitch
+            ? "action"
+            : selectedModeRef.current;
           const model = selectedModelRef.current;
           const contextSnapshot = getAssistantContextSnapshot(docIdRef.current);
           const response = await requestAssistantChat({
@@ -1436,7 +1491,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             message,
             images,
             model,
-            mode: selectedModeRef.current,
+            mode,
             provider: getProviderForModel(model),
             reasoningEnabled: reasoningEnabledRef.current,
             context: contextSnapshot,
@@ -1503,7 +1558,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
       },
     }),
-    [handleContextUsageEvent, markThreadStarted, threadId],
+    [handleContextUsageEvent, handleSelectMode, markThreadStarted, threadId],
   );
 
   const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
@@ -1965,6 +2020,59 @@ const getMessageImages = (
     .filter((part): part is ChatImageInput => part !== null);
 };
 
+const getLatestModeSwitchApproval = (
+  messages: readonly ThreadMessage[],
+): {
+  approved: boolean;
+  targetMode: AssistantMode;
+  messageIndex: number;
+} | null => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    for (const part of message.content) {
+      if (
+        part.type !== "tool-call" ||
+        part.toolName !== HUMAN_APPROVAL_TOOL_NAME
+      ) {
+        continue;
+      }
+
+      const parsedResult = deepParseJsonValue(part.result);
+      if (
+        !isRecord(parsedResult) ||
+        typeof parsedResult.approved !== "boolean"
+      ) {
+        continue;
+      }
+
+      const targetMode = parsedResult.targetMode;
+      if (
+        targetMode === "action" ||
+        targetMode === "plan" ||
+        targetMode === "ask"
+      ) {
+        return {
+          approved: parsedResult.approved,
+          targetMode,
+          messageIndex: index,
+        };
+      }
+
+      return {
+        approved: parsedResult.approved,
+        targetMode: "action",
+        messageIndex: index,
+      };
+    }
+  }
+
+  return null;
+};
+
 type ToolCopy = {
   running: string;
   success: string;
@@ -2052,6 +2160,11 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     running: "Auditing spreadsheet",
     success: "Completed spreadsheet audit",
     failed: "Failed to audit spreadsheet",
+  },
+  assistant_requestModeSwitch: {
+    running: "Requesting mode switch approval",
+    success: "Approval requested",
+    failed: "Failed to request approval",
   },
 };
 
@@ -2541,12 +2654,18 @@ function ToolCallDisplay({
   toolName,
   args,
   result,
+  addResult,
 }: {
   toolCallId: string;
   toolName: string;
   args: unknown;
   result?: unknown;
+  addResult?: ToolCallMessagePartProps<
+    Record<string, unknown>,
+    unknown
+  >["addResult"];
 }) {
+  const modeExecutionContext = React.useContext(ModeExecutionContext);
   const openStateKey = React.useMemo(() => `tool:${toolCallId}`, [toolCallId]);
   const [isOpen, setIsOpen] = React.useState(() => {
     return TOOL_CALL_OPEN_STATE.get(openStateKey) ?? false;
@@ -2680,6 +2799,108 @@ function ToolCallDisplay({
       return String(args);
     }
   }, [args, parsedArgs]);
+  const isModeSwitchRequest = toolName === "assistant_requestModeSwitch";
+  const modeSwitchTarget = React.useMemo(() => {
+    if (!isRecord(parsedArgs)) return null;
+    const targetMode = isRecord(parsedArgs.input)
+      ? parsedArgs.input.targetMode
+      : parsedArgs.targetMode;
+    return targetMode === "action" ? targetMode : null;
+  }, [parsedArgs]);
+  const modeSwitchReason = React.useMemo(() => {
+    if (!isRecord(parsedArgs) || typeof parsedArgs.reason !== "string") {
+      return null;
+    }
+    const normalizedReason = parsedArgs.reason.trim();
+    return normalizedReason.length > 0 ? normalizedReason : null;
+  }, [parsedArgs]);
+  const [localModeSwitchDecision, setLocalModeSwitchDecision] = React.useState<
+    "approved" | "declined" | null
+  >(null);
+
+  const handleApproveModeSwitch = React.useCallback(() => {
+    if (!modeExecutionContext || modeSwitchTarget !== "action") {
+      return;
+    }
+
+    setLocalModeSwitchDecision("approved");
+    modeExecutionContext.setSelectedMode("action");
+    addResult?.({
+      success: true,
+      approved: true,
+      targetMode: "action",
+      source: "hitl-ui",
+    });
+  }, [addResult, modeExecutionContext, modeSwitchTarget]);
+
+  const handleDeclineModeSwitch = React.useCallback(() => {
+    setLocalModeSwitchDecision("declined");
+    addResult?.({
+      success: true,
+      approved: false,
+      targetMode: modeSwitchTarget ?? "action",
+      source: "hitl-ui",
+    });
+  }, [addResult, modeSwitchTarget]);
+
+  if (isModeSwitchRequest) {
+    const isActionModeActive = modeExecutionContext?.selectedMode === "action";
+    const disableApprove =
+      modeSwitchTarget !== "action" ||
+      isActionModeActive ||
+      localModeSwitchDecision !== null;
+
+    return (
+      <Card className="w-full max-w-[92%] rnc-assistant-bubble-ai rounded-xl">
+        <CardContent className="px-4 py-3">
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">
+                Approval Needed: Switch to Action Mode
+              </p>
+              <p className="mt-0.5 text-xs text-(--muted-foreground)">
+                The agent is requesting permission to execute the plan now.
+              </p>
+              {modeSwitchReason && (
+                <p className="mt-1 text-xs text-foreground/80">
+                  Reason: {modeSwitchReason}
+                </p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleApproveModeSwitch}
+                  disabled={disableApprove}
+                  className="rounded-md bg-(--accent) px-2.5 text-xs text-(--accent-foreground) hover:bg-(--accent-strong) disabled:opacity-60"
+                >
+                  {localModeSwitchDecision === "approved" ? (
+                    <>
+                      <Check className="mr-1 h-3.5 w-3.5" />
+                      Approved
+                    </>
+                  ) : (
+                    "Approve & Run"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleDeclineModeSwitch}
+                  disabled={localModeSwitchDecision !== null}
+                  className="rounded-md border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground hover:bg-(--assistant-chip-hover)"
+                >
+                  Keep Planning
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Collapsible.Root open={isOpen} onOpenChange={handleOpenChange}>
       <Collapsible.Trigger asChild>
@@ -2890,6 +3111,7 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_dataValidation",
   "spreadsheet_conditionalFormat",
   "spreadsheet_getAuditSnapshot",
+  "assistant_requestModeSwitch",
 ] as const;
 
 const TOOL_CALL_OPEN_STATE = new Map<string, boolean>();
@@ -2905,6 +3127,7 @@ function SpreadsheetToolUIRegistration({
       args,
       result,
       toolCallId,
+      addResult,
     }: ToolCallMessagePartProps<Record<string, unknown>, unknown>) => (
       <div className="w-full maxx-w-md">
         {renderedToolName === "spreadsheet_sheet" &&
@@ -2916,6 +3139,7 @@ function SpreadsheetToolUIRegistration({
           toolName={renderedToolName}
           args={args}
           result={result}
+          addResult={addResult}
         />
       </div>
     ),
@@ -4149,6 +4373,14 @@ type ForkContextValue = {
 
 const ForkContext = React.createContext<ForkContextValue | null>(null);
 
+type ModeExecutionContextValue = {
+  selectedMode: AssistantMode;
+  setSelectedMode: (mode: AssistantMode) => void;
+};
+
+const ModeExecutionContext =
+  React.createContext<ModeExecutionContextValue | null>(null);
+
 function AssistantComposer({
   selectedModel,
   selectedModelLabel,
@@ -5214,6 +5446,13 @@ function WorkspaceAssistantPanel({
         : null,
     [onForkConversation, threadId, docId, actualForkingRef],
   );
+  const modeExecutionContextValue = React.useMemo<ModeExecutionContextValue>(
+    () => ({
+      selectedMode,
+      setSelectedMode,
+    }),
+    [selectedMode, setSelectedMode],
+  );
 
   const loadCredits = React.useCallback(async () => {
     try {
@@ -5477,102 +5716,104 @@ function WorkspaceAssistantPanel({
       </div>
 
       <AssistantDebugAccessContext.Provider value={{ isAdmin }}>
-        <ForkContext.Provider value={forkContextValue}>
-          <ThreadPrimitive.Root
-            key={threadId || "active-thread"}
-            className={cn("relative flex min-h-0 flex-1 flex-col")}
-          >
-            <SpreadsheetToolUIRegistry />
-            <ThreadPrimitive.Viewport
-              className={cn(
-                "min-h-0 overflow-y-auto px-5",
-                isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
-              )}
+        <ModeExecutionContext.Provider value={modeExecutionContextValue}>
+          <ForkContext.Provider value={forkContextValue}>
+            <ThreadPrimitive.Root
+              key={threadId || "active-thread"}
+              className={cn("relative flex min-h-0 flex-1 flex-col")}
             >
-              <div className="space-y-4">
-                <StableThreadMessages
-                  components={{
-                    UserMessage: AssistantMessage,
-                    AssistantMessage,
-                  }}
-                />
-              </div>
-            </ThreadPrimitive.Viewport>
+              <SpreadsheetToolUIRegistry />
+              <ThreadPrimitive.Viewport
+                className={cn(
+                  "min-h-0 overflow-y-auto px-5",
+                  isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
+                )}
+              >
+                <div className="space-y-4">
+                  <StableThreadMessages
+                    components={{
+                      UserMessage: AssistantMessage,
+                      AssistantMessage,
+                    }}
+                  />
+                </div>
+              </ThreadPrimitive.Viewport>
 
-            <div
-              className={cn(
-                "rnc-assistant-divider w-full px-5 py-4",
-                isThreadEmpty
-                  ? "my-auto border-t-0"
-                  : "border-t border-black/8",
-              )}
-            >
-              <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
-                <AssistantComposer
-                  selectedModel={selectedModel}
-                  selectedModelLabel={selectedModelLabel}
-                  isModelPickerOpen={isModelPickerOpen}
-                  setIsModelPickerOpen={setIsModelPickerOpen}
-                  setSelectedModel={setSelectedModel}
-                  selectedMode={selectedMode}
-                  selectedModeLabel={selectedModeLabel}
-                  isModePickerOpen={isModePickerOpen}
-                  setIsModePickerOpen={setIsModePickerOpen}
-                  setSelectedMode={setSelectedMode}
-                  reasoningEnabled={reasoningEnabled}
-                  setReasoningEnabled={setReasoningEnabled}
-                  reasoningEnabledRef={reasoningEnabledRef}
-                  contextUsage={contextUsage}
-                  forceCompactHeader={forceCompactHeader}
-                  hasCredits={hasCredits}
-                  panelImageDrop={panelImageDrop}
-                  onPanelImageDropHandled={handlePanelImageDropHandled}
-                />
-                <ThreadPrimitive.If empty>
-                  <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
-                    <TooltipProvider delayDuration={200}>
-                      {prompts.map((prompt) => (
-                        <Tooltip key={prompt}>
-                          <TooltipTrigger asChild>
-                            <ThreadPrimitive.Suggestion
-                              prompt={prompt}
-                              send
-                              className="rnc-assistant-suggestion w-56 rounded-xl border border-black/10 bg-[#fff9f2] px-4 py-3 text-left text-sm leading-5 text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]"
-                            >
-                              <span
-                                className="block overflow-hidden"
-                                style={{
-                                  display: "-webkit-box",
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: "vertical",
-                                  textOverflow: "ellipsis",
-                                }}
+              <div
+                className={cn(
+                  "rnc-assistant-divider w-full px-5 py-4",
+                  isThreadEmpty
+                    ? "my-auto border-t-0"
+                    : "border-t border-black/8",
+                )}
+              >
+                <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
+                  <AssistantComposer
+                    selectedModel={selectedModel}
+                    selectedModelLabel={selectedModelLabel}
+                    isModelPickerOpen={isModelPickerOpen}
+                    setIsModelPickerOpen={setIsModelPickerOpen}
+                    setSelectedModel={setSelectedModel}
+                    selectedMode={selectedMode}
+                    selectedModeLabel={selectedModeLabel}
+                    isModePickerOpen={isModePickerOpen}
+                    setIsModePickerOpen={setIsModePickerOpen}
+                    setSelectedMode={setSelectedMode}
+                    reasoningEnabled={reasoningEnabled}
+                    setReasoningEnabled={setReasoningEnabled}
+                    reasoningEnabledRef={reasoningEnabledRef}
+                    contextUsage={contextUsage}
+                    forceCompactHeader={forceCompactHeader}
+                    hasCredits={hasCredits}
+                    panelImageDrop={panelImageDrop}
+                    onPanelImageDropHandled={handlePanelImageDropHandled}
+                  />
+                  <ThreadPrimitive.If empty>
+                    <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
+                      <TooltipProvider delayDuration={200}>
+                        {prompts.map((prompt) => (
+                          <Tooltip key={prompt}>
+                            <TooltipTrigger asChild>
+                              <ThreadPrimitive.Suggestion
+                                prompt={prompt}
+                                send
+                                className="rnc-assistant-suggestion w-56 rounded-xl border border-black/10 bg-[#fff9f2] px-4 py-3 text-left text-sm leading-5 text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]"
                               >
-                                {prompt}
-                              </span>
-                            </ThreadPrimitive.Suggestion>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" align="center">
-                            {prompt}
-                          </TooltipContent>
-                        </Tooltip>
-                      ))}
-                    </TooltipProvider>
-                  </div>
-                </ThreadPrimitive.If>
+                                <span
+                                  className="block overflow-hidden"
+                                  style={{
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {prompt}
+                                </span>
+                              </ThreadPrimitive.Suggestion>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="center">
+                              {prompt}
+                            </TooltipContent>
+                          </Tooltip>
+                        ))}
+                      </TooltipProvider>
+                    </div>
+                  </ThreadPrimitive.If>
+                </div>
               </div>
-            </div>
-            {(isHydratingSession || isRestoringSessionFromPicker) && (
-              <AssistantStatusOverlay label="Restoring session..." />
-            )}
-            {isResumingRun && (
-              <AssistantStatusOverlay label="Continuing response..." />
-            )}
-            {isReconnecting && (
-              <AssistantStatusOverlay label="Reconnecting..." />
-            )}
-          </ThreadPrimitive.Root>
-        </ForkContext.Provider>
+              {(isHydratingSession || isRestoringSessionFromPicker) && (
+                <AssistantStatusOverlay label="Restoring session..." />
+              )}
+              {isResumingRun && (
+                <AssistantStatusOverlay label="Continuing response..." />
+              )}
+              {isReconnecting && (
+                <AssistantStatusOverlay label="Reconnecting..." />
+              )}
+            </ThreadPrimitive.Root>
+          </ForkContext.Provider>
+        </ModeExecutionContext.Provider>
       </AssistantDebugAccessContext.Provider>
       {isPanelImageDragActive && (
         <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center backdrop-blur-[1px] bg-(--assistant-overlay-backdrop)">
