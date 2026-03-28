@@ -64,6 +64,7 @@ import {
   Info,
   Loader2,
   History,
+  Minus,
   Navigation,
   Pencil,
   Plus,
@@ -4862,7 +4863,7 @@ function WorkspaceAssistantPanel({
                 size="sm"
                 onClick={onClose}
               >
-                <X className="h-4 w-4" />
+                <Minus className="h-4 w-4" />
               </IconButton>
             )}
           </div>
