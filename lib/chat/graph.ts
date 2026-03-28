@@ -2152,6 +2152,7 @@ export async function* streamSpreadsheetAssistant(input: {
   let assistantMessage = "";
   const emittedToolResultKeys = new Set<string>();
   const observedToolCallKeys = new Set<string>();
+  const currentRunToolCallIds = new Set<string>();
   const pendingToolArgsByCallId = new Map<string, unknown>();
   const pendingToolArgsByName = new Map<
     string,
@@ -2205,6 +2206,7 @@ export async function* streamSpreadsheetAssistant(input: {
     }
 
     if (toolCall.toolCallId) {
+      currentRunToolCallIds.add(toolCall.toolCallId);
       const existingById = pendingToolArgsByCallId.get(toolCall.toolCallId);
       if (
         existingById === undefined ||
@@ -2332,6 +2334,9 @@ export async function* streamSpreadsheetAssistant(input: {
         const toolName = event.name;
         const toolInput = event.data?.input;
         const runId = event.run_id;
+        if (runId) {
+          currentRunToolCallIds.add(runId);
+        }
         const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
 
         yield {
@@ -2355,6 +2360,9 @@ export async function* streamSpreadsheetAssistant(input: {
             ? (event.data as { input?: unknown }).input
             : undefined;
         const runId = event.run_id;
+        if (runId) {
+          currentRunToolCallIds.add(runId);
+        }
         const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
         const normalized = normalizeToolResult(toolOutput);
         const dedupKey = getToolResultDedupKey({
@@ -2391,6 +2399,9 @@ export async function* streamSpreadsheetAssistant(input: {
             ? (event.data as { input?: unknown }).input
             : undefined;
         const runId = event.run_id;
+        if (runId) {
+          currentRunToolCallIds.add(runId);
+        }
         const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
         const result = {
           success: false,
@@ -2426,6 +2437,15 @@ export async function* streamSpreadsheetAssistant(input: {
       if (event.event === "on_chain_stream" || event.event === "on_chain_end") {
         const chainToolResults = collectStreamedToolResults(event.data);
         for (const chainToolResult of chainToolResults) {
+          // Ignore historical ToolMessages from thread state. We only want
+          // chain-emitted tool errors tied to tool calls observed in this run.
+          if (
+            !chainToolResult.toolCallId ||
+            !currentRunToolCallIds.has(chainToolResult.toolCallId)
+          ) {
+            continue;
+          }
+
           const resolvedArgs = resolveToolArgs(
             chainToolResult.toolName,
             chainToolResult.toolCallId,
