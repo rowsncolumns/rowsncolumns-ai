@@ -279,6 +279,14 @@ body.rnc-dark .rnc-site-header-logo {
   background: var(--assistant-composer-bg) !important;
 }
 
+@media (hover: none), (pointer: coarse) {
+  .rnc-assistant-composer textarea,
+  .rnc-assistant-composer input,
+  .rnc-assistant-composer [contenteditable="true"] {
+    font-size: 16px !important;
+  }
+}
+
 .rnc-assistant-muted-surface {
   background: var(--assistant-muted-bg) !important;
 }

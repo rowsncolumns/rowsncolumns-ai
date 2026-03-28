@@ -4890,6 +4890,7 @@ function AssistantComposer({
             "min-h-10 sm:min-h-14 max-h-48 w-full resize-none border-0 bg-transparent px-0 py-0 leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0",
             isTouchInput ? "text-base" : "text-sm",
           )}
+          style={isTouchInput ? { fontSize: "16px" } : undefined}
         />
       </div>
       <div
