@@ -30,10 +30,6 @@ import {
   SpreadsheetApplyFillSchema,
   type SpreadsheetChangeBatchInput,
   SpreadsheetChangeBatchSchema,
-  type SpreadsheetCreateSheetInput,
-  SpreadsheetCreateSheetSchema,
-  type SpreadsheetDuplicateSheetInput,
-  SpreadsheetDuplicateSheetSchema,
   type SpreadsheetFormatRangeInput,
   SpreadsheetFormatRangeSchema,
   type SpreadsheetInsertNoteInput,
@@ -44,8 +40,6 @@ import {
   SpreadsheetQueryRangeSchema,
   type SpreadsheetSetIterativeModeInput,
   SpreadsheetSetIterativeModeSchema,
-  type SpreadsheetUpdateSheetInput,
-  SpreadsheetUpdateSheetSchema,
   type SpreadsheetGetSheetMetadataInput,
   SpreadsheetGetSheetMetadataSchema,
   type SpreadsheetReadDocumentInput,
@@ -54,9 +48,9 @@ import {
   SpreadsheetGetRowColMetadataSchema,
   type SpreadsheetSetRowColDimensionsInput,
   SpreadsheetSetRowColDimensionsSchema,
-  type SpreadsheetDeleteSheetInput,
-  SpreadsheetDeleteSheetSchema,
   // Consolidated schemas
+  type SpreadsheetSheetInput,
+  SpreadsheetSheetSchema,
   type SpreadsheetTableInput,
   SpreadsheetTableSchema,
   type SpreadsheetChartInput,
@@ -102,7 +96,6 @@ import type {
   DataValidationRuleRecord,
   CellFormat,
   ErrorValue,
-  Color,
 } from "@rowsncolumns/common-types";
 
 const failTool = (
@@ -476,588 +469,8 @@ Example 5 — Write values with citations to track data sources:
 });
 
 /**
- * Handler for the spreadsheet_createSheet tool
- */
-const handleSpreadsheetCreateSheet = async (
-  input: SpreadsheetCreateSheetInput,
-): Promise<string> => {
-  const {
-    docId,
-    activeSheetId,
-    title,
-    sheetId: inputSheetId,
-    hidden,
-    merges,
-    hideRows,
-    showRows,
-    hideCols,
-    showCols,
-    frozenRowCount,
-    frozenColumnCount,
-    showGridLines,
-    tabColor,
-    basicFilter,
-  } = input;
-
-  if (!docId) {
-    return JSON.stringify({
-      success: false,
-      error: "docId is required to create a sheet",
-    });
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_createSheet] Starting:", {
-      docId,
-      activeSheetId,
-      title,
-    });
-
-    try {
-      // Connect to ShareDB
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return JSON.stringify({
-            success: false,
-            error: "Document has no data",
-          });
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data, false);
-
-        if (!isNil(activeSheetId)) {
-          spreadsheet.activeSheetId = activeSheetId;
-        }
-
-        // Build sheet spec for createNewSheet
-        const spec: Partial<Sheet> = {};
-
-        if (title) {
-          spec.title = title;
-        }
-        if (inputSheetId !== undefined) {
-          spec.sheetId = inputSheetId;
-        }
-        if (hidden !== undefined) {
-          spec.hidden = hidden;
-        }
-        // Convert A1 notation merges to GridRange format
-        if (merges && merges.length > 0) {
-          spec.merges = merges
-            .map((a1Range: string) => {
-              const selection = addressToSelection(a1Range);
-              if (!selection?.range) {
-                return null;
-              }
-              return selection.range;
-            })
-            .filter((m) => !isNil(m));
-        }
-        // Convert hideRows/showRows to rowMetadata
-        const rowMetadata: DimensionProperties[] = [];
-        if (hideRows) {
-          for (const row of hideRows) {
-            rowMetadata[row] = { hiddenByUser: true };
-          }
-        }
-        if (showRows) {
-          for (const row of showRows) {
-            rowMetadata[row] = { hiddenByUser: false };
-          }
-        }
-        if (rowMetadata.length > 0) {
-          spec.rowMetadata = rowMetadata;
-        }
-        // Convert hideCols/showCols to columnMetadata (column letters like "A", "B", "AA")
-        const columnMetadata: DimensionProperties[] = [];
-        if (hideCols) {
-          for (const colLetter of hideCols) {
-            const colIndex = alpha2number(colLetter);
-            columnMetadata[colIndex] = { hiddenByUser: true };
-          }
-        }
-        if (showCols) {
-          for (const colLetter of showCols) {
-            const colIndex = alpha2number(colLetter);
-            columnMetadata[colIndex] = { hiddenByUser: false };
-          }
-        }
-        if (columnMetadata.length > 0) {
-          spec.columnMetadata = columnMetadata;
-        }
-        if (frozenRowCount !== undefined) {
-          spec.frozenRowCount = frozenRowCount;
-        }
-        if (frozenColumnCount !== undefined) {
-          spec.frozenColumnCount = frozenColumnCount;
-        }
-        if (showGridLines !== undefined) {
-          spec.showGridLines = showGridLines;
-        }
-        if (tabColor !== undefined) {
-          // tabColor can be a hex string or { theme, tint } object
-          spec.tabColor = tabColor as Color;
-        }
-        // Convert basicFilter A1 notation to FilterView
-        if (basicFilter !== undefined) {
-          if (basicFilter === null) {
-            spec.basicFilter = null;
-          } else {
-            const filterSelection = addressToSelection(basicFilter);
-            if (filterSelection?.range) {
-              spec.basicFilter = {
-                id: uuidString(),
-                range: filterSelection.range,
-              };
-            }
-          }
-        }
-
-        // Create the new sheet
-        const newSheet = spreadsheet.createNewSheet(
-          Object.keys(spec).length > 0 ? spec : undefined,
-        );
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_createSheet] Completed:", {
-          docId,
-          newSheetId: newSheet.sheetId,
-          newSheetTitle: newSheet.title,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully created sheet "${newSheet?.title}" with ID ${newSheet?.sheetId}`,
-          sheet: {
-            sheetId: newSheet?.sheetId,
-            title: newSheet?.title,
-          },
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_createSheet] Error:", error);
-
-      return JSON.stringify({
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to create sheet",
-      });
-    }
-  });
-};
-
-/**
- * The spreadsheet_createSheet tool for LangChain
- */
-export const spreadsheetCreateSheetTool = tool(handleSpreadsheetCreateSheet, {
-  name: "spreadsheet_createSheet",
-  description: `Create a new sheet (tab) in a spreadsheet document.
-
-OVERVIEW:
-This tool creates a new sheet/tab in an existing spreadsheet. You can optionally configure the sheet's properties like title, frozen rows/columns, tab color, and more.
-
-WHEN TO USE THIS TOOL:
-- Adding a new worksheet to organize data separately
-- Creating a dedicated sheet for charts, summaries, or reports
-- Setting up multi-sheet workbooks
-
-EXAMPLES:
-
-Example 1 — Create a simple sheet with default settings:
-  docId: "abc123"
-
-Example 2 — Create a named sheet with frozen header row:
-  docId: "abc123"
-  title: "Sales Report"
-  frozenRowCount: 1
-
-Example 3 — Create a colored sheet with hex color:
-  docId: "abc123"
-  title: "Dashboard"
-  frozenRowCount: 2
-  frozenColumnCount: 1
-  tabColor: "#4285F4"
-
-Example 4 — Create a sheet with theme-based color:
-  docId: "abc123"
-  title: "Summary"
-  tabColor: { "theme": 4, "tint": 0.4 }
-
-Example 5 — Create a sheet with merged cells:
-  docId: "abc123"
-  title: "Report"
-  merges: ["A1:C1", "A2:A5"]
-
-Example 6 — Create a sheet with hidden rows/columns:
-  docId: "abc123"
-  title: "Data"
-  hideRows: [2, 3, 4]
-  hideCols: ["A", "B"]
-
-Example 7 — Create a sheet with a basic filter:
-  docId: "abc123"
-  title: "Filtered Data"
-  basicFilter: "A1:D100"`,
-  schema: SpreadsheetCreateSheetSchema,
-});
-
-/**
  * All available tools for the spreadsheet assistant
  */
-/**
- * Handler for the spreadsheet_updateSheet tool
- */
-const handleSpreadsheetUpdateSheet = async (
-  input: SpreadsheetUpdateSheetInput,
-): Promise<string> => {
-  const {
-    docId,
-    sheetId,
-    unsetFields,
-    title,
-    hidden,
-    merges,
-    removeMerges,
-    hideRows,
-    showRows,
-    hideCols,
-    showCols,
-    frozenRowCount,
-    frozenColumnCount,
-    showGridLines,
-    tabColor,
-    basicFilter,
-  } = input;
-
-  if (!docId) {
-    return JSON.stringify({
-      success: false,
-      error: "docId is required to update a sheet",
-    });
-  }
-
-  if (isNil(sheetId)) {
-    return JSON.stringify({
-      success: false,
-      error: "sheetId is required to update a sheet",
-    });
-  }
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_updateSheet] Starting:", {
-      docId,
-      sheetId,
-      title,
-      unsetFields,
-    });
-
-    try {
-      // Connect to ShareDB
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return JSON.stringify({
-            success: false,
-            error: "Document has no data",
-          });
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data, false);
-
-        // Build sheet spec for updateSheet
-        const spec: Partial<Sheet> = {};
-
-        if (title !== undefined) {
-          spec.title = title;
-        }
-        if (hidden !== undefined) {
-          spec.hidden = hidden;
-        }
-        // Handle merges: add new merges and/or remove existing ones
-        if (merges?.length || removeMerges?.length) {
-          const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
-          let currentMerges = sheet?.merges ?? [];
-
-          // Remove merges that match removeMerges ranges
-          if (removeMerges?.length) {
-            const rangesToRemove = removeMerges
-              .map((a1Range: string) => {
-                const selection = addressToSelection(a1Range);
-                return selection?.range ?? null;
-              })
-              .filter((s) => !isNil(s));
-
-            currentMerges = currentMerges.filter((existing) => {
-              const shouldRemove = rangesToRemove.some(
-                (toRemove) =>
-                  existing.startRowIndex === toRemove.startRowIndex &&
-                  existing.endRowIndex === toRemove.endRowIndex &&
-                  existing.startColumnIndex === toRemove.startColumnIndex &&
-                  existing.endColumnIndex === toRemove.endColumnIndex,
-              );
-              return !shouldRemove;
-            });
-          }
-
-          // Add new merges (skip if they intersect with remaining merges)
-          if (merges?.length) {
-            const newMerges = merges
-              .map((a1Range: string) => {
-                const selection = addressToSelection(a1Range);
-                if (!selection?.range) {
-                  return null;
-                }
-                return selection.range;
-              })
-              .filter((s) => !isNil(s))
-              .filter((newMerge) => {
-                const intersectsExisting = currentMerges.some((existing) =>
-                  areaIntersects(existing, newMerge),
-                );
-                if (intersectsExisting) {
-                  console.warn(
-                    `[spreadsheet_updateSheet] Skipping merge that intersects existing merge`,
-                  );
-                }
-                return !intersectsExisting;
-              });
-            currentMerges = [...currentMerges, ...newMerges];
-          }
-
-          spec.merges = currentMerges;
-        }
-        // Convert hideRows/showRows - merge with existing rowMetadata
-        if (hideRows?.length || showRows?.length) {
-          const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
-          const existingRowMetadata = sheet?.rowMetadata ?? [];
-          const rowMetadata = [...existingRowMetadata];
-          if (hideRows) {
-            for (const row of hideRows) {
-              rowMetadata[row] = { ...rowMetadata[row], hiddenByUser: true };
-            }
-          }
-          if (showRows) {
-            for (const row of showRows) {
-              rowMetadata[row] = { ...rowMetadata[row], hiddenByUser: false };
-            }
-          }
-          spec.rowMetadata = rowMetadata;
-        }
-        // Convert hideCols/showCols - merge with existing columnMetadata
-        if (hideCols?.length || showCols?.length) {
-          const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
-          const existingColMetadata = sheet?.columnMetadata ?? [];
-          const columnMetadata = [...existingColMetadata];
-          if (hideCols) {
-            for (const colLetter of hideCols) {
-              const colIndex = alpha2number(colLetter);
-              columnMetadata[colIndex] = {
-                ...columnMetadata[colIndex],
-                hiddenByUser: true,
-              };
-            }
-          }
-          if (showCols) {
-            for (const colLetter of showCols) {
-              const colIndex = alpha2number(colLetter);
-              columnMetadata[colIndex] = {
-                ...columnMetadata[colIndex],
-                hiddenByUser: false,
-              };
-            }
-          }
-          spec.columnMetadata = columnMetadata;
-        }
-        if (frozenRowCount !== undefined) {
-          spec.frozenRowCount = frozenRowCount;
-        }
-        if (frozenColumnCount !== undefined) {
-          spec.frozenColumnCount = frozenColumnCount;
-        }
-        if (showGridLines !== undefined) {
-          spec.showGridLines = showGridLines;
-        }
-        if (tabColor !== undefined) {
-          spec.tabColor = tabColor as Sheet["tabColor"];
-        }
-        // Convert basicFilter A1 notation to FilterView
-        if (basicFilter !== undefined) {
-          if (basicFilter === null) {
-            spec.basicFilter = null;
-          } else {
-            const filterSelection = addressToSelection(basicFilter);
-            if (filterSelection?.range) {
-              // Preserve existing filter ID if present, otherwise generate new one
-              const sheet = spreadsheet.sheets.find(
-                (s) => s.sheetId === sheetId,
-              );
-              const existingId = sheet?.basicFilter?.id;
-              spec.basicFilter = {
-                id: existingId ?? uuidString(),
-                range: filterSelection.range,
-              };
-            }
-          }
-        }
-
-        // Handle unsetFields - explicitly set these to null
-        // Valid SheetSpec keys that can be unset
-        const validSheetSpecKeys = new Set([
-          "frozenRowCount",
-          "frozenColumnCount",
-          "tabColor",
-          "showGridLines",
-          "hidden",
-          "merges",
-          "rowMetadata",
-          "columnMetadata",
-          "basicFilter",
-        ]);
-
-        if (unsetFields && unsetFields.length > 0) {
-          for (const field of unsetFields) {
-            if (!validSheetSpecKeys.has(field)) {
-              console.warn(
-                `[spreadsheet_updateSheet] Ignoring invalid unsetField: ${field}`,
-              );
-              continue;
-            }
-            (spec as Record<string, unknown>)[field] = null;
-          }
-        }
-
-        // Update the sheet
-        spreadsheet.updateSheet(
-          sheetId,
-          Object.keys(spec).length > 0 ? spec : {},
-        );
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        console.log("[spreadsheet_updateSheet] Completed:", {
-          docId,
-          sheetId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully updated sheet ${sheetId}`,
-          sheetId,
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_updateSheet] Error:", error);
-
-      return JSON.stringify({
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to update sheet",
-      });
-    }
-  });
-};
-
-/**
- * The spreadsheet_updateSheet tool for LangChain
- */
-export const spreadsheetUpdateSheetTool = tool(handleSpreadsheetUpdateSheet, {
-  name: "spreadsheet_updateSheet",
-  description: `Update an existing sheet (tab) in a spreadsheet document.
-
-OVERVIEW:
-This tool updates properties of an existing sheet/tab. Use this to change sheet title, tab color, frozen rows/columns, merges, and hide/show rows/columns.
-
-WHEN TO USE THIS TOOL:
-- Renaming a sheet tab
-- Changing tab color
-- Setting frozen rows/columns
-- Adding or modifying cell merges (use A1 notation)
-- Hiding/showing rows or columns
-- Showing/hiding grid lines
-- Hiding/unhiding a sheet
-- Adding or removing a basic filter on a data range
-
-EXAMPLES:
-
-Example 1 — Rename a sheet:
-  docId: "abc123"
-  sheetId: 1
-  title: "Q1 Sales"
-
-Example 2 — Change tab color:
-  docId: "abc123"
-  sheetId: 1
-  tabColor: "#4285F4"
-
-Example 3 — Remove tab color:
-  docId: "abc123"
-  sheetId: 1
-  tabColor: null
-
-Example 4 — Freeze header row and first column:
-  docId: "abc123"
-  sheetId: 1
-  frozenRowCount: 1
-  frozenColumnCount: 1
-
-Example 5 — Merge cells using A1 notation:
-  docId: "abc123"
-  sheetId: 1
-  merges: ["A1:C1", "A2:A5", "D3:F3"]
-
-Example 6 — Remove existing merges:
-  docId: "abc123"
-  sheetId: 1
-  removeMerges: ["A1:C1", "D3:F3"]
-
-Example 7 — Hide specific rows:
-  docId: "abc123"
-  sheetId: 1
-  hideRows: [2, 3, 4, 5]
-
-Example 8 — Show previously hidden rows:
-  docId: "abc123"
-  sheetId: 1
-  showRows: [2, 3]
-
-Example 9 — Hide columns A and B:
-  docId: "abc123"
-  sheetId: 1
-  hideCols: ["A", "B"]
-
-Example 10 — Show hidden columns:
-  docId: "abc123"
-  sheetId: 1
-  showCols: ["A", "B", "C"]
-
-Example 11 — Add a basic filter to a data range:
-  docId: "abc123"
-  sheetId: 1
-  basicFilter: "A1:D100"
-
-Example 12 — Remove the basic filter:
-  docId: "abc123"
-  sheetId: 1
-  basicFilter: null`,
-  schema: SpreadsheetUpdateSheetSchema,
-});
-
 /**
  * Handler for the spreadsheet_getSheetMetadata tool
  */
@@ -3006,141 +2419,6 @@ Example 4 — Set row 1 (header row) to a larger height:
 );
 
 /**
- * Handler for the spreadsheet_duplicateSheet tool
- * Copies an existing sheet to a new sheet
- */
-const handleSpreadsheetDuplicateSheet = async (
-  input: SpreadsheetDuplicateSheetInput,
-): Promise<string> => {
-  const { docId, sheetId: inputSheetId, newSheetId } = input;
-
-  if (!docId) {
-    return failTool(
-      "MISSING_DOC_ID",
-      "docId is required to duplicate a sheet",
-      { field: "docId" },
-    );
-  }
-
-  const sheetId = inputSheetId ?? 1;
-
-  return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_duplicateSheet] Starting:", {
-      docId,
-      sheetId,
-      newSheetId,
-    });
-
-    try {
-      const { doc, close } = await getShareDBDocument(docId);
-
-      try {
-        const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-        if (!data) {
-          return failTool("NO_DOCUMENT_DATA", "Document has no data");
-        }
-
-        const spreadsheet = createSpreadsheetInterface(data, false);
-
-        // Check if source sheet exists
-        const sourceSheet = spreadsheet.sheets.find(
-          (sheet) => sheet.sheetId === sheetId,
-        );
-        if (!sourceSheet) {
-          return failTool(
-            "SHEET_NOT_FOUND",
-            `Sheet with ID ${sheetId} not found`,
-            { sheetId },
-          );
-        }
-
-        // Duplicate the sheet
-        const duplicatedSheetId = spreadsheet.duplicateSheet(
-          sheetId,
-          newSheetId,
-        );
-
-        // Persist changes
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
-
-        // Find the new sheet to get its title
-        const newSheet = spreadsheet.sheets.find(
-          (sheet) => sheet.sheetId === duplicatedSheetId,
-        );
-
-        console.log("[spreadsheet_duplicateSheet] Completed:", {
-          docId,
-          sourceSheetId: sheetId,
-          newSheetId: duplicatedSheetId,
-          patchCount: patchTuples.length,
-        });
-
-        return JSON.stringify({
-          success: true,
-          message: `Successfully duplicated sheet ${sheetId} to new sheet ${duplicatedSheetId}`,
-          sourceSheetId: sheetId,
-          newSheet: {
-            sheetId: duplicatedSheetId,
-            title:
-              (newSheet as { title?: string })?.title ??
-              `Sheet${duplicatedSheetId}`,
-          },
-        });
-      } finally {
-        close();
-      }
-    } catch (error) {
-      console.error("[spreadsheet_duplicateSheet] Error:", error);
-
-      return failTool(
-        "DUPLICATE_SHEET_FAILED",
-        error instanceof Error ? error.message : "Failed to duplicate sheet",
-      );
-    }
-  });
-};
-
-/**
- * The spreadsheet_duplicateSheet tool for LangChain
- */
-export const spreadsheetDuplicateSheetTool = tool(
-  handleSpreadsheetDuplicateSheet,
-  {
-    name: "spreadsheet_duplicateSheet",
-    description: `Copies an existing sheet to a new sheet in an  spreadsheet.
-
-OVERVIEW:
-This tool duplicates an existing sheet (tab) including all its data, formatting, and structure. The new sheet will be an exact copy of the source sheet.
-
-WHEN TO USE THIS TOOL:
-- Creating a backup copy of a sheet before making changes
-- Using an existing sheet as a template for a new sheet
-- Duplicating a sheet to create variations (e.g., monthly reports)
-
-IMPORTANT:
-- All indices are 1-based
-
-PARAMETERS:
-- docId: The document ID of the spreadsheet (required)
-- sheetId: The sheet ID (1-based) of the sheet to duplicate (default: 1)
-- newSheetId: Optional sheet ID for the new duplicated sheet. If not provided, one will be auto-generated.
-
-EXAMPLES:
-
-Example 1 — Duplicate the first sheet:
-  docId: "abc123"
-  sheetId: 1
-
-Example 2 — Duplicate a specific sheet with a specific new ID:
-  docId: "abc123"
-  sheetId: 2
-  newSheetId: 5`,
-    schema: SpreadsheetDuplicateSheetSchema,
-  },
-);
-
-/**
  * Handler for the spreadsheet_applyFill tool
  * Applies Excel-style fill operation to extend data patterns
  */
@@ -3522,21 +2800,55 @@ Example 3 — Remove a note from a cell:
 });
 
 /**
- * Handler for the spreadsheet_deleteSheet tool
+ * Consolidated handler for spreadsheet_sheet tool (create/update/delete)
  */
-const handleSpreadsheetDeleteSheet = async (
-  input: SpreadsheetDeleteSheetInput,
+const handleSpreadsheetSheet = async (
+  input: SpreadsheetSheetInput,
 ): Promise<string> => {
-  const { docId, sheetId } = input;
+  const {
+    docId,
+    action,
+    sheetId: inputSheetId,
+    activeSheetId,
+    title,
+    hidden,
+    merges,
+    removeMerges,
+    hideRows,
+    showRows,
+    hideCols,
+    showCols,
+    frozenRowCount,
+    frozenColumnCount,
+    showGridLines,
+    tabColor,
+    basicFilter,
+    unsetFields,
+    newSheetId,
+  } = input;
 
   if (!docId) {
-    return failTool("MISSING_DOC_ID", "docId is required to delete a sheet", {
-      field: "docId",
-    });
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  // Validate sheetId requirements based on action
+  if (
+    (action === "update" || action === "delete" || action === "duplicate") &&
+    isNil(inputSheetId)
+  ) {
+    return failTool(
+      "MISSING_SHEET_ID",
+      `sheetId is required for '${action}' action`,
+      { field: "sheetId", action },
+    );
   }
 
   return withDocumentWriteLock(docId, async () => {
-    console.log("[spreadsheet_deleteSheet] Starting:", { docId, sheetId });
+    console.log(`[spreadsheet_sheet:${action}] Starting:`, {
+      docId,
+      sheetId: inputSheetId,
+      title,
+    });
 
     try {
       const { doc, close } = await getShareDBDocument(docId);
@@ -3548,78 +2860,477 @@ const handleSpreadsheetDeleteSheet = async (
           return failTool("NO_DOCUMENT_DATA", "Document has no data");
         }
 
-        const spreadsheet = createSpreadsheetInterface(data);
+        const spreadsheet = createSpreadsheetInterface(data, false);
 
-        // Check if sheet exists
-        const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
-        if (!sheet) {
-          return failTool("SHEET_NOT_FOUND", `Sheet ${sheetId} not found`, {
+        // === DELETE ACTION ===
+        if (action === "delete") {
+          const sheetId = inputSheetId!;
+          const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+          if (!sheet) {
+            return failTool("SHEET_NOT_FOUND", `Sheet ${sheetId} not found`, {
+              sheetId,
+            });
+          }
+
+          if (spreadsheet.sheets.length === 1) {
+            return failTool(
+              "CANNOT_DELETE_LAST_SHEET",
+              "Cannot delete the last sheet in a workbook",
+            );
+          }
+
+          spreadsheet.deleteSheet(sheetId);
+          const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+          console.log(`[spreadsheet_sheet:delete] Completed:`, {
+            docId,
+            sheetId,
+            patchCount: patchTuples.length,
+          });
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully deleted sheet ${sheetId}`,
             sheetId,
           });
         }
 
-        // Don't allow deleting the last sheet
-        if (spreadsheet.sheets.length === 1) {
-          return failTool(
-            "CANNOT_DELETE_LAST_SHEET",
-            "Cannot delete the last sheet in a workbook",
+        // === DUPLICATE ACTION ===
+        if (action === "duplicate") {
+          const sheetId = inputSheetId!;
+          const sourceSheet = spreadsheet.sheets.find(
+            (s) => s.sheetId === sheetId,
           );
+          if (!sourceSheet) {
+            return failTool("SHEET_NOT_FOUND", `Sheet ${sheetId} not found`, {
+              sheetId,
+            });
+          }
+
+          const duplicatedSheetId = spreadsheet.duplicateSheet(
+            sheetId,
+            newSheetId,
+          );
+          const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+          const duplicatedSheet = spreadsheet.sheets.find(
+            (s) => s.sheetId === duplicatedSheetId,
+          );
+
+          console.log(`[spreadsheet_sheet:duplicate] Completed:`, {
+            docId,
+            sourceSheetId: sheetId,
+            newSheetId: duplicatedSheetId,
+            patchCount: patchTuples.length,
+          });
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully duplicated sheet ${sheetId} to new sheet ${duplicatedSheetId}`,
+            sourceSheetId: sheetId,
+            sheet: {
+              sheetId: duplicatedSheetId,
+              title: duplicatedSheet?.title ?? `Sheet${duplicatedSheetId}`,
+            },
+          });
         }
 
-        spreadsheet.deleteSheet(sheetId);
-        const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+        // === CREATE ACTION ===
+        if (action === "create") {
+          if (!isNil(activeSheetId)) {
+            spreadsheet.activeSheetId = activeSheetId;
+          }
 
-        console.log("[spreadsheet_deleteSheet] Completed:", {
-          docId,
-          sheetId,
-          patchCount: patchTuples.length,
-        });
+          // Build sheet spec for createNewSheet
+          const spec: Record<string, unknown> = {};
 
-        return JSON.stringify({
-          success: true,
-          message: `Successfully deleted sheet ${sheetId}`,
-          sheetId,
+          if (title) {
+            spec.title = title;
+          }
+          if (inputSheetId !== undefined) {
+            spec.sheetId = inputSheetId;
+          }
+          if (hidden !== undefined) {
+            spec.hidden = hidden;
+          }
+          // Convert A1 notation merges to GridRange format
+          if (merges && merges.length > 0) {
+            spec.merges = merges
+              .map((a1Range: string) => {
+                const selection = addressToSelection(a1Range);
+                if (!selection?.range) {
+                  return null;
+                }
+                return selection.range;
+              })
+              .filter(Boolean);
+          }
+          // Convert hideRows/showRows to rowMetadata
+          const rowMetadata: DimensionProperties[] = [];
+          if (hideRows) {
+            for (const row of hideRows) {
+              rowMetadata[row] = { hiddenByUser: true };
+            }
+          }
+          if (showRows) {
+            for (const row of showRows) {
+              rowMetadata[row] = { hiddenByUser: false };
+            }
+          }
+          if (rowMetadata.length > 0) {
+            spec.rowMetadata = rowMetadata;
+          }
+          // Convert hideCols/showCols to columnMetadata
+          const columnMetadata: DimensionProperties[] = [];
+          if (hideCols) {
+            for (const colLetter of hideCols) {
+              const colIndex = alpha2number(colLetter);
+              columnMetadata[colIndex] = { hiddenByUser: true };
+            }
+          }
+          if (showCols) {
+            for (const colLetter of showCols) {
+              const colIndex = alpha2number(colLetter);
+              columnMetadata[colIndex] = { hiddenByUser: false };
+            }
+          }
+          if (columnMetadata.length > 0) {
+            spec.columnMetadata = columnMetadata;
+          }
+          if (frozenRowCount !== undefined) {
+            spec.frozenRowCount = frozenRowCount;
+          }
+          if (frozenColumnCount !== undefined) {
+            spec.frozenColumnCount = frozenColumnCount;
+          }
+          if (showGridLines !== undefined) {
+            spec.showGridLines = showGridLines;
+          }
+          if (tabColor !== undefined) {
+            spec.tabColor = tabColor;
+          }
+          // Convert basicFilter A1 notation to FilterView
+          if (basicFilter !== undefined) {
+            if (basicFilter === null) {
+              spec.basicFilter = null;
+            } else {
+              const filterSelection = addressToSelection(basicFilter);
+              if (filterSelection?.range) {
+                spec.basicFilter = {
+                  id: uuidString(),
+                  range: filterSelection.range,
+                };
+              }
+            }
+          }
+
+          // Create the new sheet
+          const newSheet = spreadsheet.createNewSheet(
+            Object.keys(spec).length > 0 ? spec : undefined,
+          );
+
+          const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+          console.log(`[spreadsheet_sheet:create] Completed:`, {
+            docId,
+            newSheetId: newSheet.sheetId,
+            newSheetTitle: newSheet.title,
+            patchCount: patchTuples.length,
+          });
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully created sheet "${newSheet?.title}" with ID ${newSheet?.sheetId}`,
+            sheet: {
+              sheetId: newSheet?.sheetId,
+              title: newSheet?.title,
+            },
+          });
+        }
+
+        // === UPDATE ACTION ===
+        if (action === "update") {
+          const sheetId = inputSheetId!;
+
+          // Build sheet spec for updateSheet
+          const spec: Partial<Sheet> = {};
+
+          if (title !== undefined) {
+            spec.title = title;
+          }
+          if (hidden !== undefined) {
+            spec.hidden = hidden;
+          }
+          // Handle merges: add new merges and/or remove existing ones
+          if (merges?.length || removeMerges?.length) {
+            const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+            let currentMerges = sheet?.merges ?? [];
+
+            // Remove merges that match removeMerges ranges
+            if (removeMerges?.length) {
+              const rangesToRemove = removeMerges
+                .map((a1Range: string) => {
+                  const selection = addressToSelection(a1Range);
+                  return selection?.range ?? null;
+                })
+                .filter((s) => !isNil(s));
+
+              currentMerges = currentMerges.filter((existing) => {
+                const shouldRemove = rangesToRemove.some(
+                  (toRemove) =>
+                    existing.startRowIndex === toRemove.startRowIndex &&
+                    existing.endRowIndex === toRemove.endRowIndex &&
+                    existing.startColumnIndex === toRemove.startColumnIndex &&
+                    existing.endColumnIndex === toRemove.endColumnIndex,
+                );
+                return !shouldRemove;
+              });
+            }
+
+            // Add new merges (skip if they intersect with remaining merges)
+            if (merges?.length) {
+              const newMerges = merges
+                .map((a1Range: string) => {
+                  const selection = addressToSelection(a1Range);
+                  if (!selection?.range) {
+                    return null;
+                  }
+                  return selection.range;
+                })
+                .filter((s) => !isNil(s))
+                .filter((newMerge) => {
+                  const intersectsExisting = currentMerges.some((existing) =>
+                    areaIntersects(existing, newMerge),
+                  );
+                  if (intersectsExisting) {
+                    console.warn(
+                      `[spreadsheet_sheet:update] Skipping merge that intersects existing merge`,
+                    );
+                  }
+                  return !intersectsExisting;
+                });
+              currentMerges = [...currentMerges, ...newMerges];
+            }
+
+            spec.merges = currentMerges;
+          }
+          // Convert hideRows/showRows - merge with existing rowMetadata
+          if (hideRows?.length || showRows?.length) {
+            const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+            const existingRowMetadata = sheet?.rowMetadata ?? [];
+            const rowMetadata = [...existingRowMetadata];
+            if (hideRows) {
+              for (const row of hideRows) {
+                rowMetadata[row] = { ...rowMetadata[row], hiddenByUser: true };
+              }
+            }
+            if (showRows) {
+              for (const row of showRows) {
+                rowMetadata[row] = { ...rowMetadata[row], hiddenByUser: false };
+              }
+            }
+            spec.rowMetadata = rowMetadata;
+          }
+          // Convert hideCols/showCols - merge with existing columnMetadata
+          if (hideCols?.length || showCols?.length) {
+            const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
+            const existingColMetadata = sheet?.columnMetadata ?? [];
+            const columnMetadata = [...existingColMetadata];
+            if (hideCols) {
+              for (const colLetter of hideCols) {
+                const colIndex = alpha2number(colLetter);
+                columnMetadata[colIndex] = {
+                  ...columnMetadata[colIndex],
+                  hiddenByUser: true,
+                };
+              }
+            }
+            if (showCols) {
+              for (const colLetter of showCols) {
+                const colIndex = alpha2number(colLetter);
+                columnMetadata[colIndex] = {
+                  ...columnMetadata[colIndex],
+                  hiddenByUser: false,
+                };
+              }
+            }
+            spec.columnMetadata = columnMetadata;
+          }
+          if (frozenRowCount !== undefined) {
+            spec.frozenRowCount = frozenRowCount;
+          }
+          if (frozenColumnCount !== undefined) {
+            spec.frozenColumnCount = frozenColumnCount;
+          }
+          if (showGridLines !== undefined) {
+            spec.showGridLines = showGridLines;
+          }
+          if (tabColor !== undefined) {
+            spec.tabColor = tabColor as Sheet["tabColor"];
+          }
+          // Convert basicFilter A1 notation to FilterView
+          if (basicFilter !== undefined) {
+            if (basicFilter === null) {
+              spec.basicFilter = null;
+            } else {
+              const filterSelection = addressToSelection(basicFilter);
+              if (filterSelection?.range) {
+                const sheet = spreadsheet.sheets.find(
+                  (s) => s.sheetId === sheetId,
+                );
+                const existingId = sheet?.basicFilter?.id;
+                spec.basicFilter = {
+                  id: existingId ?? uuidString(),
+                  range: filterSelection.range,
+                };
+              }
+            }
+          }
+
+          // Handle unsetFields - explicitly set these to null
+          const validSheetSpecKeys = new Set([
+            "frozenRowCount",
+            "frozenColumnCount",
+            "tabColor",
+            "showGridLines",
+            "hidden",
+            "merges",
+            "rowMetadata",
+            "columnMetadata",
+            "basicFilter",
+          ]);
+
+          if (unsetFields && unsetFields.length > 0) {
+            for (const field of unsetFields) {
+              if (!validSheetSpecKeys.has(field)) {
+                console.warn(
+                  `[spreadsheet_sheet:update] Ignoring invalid unsetField: ${field}`,
+                );
+                continue;
+              }
+              (spec as Record<string, unknown>)[field] = null;
+            }
+          }
+
+          // Update the sheet
+          spreadsheet.updateSheet(
+            sheetId,
+            Object.keys(spec).length > 0 ? spec : {},
+          );
+
+          const patchTuples = await persistSpreadsheetPatches(doc, spreadsheet);
+
+          console.log(`[spreadsheet_sheet:update] Completed:`, {
+            docId,
+            sheetId,
+            patchCount: patchTuples.length,
+          });
+
+          return JSON.stringify({
+            success: true,
+            message: `Successfully updated sheet ${sheetId}`,
+            sheetId,
+          });
+        }
+
+        // Should never reach here
+        return failTool("INVALID_ACTION", `Invalid action: ${action}`, {
+          action,
         });
       } finally {
-        queueMicrotask(() => {
-          close();
-        });
+        close();
       }
     } catch (error) {
-      console.error("[spreadsheet_deleteSheet] Error:", error);
+      console.error(`[spreadsheet_sheet:${action}] Error:`, error);
       return failTool(
-        "DELETE_SHEET_FAILED",
-        error instanceof Error ? error.message : "Failed to delete sheet",
+        "SHEET_OPERATION_FAILED",
+        error instanceof Error ? error.message : `Failed to ${action} sheet`,
       );
     }
   });
 };
 
-export const spreadsheetDeleteSheetTool = tool(handleSpreadsheetDeleteSheet, {
-  name: "spreadsheet_deleteSheet",
-  description: `Delete a sheet from the spreadsheet.
+/**
+ * The consolidated spreadsheet_sheet tool for LangChain
+ */
+export const spreadsheetSheetTool = tool(handleSpreadsheetSheet, {
+  name: "spreadsheet_sheet",
+  description: `Manage sheets (tabs) in a spreadsheet document - create, update, or delete.
 
 OVERVIEW:
-This tool permanently removes a sheet and all its contents from the workbook.
+This tool provides unified sheet management. Use the 'action' parameter to specify what you want to do:
+- "create": Add a new sheet/tab
+- "update": Modify an existing sheet's properties
+- "delete": Remove a sheet from the workbook
+- "duplicate": Copy an existing sheet to a new sheet
 
 WHEN TO USE THIS TOOL:
-- Removing unwanted sheets
-- Cleaning up temporary sheets
-- Reorganizing workbook structure
-
-WARNING:
-- This action is permanent and cannot be undone
-- All data, formatting, and charts on the sheet will be lost
-- Cannot delete the last remaining sheet in a workbook
+- Adding new worksheets to organize data
+- Renaming sheet tabs or changing tab colors
+- Setting frozen rows/columns
+- Adding or removing cell merges
+- Hiding/showing rows or columns
+- Adding or removing basic filters
+- Showing/hiding grid lines
+- Deleting unwanted sheets
+- Duplicating sheets as templates or backups
 
 PARAMETERS:
-- docId: The document ID (required)
-- sheetId: The sheet ID to delete (required)
+- docId: The document ID (required for all actions)
+- action: "create" | "update" | "delete" | "duplicate" (required)
+- sheetId: Required for update/delete/duplicate, optional for create (auto-generated if omitted)
+- newSheetId: Optional ID for the duplicated sheet (only for 'duplicate' action)
 
-EXAMPLE:
+EXAMPLES:
+
+Example 1 — Create a simple sheet:
+  action: "create"
   docId: "abc123"
-  sheetId: 2`,
-  schema: SpreadsheetDeleteSheetSchema,
+  title: "Sales Report"
+
+Example 2 — Create a sheet with frozen header and filter:
+  action: "create"
+  docId: "abc123"
+  title: "Data"
+  frozenRowCount: 1
+  basicFilter: "A1:D100"
+
+Example 3 — Update sheet title and tab color:
+  action: "update"
+  docId: "abc123"
+  sheetId: 1
+  title: "Q1 Sales"
+  tabColor: "#4285F4"
+
+Example 4 — Add a basic filter to existing sheet:
+  action: "update"
+  docId: "abc123"
+  sheetId: 1
+  basicFilter: "A1:E50"
+
+Example 5 — Remove basic filter:
+  action: "update"
+  docId: "abc123"
+  sheetId: 1
+  basicFilter: null
+
+Example 6 — Hide rows and columns:
+  action: "update"
+  docId: "abc123"
+  sheetId: 1
+  hideRows: [2, 3, 4]
+  hideCols: ["A", "B"]
+
+Example 7 — Delete a sheet:
+  action: "delete"
+  docId: "abc123"
+  sheetId: 2
+
+Example 8 — Duplicate a sheet:
+  action: "duplicate"
+  docId: "abc123"
+  sheetId: 1`,
+  schema: SpreadsheetSheetSchema,
 });
 
 /**
@@ -6110,8 +5821,6 @@ Example 2 — Audit specific sheet:
  */
 export const spreadsheetTools = [
   spreadsheetChangeBatchTool,
-  spreadsheetCreateSheetTool,
-  spreadsheetUpdateSheetTool,
   spreadsheetGetSheetMetadataTool,
   spreadsheetFormatRangeTool,
   spreadsheetModifyRowsColsTool,
@@ -6120,16 +5829,16 @@ export const spreadsheetTools = [
   spreadsheetReadDocumentTool,
   spreadsheetGetRowColMetadataTool,
   spreadsheetSetRowColDimensionsTool,
-  spreadsheetDuplicateSheetTool,
   spreadsheetApplyFillTool,
   spreadsheetInsertNoteTool,
-  spreadsheetDeleteSheetTool,
   // Consolidated tools
   spreadsheetClearCellsTool,
   spreadsheetTableTool,
   spreadsheetChartTool,
   spreadsheetDataValidationTool,
   spreadsheetConditionalFormatTool,
+  // Consolidated: create/update/delete/duplicate sheet
+  spreadsheetSheetTool,
   // Audit tools
   spreadsheetGetAuditSnapshotTool,
 ];

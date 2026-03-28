@@ -214,36 +214,47 @@ const SheetSpecSchema = z
   })
   .loose();
 
-export const SpreadsheetCreateSheetSchema = z.object({
+// Consolidated Sheet tool schema (create/update/delete/duplicate)
+export const SpreadsheetSheetSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
+  action: z
+    .enum(["create", "update", "delete", "duplicate"])
+    .describe(
+      "The action to perform: 'create' to add a new sheet, 'update' to modify an existing sheet, 'delete' to remove a sheet, 'duplicate' to copy an existing sheet",
+    ),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "The sheet ID. Required for 'update', 'delete', and 'duplicate' actions. Optional for 'create' (auto-generated if omitted).",
+    ),
   activeSheetId: z
     .number()
     .int()
     .optional()
-    .describe("The active sheet ID to use as context"),
-  ...SheetSpecSchema.shape,
-  ...ToolExplanationSchemaShape,
-});
-
-export type SpreadsheetCreateSheetInput = z.infer<
-  typeof SpreadsheetCreateSheetSchema
->;
-
-// Spreadsheet UpdateSheet
-export const SpreadsheetUpdateSheetSchema = z.object({
-  docId: z.string().describe("The document ID of the spreadsheet"),
-  ...SheetSpecSchema.omit({ sheetId: true }).partial().shape,
-  sheetId: z.number().int().describe("The sheet ID to update"),
+    .describe("The active sheet ID to use as context (for 'create' action)"),
+  // All sheet properties from SheetSpecSchema (except sheetId which is handled above)
+  ...SheetSpecSchema.omit({ sheetId: true }).shape,
+  // Update-specific fields
   unsetFields: z
     .array(z.string())
     .optional()
-    .describe("Fields to unset/remove"),
+    .describe(
+      "Fields to unset/remove (only for 'update' action). Valid fields: frozenRowCount, frozenColumnCount, tabColor, showGridLines, hidden, merges, rowMetadata, columnMetadata, basicFilter",
+    ),
+  // Duplicate-specific fields
+  newSheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "The sheet ID for the duplicated sheet (only for 'duplicate' action). If not provided, one will be auto-generated.",
+    ),
   ...ToolExplanationSchemaShape,
 });
 
-export type SpreadsheetUpdateSheetInput = z.infer<
-  typeof SpreadsheetUpdateSheetSchema
->;
+export type SpreadsheetSheetInput = z.infer<typeof SpreadsheetSheetSchema>;
 
 // Spreadsheet GetSheetMetadata
 export const SpreadsheetGetSheetMetadataSchema = z.object({
@@ -574,27 +585,6 @@ export const SpreadsheetGetRowColMetadataSchema = z.object({
 
 export type SpreadsheetGetRowColMetadataInput = z.infer<
   typeof SpreadsheetGetRowColMetadataSchema
->;
-
-// Spreadsheet DuplicateSheet
-export const SpreadsheetDuplicateSheetSchema = z.object({
-  docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z
-    .number()
-    .int()
-    .describe("The sheet ID (1-based) of the sheet to duplicate"),
-  newSheetId: z
-    .number()
-    .int()
-    .optional()
-    .describe(
-      "Optional sheet ID for the new duplicated sheet. If not provided, one will be auto-generated.",
-    ),
-  ...ToolExplanationSchemaShape,
-});
-
-export type SpreadsheetDuplicateSheetInput = z.infer<
-  typeof SpreadsheetDuplicateSheetSchema
 >;
 
 // Spreadsheet DeleteCells
@@ -1049,17 +1039,6 @@ export const SpreadsheetUpdateChartSchema = z.object({
 
 export type SpreadsheetUpdateChartInput = z.infer<
   typeof SpreadsheetUpdateChartSchema
->;
-
-// Spreadsheet DeleteSheet
-export const SpreadsheetDeleteSheetSchema = z.object({
-  docId: z.string().describe("The document ID of the spreadsheet"),
-  sheetId: z.number().int().describe("The sheet ID to delete"),
-  ...ToolExplanationSchemaShape,
-});
-
-export type SpreadsheetDeleteSheetInput = z.infer<
-  typeof SpreadsheetDeleteSheetSchema
 >;
 
 // Spreadsheet DeleteChart

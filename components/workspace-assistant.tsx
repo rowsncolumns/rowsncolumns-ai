@@ -1928,16 +1928,6 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Updated spreadsheet data",
     failed: "Failed to update spreadsheet data",
   },
-  spreadsheet_createSheet: {
-    running: "Creating sheet",
-    success: "Created sheet",
-    failed: "Failed to create sheet",
-  },
-  spreadsheet_updateSheet: {
-    running: "Updating sheet settings",
-    success: "Updated sheet settings",
-    failed: "Failed to update sheet settings",
-  },
   spreadsheet_getSheetMetadata: {
     running: "Reading sheet metadata",
     success: "Read sheet metadata",
@@ -1978,11 +1968,6 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Set row/column dimensions",
     failed: "Failed to set row/column dimensions",
   },
-  spreadsheet_duplicateSheet: {
-    running: "Duplicating sheet",
-    success: "Duplicated sheet",
-    failed: "Failed to duplicate sheet",
-  },
   spreadsheet_applyFill: {
     running: "Applying fill",
     success: "Applied fill",
@@ -1992,11 +1977,6 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     running: "Inserting note",
     success: "Inserted note",
     failed: "Failed to insert note",
-  },
-  spreadsheet_deleteSheet: {
-    running: "Deleting sheet",
-    success: "Deleted sheet",
-    failed: "Failed to delete sheet",
   },
   // Consolidated tools
   spreadsheet_clearCells: {
@@ -2042,6 +2022,28 @@ const CONSOLIDATED_TOOL_COPY: Record<
   string,
   Record<string, { running: string; success: string; failed: string }>
 > = {
+  spreadsheet_sheet: {
+    create: {
+      running: "Creating sheet",
+      success: "Created sheet",
+      failed: "Failed to create sheet",
+    },
+    update: {
+      running: "Updating sheet",
+      success: "Updated sheet",
+      failed: "Failed to update sheet",
+    },
+    delete: {
+      running: "Deleting sheet",
+      success: "Deleted sheet",
+      failed: "Failed to delete sheet",
+    },
+    duplicate: {
+      running: "Duplicating sheet",
+      success: "Duplicated sheet",
+      failed: "Failed to duplicate sheet",
+    },
+  },
   spreadsheet_table: {
     create: {
       running: "Creating table",
@@ -2717,8 +2719,7 @@ function SpreadsheetCreateSheetSideEffect({ result }: { result?: unknown }) {
 
 const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_changeBatch",
-  "spreadsheet_createSheet",
-  "spreadsheet_updateSheet",
+  "spreadsheet_sheet", // Consolidated: create/update/delete sheet
   "spreadsheet_getSheetMetadata",
   "spreadsheet_formatRange",
   "spreadsheet_modifyRowsCols",
@@ -2727,10 +2728,8 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_readDocument",
   "spreadsheet_getRowColMetadata",
   "spreadsheet_setRowColDimensions",
-  "spreadsheet_duplicateSheet",
   "spreadsheet_applyFill",
   "spreadsheet_insertNote",
-  "spreadsheet_deleteSheet",
   // Consolidated tools
   "spreadsheet_clearCells",
   "spreadsheet_table",
@@ -2755,9 +2754,10 @@ function SpreadsheetToolUIRegistration({
       toolCallId,
     }: ToolCallMessagePartProps<Record<string, unknown>, unknown>) => (
       <div className="w-full maxx-w-md">
-        {renderedToolName === "spreadsheet_createSheet" && (
-          <SpreadsheetCreateSheetSideEffect result={result} />
-        )}
+        {renderedToolName === "spreadsheet_sheet" &&
+          (args as { action?: string })?.action === "create" && (
+            <SpreadsheetCreateSheetSideEffect result={result} />
+          )}
         <ToolCallDisplay
           toolCallId={toolCallId}
           toolName={renderedToolName}
