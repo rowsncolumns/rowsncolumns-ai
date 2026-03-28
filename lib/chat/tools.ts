@@ -231,7 +231,7 @@ const parseCells = (input: unknown): CellData[][] => {
 };
 
 // Configuration for document write locking
-const ENABLE_DOCUMENT_WRITE_LOCK = true;
+const ENABLE_DOCUMENT_WRITE_LOCK = false;
 
 // In-memory lock map: docId -> Promise chain
 const documentLocks = new Map<string, Promise<unknown>>();
