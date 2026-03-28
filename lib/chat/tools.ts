@@ -2817,6 +2817,7 @@ const handleSpreadsheetSheet = async (
     sheetId: inputSheetId,
     activeSheetId,
     title,
+    index,
     hidden,
     merges,
     removeMerges,
@@ -2956,6 +2957,9 @@ const handleSpreadsheetSheet = async (
           if (inputSheetId !== undefined) {
             spec.sheetId = inputSheetId;
           }
+          if (index !== undefined) {
+            spec.index = index;
+          }
           if (hidden !== undefined) {
             spec.hidden = hidden;
           }
@@ -3063,6 +3067,9 @@ const handleSpreadsheetSheet = async (
 
           if (title !== undefined) {
             spec.title = title;
+          }
+          if (index !== undefined) {
+            spec.index = index;
           }
           if (hidden !== undefined) {
             spec.hidden = hidden;
