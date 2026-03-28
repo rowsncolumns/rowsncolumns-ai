@@ -73,7 +73,6 @@ import {
   Paperclip,
   Pencil,
   Plus,
-  RotateCcw,
   Square,
   SendHorizontal,
   Sparkles,
@@ -1759,7 +1758,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
               // Attempt to resume the stream with exponential backoff
               yield* resumeStreamWithRetry(threadId, currentRunId, abortSignal);
               return;
-            } catch (resumeError) {
+            } catch {
               // Resume failed after retries - show connection lost message
               yield buildTerminalAssistantMessage(
                 "Connection lost. The response may still be generating. Please refresh to see the result.",
@@ -4769,6 +4768,9 @@ function AssistantComposer({
     alt: string;
   } | null>(null);
   const composerImagesRef = React.useRef<ComposerImageAttachment[]>([]);
+  const uploadAbortControllersRef = React.useRef<
+    Map<string, AbortController>
+  >(new Map());
   const [isDragActive, setIsDragActive] = React.useState(false);
   const [queuedMessages, setQueuedMessages] = React.useState<
     QueuedComposerMessage[]
@@ -4783,9 +4785,21 @@ function AssistantComposer({
     }
   }, []);
 
+  const abortAllComposerUploads = React.useCallback(() => {
+    uploadAbortControllersRef.current.forEach((controller) => {
+      controller.abort();
+    });
+    uploadAbortControllersRef.current.clear();
+  }, []);
+
   const clearComposerImages = React.useCallback(() => {
     setComposerImages((previous) => {
       previous.forEach((image) => {
+        const controller = uploadAbortControllersRef.current.get(image.id);
+        if (controller) {
+          controller.abort();
+          uploadAbortControllersRef.current.delete(image.id);
+        }
         releasePreviewUrl(image.previewUrl);
       });
       return [];
@@ -4802,11 +4816,12 @@ function AssistantComposer({
 
   React.useEffect(() => {
     return () => {
+      abortAllComposerUploads();
       composerImagesRef.current.forEach((image) => {
         releasePreviewUrl(image.previewUrl);
       });
     };
-  }, [releasePreviewUrl]);
+  }, [abortAllComposerUploads, releasePreviewUrl]);
 
   React.useEffect(() => {
     if (forceCompactHeader) {
@@ -4909,6 +4924,8 @@ function AssistantComposer({
 
     void Promise.allSettled(
       pendingAttachments.map(async ({ id, file }) => {
+        const uploadController = new AbortController();
+        uploadAbortControllersRef.current.set(id, uploadController);
         try {
           setComposerImages((previous) =>
             previous.map((image) =>
@@ -4940,6 +4957,7 @@ function AssistantComposer({
           let lastProgressPercent = 15;
           const uploadedImage = await uploadAssistantImage({
             file: resizedImage.file,
+            signal: uploadController.signal,
             onProgress: (fraction) => {
               const nextProgressPercent = Math.min(
                 99,
@@ -4991,6 +5009,8 @@ function AssistantComposer({
                 : image,
             ),
           );
+        } finally {
+          uploadAbortControllersRef.current.delete(id);
         }
       }),
     );
@@ -5145,6 +5165,11 @@ function AssistantComposer({
 
   const handleRemoveComposerImage = React.useCallback(
     (imageId: string) => {
+      const controller = uploadAbortControllersRef.current.get(imageId);
+      if (controller) {
+        controller.abort();
+        uploadAbortControllersRef.current.delete(imageId);
+      }
       setComposerImages((previous) => {
         const nextImages = previous.filter((image) => image.id !== imageId);
         const removedImage = previous.find((image) => image.id === imageId);
@@ -5315,7 +5340,7 @@ function AssistantComposer({
             {composerImages.map((image) => (
               <div
                 key={image.id}
-                className="group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-rnc-border bg-white"
+                className="group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-(--card-border) bg-(--card-bg-solid)"
                 title={
                   image.status === "error"
                     ? image.error || "Upload failed"
@@ -5323,7 +5348,7 @@ function AssistantComposer({
                 }
               >
                 {image.previewUrl ? (
-                  <Button
+                  <button
                     type="button"
                     onClick={() =>
                       setComposerLightboxImage({
@@ -5340,7 +5365,7 @@ function AssistantComposer({
                       alt={image.filename}
                       className="h-full w-full object-cover"
                     />
-                  </Button>
+                  </button>
                 ) : (
                   <ImageIcon className="h-4 w-4 text-muted-foreground" />
                 )}
@@ -6018,7 +6043,7 @@ function WorkspaceAssistantPanel({
         </ForkContext.Provider>
       </AssistantDebugAccessContext.Provider>
       {isPanelImageDragActive && (
-        <div className="pointer-events-none absolute inset-0 z-[15] flex items-center justify-center backdrop-blur-[1px] bg-(--assistant-overlay-backdrop)">
+        <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center backdrop-blur-[1px] bg-(--assistant-overlay-backdrop)">
           <div className="absolute inset-2 rounded-xl border-2 border-dashed border-(--accent)/70" />
           <div className="mx-4 inline-flex items-center gap-2 rounded-xl border border-(--accent)/45 bg-background/90 px-4 py-2 text-sm text-foreground shadow-lg">
             <ImageIcon className="h-4 w-4 text-(--accent)" />
