@@ -35,6 +35,7 @@ import {
   colorKeys,
   defaultSpreadsheetTheme,
   EmbeddedChart,
+  NamedRange,
   scrollSubscriber,
   Sheet,
   SpreadsheetTheme,
@@ -143,6 +144,7 @@ import {
 import type {
   SpreadsheetAssistantContext,
   ChartSummary,
+  NamedRangeSummary,
   TableSummary,
   ViewPortProps,
 } from "@/lib/chat/context";
@@ -2729,6 +2731,7 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_chart",
   "spreadsheet_dataValidation",
   "spreadsheet_conditionalFormat",
+  "spreadsheet_getAuditSnapshot",
 ] as const;
 
 const TOOL_CALL_OPEN_STATE = new Map<string, boolean>();
@@ -3062,6 +3065,7 @@ export function SheetsInstructions({
   tables,
   theme,
   charts,
+  namedRanges,
   getSheetName,
   getSheetProperties,
 }: {
@@ -3074,6 +3078,7 @@ export function SheetsInstructions({
   tables?: TableView[] | null;
   theme?: SpreadsheetTheme;
   charts?: EmbeddedChart[];
+  namedRanges?: NamedRange[];
   getSheetName?: ReturnType<typeof useSpreadsheetState>["getSheetName"];
   getSheetProperties?: ReturnType<
     typeof useSpreadsheetState
@@ -3160,6 +3165,24 @@ export function SheetsInstructions({
     });
   }, [charts, getSheetName]);
 
+  // Transform named ranges to simplified summary for LLM context
+  const namedRangeSummaries = React.useMemo<NamedRangeSummary[]>(() => {
+    if (!namedRanges) return [];
+    return namedRanges.flatMap((nr) => {
+      if (!nr.range) return [];
+      const sheetName = getSheetName?.(nr.range.sheetId);
+      const ref = selectionToAddress({ range: nr.range }, sheetName);
+      if (!ref) return [];
+      return [
+        {
+          name: nr.name,
+          ref,
+          sheetId: nr.range.sheetId,
+        },
+      ];
+    });
+  }, [namedRanges, getSheetName]);
+
   // Map theme colors for Agent to comprehend
   const themeColorMapping = React.useMemo(() => {
     const activeTheme = theme ?? defaultSpreadsheetTheme;
@@ -3194,6 +3217,7 @@ export function SheetsInstructions({
       cellXfs: cellXfs ? Object.fromEntries([...cellXfs]) : {},
       tables: tableSummaries,
       charts: chartSummaries,
+      namedRanges: namedRangeSummaries,
       theme: themeColorMapping,
     }),
     [
@@ -3207,6 +3231,7 @@ export function SheetsInstructions({
       cellXfs,
       tableSummaries,
       chartSummaries,
+      namedRangeSummaries,
       themeColorMapping,
     ],
   );

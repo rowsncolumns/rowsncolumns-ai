@@ -14,6 +14,7 @@ import {
   getExtendedValueBool,
   getExtendedValueFormula,
   getExtendedValueNumber,
+  getExtendedValueError,
   getExtendedValueString,
   isNil,
   selectionToAddress,
@@ -66,6 +67,8 @@ import {
   SpreadsheetConditionalFormatSchema,
   type SpreadsheetClearCellsInput,
   SpreadsheetClearCellsSchema,
+  type SpreadsheetGetAuditSnapshotInput,
+  SpreadsheetGetAuditSnapshotSchema,
   // Legacy schemas kept for internal use
   type SpreadsheetCreateTableInput,
   type SpreadsheetCreateDataValidationInput,
@@ -98,6 +101,7 @@ import type {
   ConditionType,
   DataValidationRuleRecord,
   CellFormat,
+  ErrorValue,
 } from "@rowsncolumns/common-types";
 
 const failTool = (
@@ -5633,6 +5637,422 @@ Example 8 — Delete rule:
 );
 
 /**
+ * Handler for spreadsheet_getAuditSnapshot tool
+ * Collects comprehensive data for deep audit analysis
+ */
+const handleSpreadsheetGetAuditSnapshot = async (
+  input: SpreadsheetGetAuditSnapshotInput,
+): Promise<string> => {
+  const { docId, sheetId: targetSheetId } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  console.log("[spreadsheet_getAuditSnapshot] Starting:", {
+    docId,
+    sheetId: targetSheetId,
+  });
+
+  try {
+    const { doc, close } = await getShareDBDocument(docId);
+
+    try {
+      const data = doc.data as ShareDBSpreadsheetDoc | null;
+
+      if (!data) {
+        return failTool("NO_DOCUMENT_DATA", "Document has no data");
+      }
+
+      const spreadsheet = createSpreadsheetInterface(data, true);
+      const cellXfs = spreadsheet.cellXfs;
+
+      // Determine which sheets to audit
+      const sheetsToAudit = targetSheetId
+        ? spreadsheet.sheets.filter((s) => s.sheetId === targetSheetId)
+        : spreadsheet.sheets;
+
+      if (sheetsToAudit.length === 0) {
+        return failTool(
+          "SHEET_NOT_FOUND",
+          `Sheet with ID ${targetSheetId} not found`,
+        );
+      }
+
+      const auditSheets: Array<Record<string, unknown>> = [];
+
+      for (const sheetInfo of sheetsToAudit) {
+        const sheetId = sheetInfo.sheetId;
+        const sheetTitle =
+          (sheetInfo as { title?: string }).title ||
+          (sheetInfo as { name?: string }).name ||
+          `Sheet${sheetId}`;
+        const sheetData = spreadsheet.sheetData[sheetId];
+        const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId) as
+          | Sheet
+          | undefined;
+
+        // Calculate data bounds
+        let maxRow = 0;
+        let maxCol = 0;
+        if (sheetData) {
+          for (const rowIndexStr of Object.keys(sheetData)) {
+            const rowIndex = parseInt(rowIndexStr, 10);
+            if (isNaN(rowIndex)) continue;
+            const rowData = sheetData[rowIndex];
+            if (!rowData?.values) continue;
+            for (const colIndexStr of Object.keys(rowData.values)) {
+              const colIndex = parseInt(colIndexStr, 10);
+              if (isNaN(colIndex)) continue;
+              if (rowData.values[colIndex]) {
+                maxRow = Math.max(maxRow, rowIndex);
+                maxCol = Math.max(maxCol, colIndex);
+              }
+            }
+          }
+        }
+
+        const usedRange =
+          maxRow > 0 && maxCol > 0
+            ? `A1:${cellToAddress({ rowIndex: maxRow, columnIndex: maxCol })}`
+            : "A1";
+
+        // Collect hidden rows/columns
+        const hiddenRows: number[] = [];
+        const hiddenColumns: number[] = [];
+        const rowMetadata = (sheet as Record<string, unknown>)?.rowMetadata as
+          | DimensionProperties[]
+          | undefined;
+        const columnMetadata = (sheet as Record<string, unknown>)
+          ?.columnMetadata as DimensionProperties[] | undefined;
+
+        if (rowMetadata) {
+          rowMetadata.forEach((meta, idx) => {
+            if (meta?.hiddenByUser) hiddenRows.push(idx);
+          });
+        }
+        if (columnMetadata) {
+          columnMetadata.forEach((meta, idx) => {
+            if (meta?.hiddenByUser) hiddenColumns.push(idx);
+          });
+        }
+
+        // Collect merges
+        const merges: string[] = [];
+        const sheetMerges = (sheet as Record<string, unknown>)?.merges as
+          | Array<{
+              startRowIndex: number;
+              endRowIndex: number;
+              startColumnIndex: number;
+              endColumnIndex: number;
+            }>
+          | undefined;
+        if (sheetMerges) {
+          for (const merge of sheetMerges) {
+            const addr = selectionToAddress({ range: merge });
+            if (addr) merges.push(addr);
+          }
+        }
+
+        // Collect formulas with their results and detect errors
+        const formulas: Array<{
+          cell: string;
+          formula: string;
+          result: unknown;
+          isError: boolean;
+          errorType?: string;
+        }> = [];
+
+        // Collect formatting inventory
+        const fontMap = new Map<string, string[]>();
+        const numberFormatMap = new Map<string, string[]>();
+        const backgroundMap = new Map<string, string[]>();
+        const alignmentMap = new Map<string, string[]>();
+
+        // Scan all cells
+        if (sheetData) {
+          for (let rowIndex = 1; rowIndex <= maxRow; rowIndex++) {
+            const rowData = sheetData[rowIndex];
+            if (!rowData?.values) continue;
+
+            for (let columnIndex = 1; columnIndex <= maxCol; columnIndex++) {
+              const cellData = rowData.values[columnIndex];
+              if (!cellData) continue;
+
+              const address = cellToAddress({ rowIndex, columnIndex });
+              if (!address) continue;
+
+              // Check for formula
+              const ue = getCellUserEnteredValue(cellData);
+              const formula = getExtendedValueFormula(ue);
+
+              if (formula) {
+                const effectiveValue = getCellEffectiveValue(cellData);
+                const errorValue = getExtendedValueError(effectiveValue) as
+                  | ErrorValue
+                  | undefined
+                  | null;
+                const ev =
+                  getExtendedValueBool(effectiveValue) ??
+                  getExtendedValueNumber(effectiveValue) ??
+                  getExtendedValueString(effectiveValue);
+
+                // Detect formula errors
+                const isError = errorValue?.type === "Error";
+                let errorType: string | undefined;
+                if (isError) {
+                  errorType = `${errorValue.name}: ${errorValue.message}`;
+                }
+
+                formulas.push({
+                  cell: address,
+                  formula,
+                  result: ev,
+                  isError,
+                  errorType,
+                });
+              }
+
+              // Collect formatting
+              const ef = getCellEffectiveFormat(cellData);
+              const style = (ef as StyleReference)?.sid
+                ? cellXfs.get(String((ef as StyleReference)?.sid))
+                : ef;
+
+              if (style && typeof style === "object") {
+                const s = style as Record<string, unknown>;
+
+                // Font
+                const textFormat = s.textFormat as
+                  | Record<string, unknown>
+                  | undefined;
+                if (textFormat) {
+                  const fontKey = JSON.stringify({
+                    family: textFormat.fontFamily,
+                    size: textFormat.fontSize,
+                    bold: textFormat.bold,
+                    italic: textFormat.italic,
+                  });
+                  const existing = fontMap.get(fontKey) || [];
+                  existing.push(address);
+                  fontMap.set(fontKey, existing);
+                }
+
+                // Number format
+                const numberFormat = s.numberFormat as
+                  | Record<string, unknown>
+                  | undefined;
+                if (numberFormat?.pattern) {
+                  const pattern = String(numberFormat.pattern);
+                  const existing = numberFormatMap.get(pattern) || [];
+                  existing.push(address);
+                  numberFormatMap.set(pattern, existing);
+                }
+
+                // Background color
+                const bgColor = s.backgroundColor as string | undefined;
+                if (bgColor) {
+                  const existing = backgroundMap.get(bgColor) || [];
+                  existing.push(address);
+                  backgroundMap.set(bgColor, existing);
+                }
+
+                // Alignment
+                const hAlign = s.horizontalAlignment as string | undefined;
+                const vAlign = s.verticalAlignment as string | undefined;
+                if (hAlign || vAlign) {
+                  const alignKey = `${hAlign || "default"}:${vAlign || "default"}`;
+                  const existing = alignmentMap.get(alignKey) || [];
+                  existing.push(address);
+                  alignmentMap.set(alignKey, existing);
+                }
+              }
+            }
+          }
+        }
+
+        // Collect conditional formats for this sheet
+        const conditionalFormats = (spreadsheet.conditionalFormats || [])
+          .filter((r) => (r as Record<string, unknown>).sheetId === sheetId)
+          .map((r) => ({
+            ruleId: r.id,
+            ranges: r.ranges?.map((range) => selectionToAddress({ range })),
+            ruleType: r.gradientRule ? "colorScale" : "condition",
+            booleanRule: r.booleanRule,
+            gradientRule: r.gradientRule,
+            enabled: r.enabled,
+          }));
+
+        // Collect data validations for this sheet
+        const dataValidations = (spreadsheet.dataValidations || [])
+          .filter((v) => (v as Record<string, unknown>).sheetId === sheetId)
+          .map((v) => ({
+            validationId: v.id,
+            ranges: v.ranges?.map((r) => selectionToAddress({ range: r })),
+            condition: v.condition,
+          }));
+
+        // Collect charts for this sheet
+        const charts = (spreadsheet.charts || [])
+          .filter((c) => {
+            const pos = (c as EmbeddedChart).position;
+            return pos && pos.sheetId === sheetId;
+          })
+          .map((c) => {
+            const chart = c as EmbeddedChart;
+            const spec = chart.spec as Record<string, unknown> | undefined;
+            return {
+              chartId: chart.chartId,
+              type: spec?.chartType || "unknown",
+              position: chart.position,
+            };
+          });
+
+        // Build formats summary (limit to avoid huge responses)
+        const formatsSummary = {
+          uniqueFonts: fontMap.size,
+          fonts: Array.from(fontMap.entries())
+            .slice(0, 10)
+            .map(([key, cells]) => ({
+              style: JSON.parse(key),
+              cellCount: cells.length,
+              sample: cells.slice(0, 5),
+            })),
+          uniqueNumberFormats: numberFormatMap.size,
+          numberFormats: Array.from(numberFormatMap.entries())
+            .slice(0, 10)
+            .map(([pattern, cells]) => ({
+              pattern,
+              cellCount: cells.length,
+              sample: cells.slice(0, 5),
+            })),
+          uniqueBackgrounds: backgroundMap.size,
+          backgrounds: Array.from(backgroundMap.entries())
+            .slice(0, 10)
+            .map(([color, cells]) => ({
+              color,
+              cellCount: cells.length,
+              sample: cells.slice(0, 5),
+            })),
+          uniqueAlignments: alignmentMap.size,
+          alignments: Array.from(alignmentMap.entries())
+            .slice(0, 10)
+            .map(([key, cells]) => {
+              const [h, v] = key.split(":");
+              return {
+                horizontal: h,
+                vertical: v,
+                cellCount: cells.length,
+                sample: cells.slice(0, 5),
+              };
+            }),
+        };
+
+        // Separate errors from valid formulas
+        const formulaErrors = formulas.filter((f) => f.isError);
+        const validFormulas = formulas.filter((f) => !f.isError);
+
+        auditSheets.push({
+          sheetId,
+          title: sheetTitle,
+          structure: {
+            usedRange,
+            frozenRows: (sheet as Record<string, unknown>)?.frozenRowCount || 0,
+            frozenColumns:
+              (sheet as Record<string, unknown>)?.frozenColumnCount || 0,
+            merges,
+            hiddenRows,
+            hiddenColumns,
+            showGridLines:
+              (sheet as Record<string, unknown>)?.showGridLines ?? true,
+          },
+          formulas: {
+            total: formulas.length,
+            errors: formulaErrors,
+            errorCount: formulaErrors.length,
+            // Include sample of valid formulas for pattern analysis
+            sample: validFormulas.slice(0, 20),
+          },
+          formats: formatsSummary,
+          conditionalFormats,
+          dataValidations,
+          charts,
+        });
+      }
+
+      return JSON.stringify({
+        success: true,
+        sheets: auditSheets,
+        summary: {
+          totalSheets: auditSheets.length,
+          totalFormulaErrors: auditSheets.reduce(
+            (sum, s) =>
+              sum +
+              (((s.formulas as Record<string, unknown>)
+                ?.errorCount as number) || 0),
+            0,
+          ),
+          totalConditionalFormats: auditSheets.reduce(
+            (sum, s) =>
+              sum + ((s.conditionalFormats as unknown[])?.length || 0),
+            0,
+          ),
+          totalDataValidations: auditSheets.reduce(
+            (sum, s) => sum + ((s.dataValidations as unknown[])?.length || 0),
+            0,
+          ),
+        },
+      });
+    } finally {
+      close();
+    }
+  } catch (error) {
+    console.error("[spreadsheet_getAuditSnapshot] Error:", error);
+    return failTool(
+      "AUDIT_FAILED",
+      error instanceof Error ? error.message : "Failed to get audit snapshot",
+    );
+  }
+};
+
+export const spreadsheetGetAuditSnapshotTool = tool(
+  handleSpreadsheetGetAuditSnapshot,
+  {
+    name: "spreadsheet_getAuditSnapshot",
+    description: `Collect comprehensive audit data from a spreadsheet for deep analysis.
+
+OVERVIEW:
+This tool gathers all data needed to perform a thorough audit of a spreadsheet, including formulas, formatting patterns, conditional formats, data validations, and structural information.
+
+WHEN TO USE:
+- When performing a "deep audit" of a spreadsheet
+- Before suggesting fixes for formula errors or formatting inconsistencies
+- To understand the overall health and structure of a workbook
+
+RETURNS:
+For each sheet, returns:
+- structure: usedRange, frozen rows/cols, merges, hidden rows/cols, gridlines
+- formulas: all formulas with their results, error detection (errors separated)
+- formats: inventory of unique fonts, number formats, backgrounds, alignments
+- conditionalFormats: all conditional formatting rules
+- dataValidations: all data validation rules
+- charts: embedded charts
+
+The summary includes total error counts across all sheets.
+
+EXAMPLES:
+
+Example 1 — Audit entire workbook:
+  docId: "abc123"
+
+Example 2 — Audit specific sheet:
+  docId: "abc123"
+  sheetId: 1`,
+    schema: SpreadsheetGetAuditSnapshotSchema,
+  },
+);
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
@@ -5657,4 +6077,6 @@ export const spreadsheetTools = [
   spreadsheetChartTool,
   spreadsheetDataValidationTool,
   spreadsheetConditionalFormatTool,
+  // Audit tools
+  spreadsheetGetAuditSnapshotTool,
 ];

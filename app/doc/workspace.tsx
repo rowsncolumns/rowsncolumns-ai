@@ -941,6 +941,7 @@ function SpreadsheetPane({
         getSheetName={getSheetName}
         charts={charts}
         getViewPort={getViewPort}
+        namedRanges={namedRanges}
       />
       <Toolbar enableFloating className="rounded-tl-xl rounded-tr-xl">
         <FileMenu

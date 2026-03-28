@@ -13,6 +13,7 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "spreadsheet_queryRange",
   "spreadsheet_readDocument",
   "spreadsheet_getRowColMetadata",
+  "spreadsheet_getAuditSnapshot",
 ]);
 
 export const isReadOnlyTool = (toolName: string) =>

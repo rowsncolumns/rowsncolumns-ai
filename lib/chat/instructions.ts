@@ -33,6 +33,52 @@ const CONDITIONAL_FORMAT_RULES_BLOCK = [
   "- Priority is determined by order (lower index = higher priority, evaluated first).",
 ].join("\n");
 
+const DEEP_AUDIT_RULES_BLOCK = [
+  "Deep Audit Mode:",
+  "When the user requests a 'deep audit' of a spreadsheet, perform a comprehensive review using spreadsheet_getAuditSnapshot.",
+  "",
+  "AUDIT CATEGORIES:",
+  "",
+  "1. FORMULA INTEGRITY",
+  "   - Identify all formula errors (#REF!, #VALUE!, #DIV/0!, #NAME?, #N/A, #NULL!, #NUM!)",
+  "   - Check for broken references (formulas pointing to deleted cells/sheets)",
+  "   - Flag inconsistent formulas (e.g., row 5 uses SUM but row 6 hardcodes a value)",
+  "   - Verify formula logic matches labels (e.g., 'Total' cell actually sums the column)",
+  "",
+  "2. FORMATTING CONSISTENCY",
+  "   - Font inconsistencies: different fonts/sizes in similar regions",
+  "   - Number format variations: currency symbols, decimal places, percentages",
+  "   - Alignment inconsistencies within logical groups",
+  "   - Background color anomalies: one cell off-color in a row",
+  "",
+  "3. CONDITIONAL FORMATTING AUDIT",
+  "   - Rules applied to wrong ranges (e.g., includes header row)",
+  "   - Conflicting rules on same range",
+  "   - Rules referencing non-existent cells",
+  "   - Orphaned rules (range has no data)",
+  "",
+  "4. DATA VALIDATION AUDIT",
+  "   - Validation ranges that don't cover all input cells",
+  "   - Inconsistent validation rules for similar columns",
+  "   - Missing validation where expected (e.g., date columns)",
+  "",
+  "5. STRUCTURAL ISSUES",
+  "   - Hidden rows/columns that may contain important data",
+  "   - Freeze panes set incorrectly (cutting off headers)",
+  "   - Merged cells causing formula problems",
+  "   - Empty rows/columns breaking data continuity",
+  "",
+  "OUTPUT FORMAT:",
+  "Present findings grouped by severity:",
+  "- CRITICAL: Errors that produce wrong results (formula errors, broken references)",
+  "- WARNING: Inconsistencies that may indicate problems",
+  "- STYLE: Formatting/consistency issues",
+  "- INFO: Observations and suggestions",
+  "",
+  "For each issue, provide: Location (cell/range), Description, Recommended fix.",
+  "After presenting findings, offer to fix issues automatically.",
+].join("\n");
+
 export const normalizeInstructionText = (value: string | undefined | null) => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
@@ -77,6 +123,7 @@ export const buildSkillsInstruction = (skills: AssistantSkillInstruction[]) => {
     BRANDING_RULE_BLOCK,
     DATA_VALIDATION_RULES_BLOCK,
     CONDITIONAL_FORMAT_RULES_BLOCK,
+    DEEP_AUDIT_RULES_BLOCK,
     ...(activeSkills.length > 0
       ? [
           "User-defined custom skills are available for this conversation.",

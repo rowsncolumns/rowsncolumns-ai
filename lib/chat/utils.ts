@@ -478,7 +478,9 @@ export const evaluateFormulas = async (
 
     if (address) {
       formulaResults[address] =
-        result instanceof FormulaError ? String(result) : result;
+        result instanceof FormulaError
+          ? `${result.error}: ${result.message}`
+          : result;
     }
   }
 

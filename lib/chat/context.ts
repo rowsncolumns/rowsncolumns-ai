@@ -1,4 +1,4 @@
-import { Sheet } from "@rowsncolumns/spreadsheet";
+import { NamedRange, Sheet } from "@rowsncolumns/spreadsheet";
 import { selectionToAddress } from "@rowsncolumns/utils";
 
 export type TableSummary = {
@@ -16,6 +16,12 @@ export type ChartSummary = {
   subtitle?: string | null;
   chartType?: string;
   dataRange?: string | null;
+};
+
+export type NamedRangeSummary = {
+  name: string;
+  ref: string;
+  sheetId?: number;
 };
 
 export type ViewPortProps = {
@@ -47,6 +53,7 @@ export type SpreadsheetAssistantContext = {
   cellXfs?: Record<string, unknown>;
   tables?: TableSummary[];
   charts?: ChartSummary[];
+  namedRanges?: NamedRangeSummary[];
   theme?: {
     name?: string;
     primaryFontFamily?: string;
@@ -69,6 +76,7 @@ type SpreadsheetContextPayloadInput = {
   cellXfs?: Record<string, unknown> | null;
   tables?: TableSummary[];
   charts?: ChartSummary[];
+  namedRanges?: NamedRangeSummary[];
   theme?: SpreadsheetAssistantContext["theme"];
 };
 
@@ -213,6 +221,18 @@ List of charts:
     );
   }
 
+  if (context.namedRanges && context.namedRanges.length > 0) {
+    lines.push(
+      instructionLine(
+        `The spreadsheet has the following named ranges. Named ranges can be used in formulas instead of cell references.
+
+List of named ranges:
+`,
+        context.namedRanges,
+      ),
+    );
+  }
+
   if (lines.length === 0) {
     return undefined;
   }
@@ -247,6 +267,9 @@ export const buildSpreadsheetContextPayload = (
       : {}),
     ...(input.charts && input.charts.length > 0
       ? { charts: input.charts }
+      : {}),
+    ...(input.namedRanges && input.namedRanges.length > 0
+      ? { namedRanges: input.namedRanges }
       : {}),
     ...(input.theme ? { theme: input.theme } : {}),
   };
@@ -364,6 +387,27 @@ export const sanitizeSpreadsheetAssistantContext = (
       ];
     }) ?? undefined;
 
+  const namedRangesRaw: NamedRange[] | undefined = Array.isArray(
+    record.namedRanges,
+  )
+    ? record.namedRanges
+    : undefined;
+  const namedRanges =
+    namedRangesRaw?.flatMap((entry) => {
+      const item = asRecord(entry);
+      if (!item) return [];
+      const name = asString(item.name);
+      const ref = asString(item.ref);
+      if (!name || !ref) return [];
+      return [
+        {
+          name,
+          ref,
+          sheetId: asNumber(item.sheetId),
+        },
+      ];
+    }) ?? undefined;
+
   const themeRaw = asRecord(record.theme);
   const theme = themeRaw
     ? {
@@ -384,6 +428,8 @@ export const sanitizeSpreadsheetAssistantContext = (
     cellXfs,
     tables,
     charts: charts && charts.length > 0 ? charts : undefined,
+    namedRanges:
+      namedRanges && namedRanges.length > 0 ? namedRanges : undefined,
     theme,
   };
 
@@ -396,6 +442,7 @@ export const sanitizeSpreadsheetAssistantContext = (
     !context.cellXfs &&
     !context.tables &&
     !context.charts &&
+    !context.namedRanges &&
     !context.theme
   ) {
     return undefined;

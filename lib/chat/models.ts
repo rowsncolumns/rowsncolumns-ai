@@ -1763,3 +1763,19 @@ export const SpreadsheetClearCellsSchema = z.object({
 export type SpreadsheetClearCellsInput = z.infer<
   typeof SpreadsheetClearCellsSchema
 >;
+
+// Spreadsheet GetAuditSnapshot - comprehensive audit data collection
+export const SpreadsheetGetAuditSnapshotSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Optional: specific sheet ID to audit. If omitted, audits all sheets.",
+    ),
+});
+
+export type SpreadsheetGetAuditSnapshotInput = z.infer<
+  typeof SpreadsheetGetAuditSnapshotSchema
+>;
