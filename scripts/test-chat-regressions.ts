@@ -131,6 +131,45 @@ const tests: TestCase[] = [
       assert.equal(parsed.result?.self, "[Circular]");
     },
   },
+  {
+    name: "chat stream protocol roundtrips context usage events",
+    run: async () => {
+      const frame = encodeChatStreamEvent({
+        type: "context.usage",
+        runId: "run_123",
+        model: "claude-sonnet-4-6",
+        inputTokensPeak: 140000,
+        contextWindowTokens: 200000,
+        usedPercent: 70,
+        remainingPercent: 30,
+        warning: "high",
+      });
+
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+          controller.close();
+        },
+      });
+
+      const events = [];
+      for await (const event of parseChatStream(stream)) {
+        events.push(event);
+      }
+
+      assert.equal(events.length, 1);
+      const parsed = events[0] as {
+        type: string;
+        runId?: string;
+        warning?: string;
+        usedPercent?: number;
+      };
+      assert.equal(parsed.type, "context.usage");
+      assert.equal(parsed.runId, "run_123");
+      assert.equal(parsed.warning, "high");
+      assert.equal(parsed.usedPercent, 70);
+    },
+  },
 ];
 
 const run = async () => {

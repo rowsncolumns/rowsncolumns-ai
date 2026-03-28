@@ -19,6 +19,13 @@ import { ChatOpenAI } from "@langchain/openai";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import type { ChatStreamEvent } from "@/lib/chat/protocol";
 import {
+  buildContextUsageSnapshot,
+  getNextContextUsageSnapshot,
+  resolveModelContextWindowTokens,
+  type ContextUsageSnapshot,
+} from "@/lib/chat/context-usage";
+import { collectRespondedToolCallIds } from "@/lib/chat/tool-call-repair";
+import {
   getAssistantSessionByThreadId,
   listAssistantSessions,
   upsertAssistantSession,
@@ -35,6 +42,7 @@ const DEFAULT_GRAPH_RECURSION_LIMIT = 150;
 const DEFAULT_LANGGRAPH_CHECKPOINT_SCHEMA = "public";
 const CLAUDE_MODEL_PATTERN = /^claude/i;
 const REASONING_MODEL_PATTERN = /^(o\d|gpt-5|codex)/i;
+type AssistantRunMode = "action" | "plan" | "ask";
 const SESSION_TITLE_SYSTEM_PROMPT = `You generate concise session titles for spreadsheet assistant conversations.
 
 Rules:
@@ -44,6 +52,12 @@ Rules:
 - Use title case.
 `;
 const MAX_SESSION_TITLE_LENGTH = 80;
+const DEFAULT_ASSISTANT_RUN_MODE: AssistantRunMode = "action";
+const ASSISTANT_RUN_MODE_VALUES = new Set<AssistantRunMode>([
+  "action",
+  "plan",
+  "ask",
+]);
 
 const isReasoningModel = (model: string) =>
   REASONING_MODEL_PATTERN.test(model.trim());
@@ -155,6 +169,19 @@ const parseAnthropicThinkingMode = (
   return "enabled";
 };
 
+const resolveAssistantRunMode = (value: unknown): AssistantRunMode => {
+  if (typeof value !== "string") {
+    return DEFAULT_ASSISTANT_RUN_MODE;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (ASSISTANT_RUN_MODE_VALUES.has(normalized as AssistantRunMode)) {
+    return normalized as AssistantRunMode;
+  }
+
+  return DEFAULT_ASSISTANT_RUN_MODE;
+};
+
 const resolveProviderConfig = (override?: {
   model?: string;
   provider?: Provider;
@@ -202,9 +229,14 @@ const resolveProviderConfig = (override?: {
 
 const buildSystemPrompt = (options?: {
   docId?: string;
+  mode?: AssistantRunMode;
   systemInstructions?: string;
 }) => {
-  const { docId, systemInstructions } = options ?? {};
+  const {
+    docId,
+    mode = DEFAULT_ASSISTANT_RUN_MODE,
+    systemInstructions,
+  } = options ?? {};
 
   const docContext = docId
     ? `\n\nYou are working on document ID: ${docId}. When calling tools that modify the spreadsheet, always include this docId in the tool arguments.`
@@ -213,6 +245,23 @@ const buildSystemPrompt = (options?: {
   const additionalInstructions = systemInstructions
     ? `\n\n${systemInstructions}`
     : "";
+  const modeBehaviorInstructions =
+    mode === "plan"
+      ? `\n\n## Mode Override (Highest Priority)
+You are in plan mode.
+- Do not call any tools.
+- Do not execute spreadsheet changes.
+- Provide a concise, ordered implementation plan that you would run in action mode.
+- If assumptions are needed, list them explicitly and keep them minimal.`
+      : mode === "ask"
+        ? `\n\n## Mode Override (Highest Priority)
+You are in ask-only mode.
+- Do not call any tools.
+- Do not execute spreadsheet changes.
+- Answer the user's question directly and concisely using available context.`
+        : `\n\n## Mode Override (Highest Priority)
+You are in action mode.
+- Execute safe, non-destructive steps directly when tools are needed to fulfill the request.`;
 
   return `You are an expert Excel and spreadsheet assistant. You help users create, modify, analyze, and improve spreadsheets that are accurate, maintainable, and easy to understand.
 
@@ -316,6 +365,8 @@ Keep plans concise (max 7 steps shown). If a task has more steps, group related 
 - After making changes, summarize what was done and note anything the user should review.
 
 ${docContext}
+
+${modeBehaviorInstructions}
 
 ${additionalInstructions}`;
 };
@@ -526,6 +577,7 @@ const createGraph = async () => {
           configurable?: {
             model?: string;
             provider?: string;
+            mode?: string;
             reasoningEnabled?: boolean;
             docId?: string;
             systemInstructions?: string;
@@ -538,15 +590,21 @@ const createGraph = async () => {
             ? providerCandidate
             : undefined;
         const modelOverride = runtimeConfig?.configurable?.model;
+        const mode = resolveAssistantRunMode(runtimeConfig?.configurable?.mode);
         const reasoningEnabled = runtimeConfig?.configurable?.reasoningEnabled;
         const docId = runtimeConfig?.configurable?.docId;
         const systemInstructions =
           runtimeConfig?.configurable?.systemInstructions;
-        const model = getModel({
+        const availableTools = mode === "action" ? spreadsheetTools : [];
+        const baseModel = getModel({
           model: modelOverride,
           provider: providerOverride,
           reasoningEnabled,
-        }).bindTools(spreadsheetTools, { parallel_tool_calls: true });
+        });
+        const model =
+          availableTools.length > 0
+            ? baseModel.bindTools(availableTools, { parallel_tool_calls: true })
+            : baseModel;
 
         // Sanitize messages for OpenAI (remove unsupported content types like 'reasoning')
         const { provider } = resolveProviderConfig({
@@ -559,9 +617,28 @@ const createGraph = async () => {
             : state.messages;
 
         const response = await model.invoke([
-          new SystemMessage(buildSystemPrompt({ docId, systemInstructions })),
+          new SystemMessage(
+            buildSystemPrompt({ docId, mode, systemInstructions }),
+          ),
           ...messagesToSend,
         ]);
+
+        if (mode !== "action") {
+          const toolCalls = (response as { tool_calls?: unknown }).tool_calls;
+          if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+            const fallbackText = contentToText(response.content).trim();
+            return {
+              messages: [
+                new AIMessage(
+                  fallbackText ||
+                    (mode === "plan"
+                      ? "Execution plan prepared without running tools."
+                      : "Answer prepared without running tools."),
+                ),
+              ],
+            };
+          }
+        }
 
         return {
           messages: [response],
@@ -605,6 +682,7 @@ const getThreadConfig = (
   override?: {
     model?: string;
     provider?: Provider;
+    mode?: AssistantRunMode;
     reasoningEnabled?: boolean;
     docId?: string;
     systemInstructions?: string;
@@ -616,6 +694,7 @@ const getThreadConfig = (
     thread_id: buildCheckpointThreadId(threadId),
     ...(override?.model ? { model: override.model } : {}),
     ...(override?.provider ? { provider: override.provider } : {}),
+    ...(override?.mode ? { mode: override.mode } : {}),
     ...(typeof override?.reasoningEnabled === "boolean"
       ? { reasoningEnabled: override.reasoningEnabled }
       : {}),
@@ -632,6 +711,7 @@ const getThreadConfig = (
     ...(override?.userId ? { userId: override.userId } : {}),
     ...(override?.model ? { model: override.model } : {}),
     ...(override?.provider ? { provider: override.provider } : {}),
+    ...(override?.mode ? { mode: override.mode } : {}),
     ...(typeof override?.reasoningEnabled === "boolean"
       ? { reasoningEnabled: override.reasoningEnabled }
       : {}),
@@ -1600,33 +1680,6 @@ const buildPersistedThreadMessages = (
             part.result = toolResult.result;
             part.isError = toolResult.isError;
           }
-        } else if (persistedMessages.length > 0) {
-          const fallbackAssistantIndex = [...persistedMessages]
-            .map((message, index) => ({ message, index }))
-            .reverse()
-            .find((entry) => entry.message.role === "assistant")?.index;
-          if (fallbackAssistantIndex !== undefined) {
-            const fallbackMessage = persistedMessages[fallbackAssistantIndex];
-            const fallbackContent = Array.isArray(fallbackMessage.content)
-              ? fallbackMessage.content
-              : [
-                  {
-                    type: "text" as const,
-                    text: String(fallbackMessage.content),
-                  },
-                ];
-            fallbackContent.push({
-              type: "tool-call",
-              toolCallId:
-                toolResult.toolCallId ??
-                `tool:${toolResult.toolName ?? "tool"}:${fallbackAssistantIndex}:${fallbackContent.length}`,
-              toolName: toolResult.toolName ?? "tool",
-              args: {},
-              result: toolResult.result,
-              isError: toolResult.isError,
-            });
-            fallbackMessage.content = fallbackContent;
-          }
         }
 
         if (toolResult.toolCallId) {
@@ -2198,18 +2251,10 @@ const repairOrphanedToolCalls = async (input: {
     }
 
     // Check which tool_call_ids have responses in messages after the AIMessage
-    const respondedToolCallIds = new Set<string>();
-    for (let i = lastAIMessageIndex + 1; i < messages.length; i++) {
-      const msg = messages[i];
-      if (
-        msg &&
-        typeof msg === "object" &&
-        "tool_call_id" in msg &&
-        typeof msg.tool_call_id === "string"
-      ) {
-        respondedToolCallIds.add(msg.tool_call_id);
-      }
-    }
+    const respondedToolCallIds = collectRespondedToolCallIds(
+      messages,
+      lastAIMessageIndex + 1,
+    );
 
     // Find orphaned tool calls (no response)
     const missingResponses = orphanedToolCalls.filter(
@@ -2291,12 +2336,14 @@ const buildUserMessageContent = (input: {
 
 export async function* streamSpreadsheetAssistant(input: {
   threadId: string;
+  runId?: string;
   userId?: string;
   docId?: string;
   sessionTitle?: string;
   message: string;
   images?: ChatImageInput[];
   model?: string;
+  mode?: AssistantRunMode;
   provider?: Provider;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
@@ -2313,8 +2360,11 @@ export async function* streamSpreadsheetAssistant(input: {
     threadId: input.threadId,
   };
 
+  const runMode = resolveAssistantRunMode(input.mode);
+
   const config = getThreadConfig(input.threadId, "stream-assistant", {
     model: input.model,
+    mode: runMode,
     provider: input.provider,
     reasoningEnabled: input.reasoningEnabled,
     docId: input.docId,
@@ -2348,6 +2398,23 @@ export async function* streamSpreadsheetAssistant(input: {
   );
 
   let assistantMessage = "";
+  const { model: resolvedModel } = resolveProviderConfig({
+    model: input.model,
+    provider: input.provider,
+  });
+  let contextUsagePeakInputTokens = 0;
+  let latestContextUsage: ContextUsageSnapshot | null = null;
+  const buildContextUsageEvent = () => {
+    if (!input.runId || !latestContextUsage) {
+      return null;
+    }
+
+    return {
+      type: "context.usage" as const,
+      runId: input.runId,
+      ...latestContextUsage,
+    };
+  };
   const emittedToolResultKeys = new Set<string>();
   const observedToolCallKeys = new Set<string>();
   const currentRunToolCallIds = new Set<string>();
@@ -2527,6 +2594,24 @@ export async function* streamSpreadsheetAssistant(input: {
         continue;
       }
 
+      // Handle model end usage metadata for context tracking.
+      if (event.event === "on_chat_model_end") {
+        const nextContextUsage = getNextContextUsageSnapshot({
+          model: resolvedModel,
+          modelEndEventData: event.data,
+          currentPeakInputTokens: contextUsagePeakInputTokens,
+        });
+        contextUsagePeakInputTokens = nextContextUsage.nextPeakInputTokens;
+        if (nextContextUsage.snapshot) {
+          latestContextUsage = nextContextUsage.snapshot;
+          const contextUsageEvent = buildContextUsageEvent();
+          if (contextUsageEvent) {
+            yield contextUsageEvent;
+          }
+        }
+        continue;
+      }
+
       // Handle tool calls
       if (event.event === "on_tool_start") {
         const toolName = event.name;
@@ -2686,6 +2771,10 @@ export async function* streamSpreadsheetAssistant(input: {
           message: errorMessage,
         });
 
+        const contextUsageEvent = buildContextUsageEvent();
+        if (contextUsageEvent) {
+          yield contextUsageEvent;
+        }
         yield {
           type: "error",
           error: errorMessage,
@@ -2712,6 +2801,10 @@ export async function* streamSpreadsheetAssistant(input: {
           message: errorMessage,
         });
 
+        const contextUsageEvent = buildContextUsageEvent();
+        if (contextUsageEvent) {
+          yield contextUsageEvent;
+        }
         yield {
           type: "error",
           error: errorMessage,
@@ -2741,6 +2834,15 @@ export async function* streamSpreadsheetAssistant(input: {
           message: finalMessage,
         });
 
+        latestContextUsage = buildContextUsageSnapshot({
+          model: resolvedModel,
+          inputTokensPeak: contextUsagePeakInputTokens,
+          contextWindowTokens: resolveModelContextWindowTokens(resolvedModel),
+        });
+        const contextUsageEvent = buildContextUsageEvent();
+        if (contextUsageEvent) {
+          yield contextUsageEvent;
+        }
         yield {
           type: "message.complete",
           threadId: input.threadId,
@@ -2771,6 +2873,10 @@ export async function* streamSpreadsheetAssistant(input: {
         userId: input.userId,
         message: errorMessage,
       });
+      const contextUsageEvent = buildContextUsageEvent();
+      if (contextUsageEvent) {
+        yield contextUsageEvent;
+      }
       yield {
         type: "error",
         error: errorMessage,
@@ -2788,6 +2894,15 @@ export async function* streamSpreadsheetAssistant(input: {
       message: fallbackMessage,
     });
 
+    latestContextUsage = buildContextUsageSnapshot({
+      model: resolvedModel,
+      inputTokensPeak: contextUsagePeakInputTokens,
+      contextWindowTokens: resolveModelContextWindowTokens(resolvedModel),
+    });
+    const contextUsageEvent = buildContextUsageEvent();
+    if (contextUsageEvent) {
+      yield contextUsageEvent;
+    }
     yield {
       type: "message.complete",
       threadId: input.threadId,
@@ -2799,6 +2914,15 @@ export async function* streamSpreadsheetAssistant(input: {
   const finalMessage =
     assistantMessage.trim() || "I do not have a response yet.";
 
+  latestContextUsage = buildContextUsageSnapshot({
+    model: resolvedModel,
+    inputTokensPeak: contextUsagePeakInputTokens,
+    contextWindowTokens: resolveModelContextWindowTokens(resolvedModel),
+  });
+  const contextUsageEvent = buildContextUsageEvent();
+  if (contextUsageEvent) {
+    yield contextUsageEvent;
+  }
   yield {
     type: "message.complete",
     threadId: input.threadId,
@@ -2811,6 +2935,7 @@ export async function invokeSpreadsheetAssistant(input: {
   userId?: string;
   message: string;
   model?: string;
+  mode?: AssistantRunMode;
   provider?: Provider;
   reasoningEnabled?: boolean;
 }) {

@@ -32,6 +32,10 @@ import {
 } from "@/lib/chat/runs-repository";
 
 export type ChatProvider = "openai" | "anthropic";
+export type ChatMode = "action" | "plan" | "ask";
+
+export const DEFAULT_CHAT_MODE: ChatMode = "action";
+export const CHAT_MODE_VALUES = new Set<ChatMode>(["action", "plan", "ask"]);
 
 export type ChatImageInput = {
   url: string;
@@ -44,6 +48,7 @@ export type ChatRequestBody = {
   message?: string;
   images?: unknown;
   model?: string;
+  mode?: string;
   provider?: string;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
@@ -52,6 +57,7 @@ export type ChatRequestBody = {
 
 export type ChatRequestDefaults = {
   model?: string;
+  mode?: ChatMode;
   provider?: ChatProvider;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
@@ -63,6 +69,7 @@ export type ResolvedChatRequest = {
   message: string;
   images: ChatImageInput[];
   model?: string;
+  mode: ChatMode;
   provider?: ChatProvider;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
@@ -227,6 +234,17 @@ const parseProvider = (
   return null;
 };
 
+export const parseChatMode = (
+  value: string | undefined | null,
+): ChatMode | undefined | null => {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (CHAT_MODE_VALUES.has(normalized as ChatMode)) {
+    return normalized as ChatMode;
+  }
+  return null;
+};
+
 const inferProviderFromModel = (
   model: string | undefined,
 ): ChatProvider | undefined => {
@@ -304,6 +322,19 @@ export const resolveChatRequest = (
     };
   }
 
+  const parsedMode = parseChatMode(body.mode);
+  if (parsedMode === null) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        payload: { error: "mode must be 'action', 'plan', or 'ask'." },
+      },
+    };
+  }
+
+  const mode = parsedMode ?? defaults.mode ?? DEFAULT_CHAT_MODE;
+
   const parsedProvider = parseProvider(body.provider);
   if (parsedProvider === null) {
     return {
@@ -349,6 +380,7 @@ export const resolveChatRequest = (
       message,
       images: parsedImages.images,
       model,
+      mode,
       provider,
       reasoningEnabled,
       systemInstructions,
@@ -546,12 +578,14 @@ export const executeChatRunStream = async (input: {
   try {
     for await (const event of streamSpreadsheetAssistant({
       threadId: input.request.threadId,
+      runId,
       userId: input.userId,
       docId: input.request.docId,
       sessionTitle,
       message: input.request.message,
       images: input.request.images,
       model: input.request.model,
+      mode: input.request.mode,
       provider: input.request.provider,
       reasoningEnabled: input.request.reasoningEnabled,
       systemInstructions: input.request.systemInstructions,
@@ -573,9 +607,11 @@ export const executeChatRunStream = async (input: {
         );
       }
 
-      // Add runId to message.start and message.complete for client reconnection
+      // Add runId to stream events that clients correlate to the active run.
       const augmentedEvent =
-        event.type === "message.start" || event.type === "message.complete"
+        event.type === "message.start" ||
+        event.type === "message.complete" ||
+        event.type === "context.usage"
           ? { ...event, runId }
           : event;
 
@@ -620,6 +656,7 @@ export const executeChatRunStream = async (input: {
             threadId: input.request.threadId,
             docId: input.request.docId,
             model: input.request.model,
+            mode: input.request.mode,
             provider: input.request.provider,
             outputChars,
             toolCallCount,

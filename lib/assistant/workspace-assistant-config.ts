@@ -3,6 +3,11 @@ export type ModelOption = {
   label: string;
 };
 
+export type ModeOption = {
+  value: "action" | "plan" | "ask";
+  label: string;
+};
+
 export type ModelOptionGroup = {
   label: string;
   options: ModelOption[];
@@ -106,6 +111,16 @@ export const MODEL_OPTION_VALUES = new Set<string>(
 
 export const MODEL_STORAGE_KEY = "rnc.ai.workspace-assistant.model";
 export const REASONING_STORAGE_KEY = "rnc.ai.workspace-assistant.reasoning-enabled";
+export const MODE_OPTIONS: ModeOption[] = [
+  { value: "action", label: "Action mode" },
+  { value: "plan", label: "Plan mode" },
+  { value: "ask", label: "Ask only" },
+];
+export const DEFAULT_MODE: ModeOption["value"] = "action";
+export const MODE_STORAGE_KEY = "rnc.ai.workspace-assistant.mode";
+export const MODE_OPTION_VALUES = new Set<ModeOption["value"]>(
+  MODE_OPTIONS.map((option) => option.value),
+);
 export const SKILLS_API_ENDPOINT = "/api/skills";
 export const CHAT_API_ENDPOINT = "/api/chat";
 export const CHAT_HISTORY_API_ENDPOINT = "/api/chat/history";

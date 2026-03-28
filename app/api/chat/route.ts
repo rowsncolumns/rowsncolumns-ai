@@ -6,10 +6,12 @@ import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 import {
   type ChatAbortReason,
+  DEFAULT_CHAT_MODE,
   type ChatProvider,
   type ChatRequestBody,
   ensureChatRunCredits,
   executeChatRunStream,
+  parseChatMode,
   resolveRunSystemInstructions,
   resolveChatRequest,
 } from "@/lib/chat/server-core";
@@ -34,6 +36,10 @@ const CHAT_REASONING_ENABLED = (() => {
   if (value === "true" || value === "1") return true;
   if (value === "false" || value === "0") return false;
   return undefined;
+})();
+const CHAT_MODE = (() => {
+  const parsed = parseChatMode(process.env.CHAT_MODE);
+  return parsed ?? DEFAULT_CHAT_MODE;
 })();
 const CHAT_SYSTEM_INSTRUCTIONS =
   process.env.CHAT_SYSTEM_INSTRUCTIONS?.trim() || undefined;
@@ -68,6 +74,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as ChatRequestBody;
     const resolved = resolveChatRequest(body, {
       model: CHAT_MODEL,
+      mode: CHAT_MODE,
       provider: CHAT_PROVIDER,
       reasoningEnabled: CHAT_REASONING_ENABLED,
     });

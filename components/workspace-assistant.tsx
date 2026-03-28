@@ -60,7 +60,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronsUpDown,
+  CircleDollarSign,
   Copy,
+  AlertTriangle,
   Cpu,
   FileText,
   GitFork,
@@ -130,14 +132,28 @@ import {
   getStableThreadMessageRenderKey,
   groupStableMessageParts,
 } from "@/lib/assistant/stable-rendering";
+import { setStreamingToolResult } from "@/lib/assistant/tool-call-stream";
+import {
+  clearThreadContextUsage,
+  getLatestContextUsageFromRunEvents,
+  parseAssistantContextUsageEvent,
+  getThreadContextUsage,
+  setThreadContextUsage,
+  type AssistantContextUsage,
+  type AssistantContextUsageByThread,
+} from "@/lib/assistant/context-usage-state";
 import {
   CHAT_EXTERNAL_API_ENABLED,
   CHAT_HISTORY_API_ENDPOINT,
+  DEFAULT_MODE,
   DEFAULT_MODEL,
   FORK_BUTTON_ENABLED,
   getChatRequestUrl,
   getChatResumeUrl,
   INSUFFICIENT_CREDITS_ERROR_CODE,
+  MODE_OPTIONS,
+  MODE_OPTION_VALUES,
+  MODE_STORAGE_KEY,
   MODEL_OPTIONS,
   MODEL_OPTION_GROUPS,
   MODEL_OPTION_VALUES,
@@ -153,7 +169,7 @@ import type {
   TableSummary,
   ViewPortProps,
 } from "@/lib/chat/context";
-import { parseChatStream } from "@/lib/chat/protocol";
+import { parseChatStream, type ChatStreamEvent } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@rowsncolumns/ui";
@@ -167,6 +183,8 @@ type WorkspaceAssistantProps = {
   activeSheetId?: number;
   isAdmin?: boolean;
 };
+
+type AssistantMode = "action" | "plan" | "ask";
 
 /**
  * Props for the UI-only WorkspaceAssistantUI component.
@@ -184,11 +202,17 @@ export type WorkspaceAssistantUIProps = {
   isHydratingSession: boolean;
   isResumingRun?: boolean;
   isReconnecting?: boolean;
+  contextUsage?: AssistantContextUsage | null;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
   setIsModelPickerOpen: (open: boolean) => void;
   setSelectedModel: (model: string) => void;
+  selectedMode: AssistantMode;
+  selectedModeLabel: string;
+  isModePickerOpen: boolean;
+  setIsModePickerOpen: (open: boolean) => void;
+  setSelectedMode: (mode: AssistantMode) => void;
   reasoningEnabled: boolean;
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
@@ -238,6 +262,8 @@ const ASSISTANT_IMAGE_QUALITY_MIN = 0.5;
 const ASSISTANT_IMAGE_QUALITY_STEP = 0.08;
 const ASSISTANT_IMAGE_UPLOAD_MIME_TYPE = "image/jpeg";
 const ASSISTANT_MAX_COMPOSER_IMAGES = 5;
+const ASSISTANT_CONTEXT_USAGE_STORAGE_KEY =
+  "rnc.ai.workspace-assistant.context-usage-v1";
 const HEIC_IMAGE_CONTENT_TYPES = new Set([
   "image/heic",
   "image/heif",
@@ -327,6 +353,36 @@ const fetchChatRunResume = async (input: {
     return (await response.json()) as ChatRunResumeResponse;
   } catch {
     return null;
+  }
+};
+
+const parsePersistedContextUsageByThread = (
+  raw: string | null,
+): AssistantContextUsageByThread => {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+
+    const next: AssistantContextUsageByThread = {};
+    for (const [threadId, value] of Object.entries(parsed)) {
+      const normalizedThreadId = threadId.trim();
+      if (!normalizedThreadId) {
+        continue;
+      }
+      const usage = parseAssistantContextUsageEvent(value);
+      if (usage) {
+        next[normalizedThreadId] = usage;
+      }
+    }
+    return next;
+  } catch {
+    return {};
   }
 };
 
@@ -598,6 +654,7 @@ const requestAssistantChat = async (input: {
   message: string;
   images?: ChatImageInput[];
   model?: string;
+  mode?: AssistantMode;
   provider?: "openai" | "anthropic";
   reasoningEnabled?: boolean;
   context?: SpreadsheetAssistantContext;
@@ -611,6 +668,7 @@ const requestAssistantChat = async (input: {
       ? { images: input.images }
       : {}),
     ...(input.model ? { model: input.model } : {}),
+    ...(input.mode ? { mode: input.mode } : {}),
     ...(input.provider ? { provider: input.provider } : {}),
     ...(typeof input.reasoningEnabled === "boolean"
       ? { reasoningEnabled: input.reasoningEnabled }
@@ -793,10 +851,6 @@ type StreamingContentPart = StreamingTextPart | StreamingToolCallPart;
 
 const TOOL_INPUT_UNAVAILABLE_MARKER = "__rnc_tool_input_unavailable__";
 
-const createUnavailableToolArgs = () => ({
-  [TOOL_INPUT_UNAVAILABLE_MARKER]: true,
-});
-
 const isUnavailableToolArgs = (value: unknown) =>
   isRecord(value) && value[TOOL_INPUT_UNAVAILABLE_MARKER] === true;
 
@@ -847,97 +901,6 @@ const upsertStreamingToolCall = (
     args,
     argsText: JSON.stringify(args, null, 2),
   };
-};
-
-const stringifyUnknown = (value: unknown) => {
-  if (typeof value === "string") return value;
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-};
-
-const normalizeStreamingToolResult = (result: unknown, isError: boolean) => {
-  if (!isError) {
-    return result;
-  }
-
-  if (isRecord(result) && result.success === false && "error" in result) {
-    return result;
-  }
-
-  return {
-    success: false,
-    error: stringifyUnknown(result),
-  };
-};
-
-const findLatestPendingToolCallIndexByName = (
-  parts: StreamingContentPart[],
-  toolName: string,
-) => {
-  for (let index = parts.length - 1; index >= 0; index -= 1) {
-    const part = parts[index];
-    if (
-      part &&
-      part.type === "tool-call" &&
-      part.toolName === toolName &&
-      part.result === undefined
-    ) {
-      return index;
-    }
-  }
-
-  return -1;
-};
-
-const setStreamingToolResult = (
-  parts: StreamingContentPart[],
-  indexByToolCallId: Map<string, number>,
-  toolCallId: string,
-  toolName: string,
-  result: unknown,
-  args?: unknown,
-  isError = false,
-) => {
-  const normalizedResult = normalizeStreamingToolResult(result, isError);
-
-  let existingIndex = indexByToolCallId.get(toolCallId);
-  if (existingIndex === undefined) {
-    const fallbackIndex = findLatestPendingToolCallIndexByName(parts, toolName);
-    if (fallbackIndex !== -1) {
-      existingIndex = fallbackIndex;
-      indexByToolCallId.set(toolCallId, fallbackIndex);
-    }
-  }
-
-  if (existingIndex === undefined) {
-    const nextIndex =
-      parts.push({
-        type: "tool-call",
-        toolCallId,
-        toolName,
-        args: args ?? createUnavailableToolArgs(),
-        argsText: JSON.stringify(args ?? createUnavailableToolArgs(), null, 2),
-        result: normalizedResult,
-      }) - 1;
-    indexByToolCallId.set(toolCallId, nextIndex);
-    return;
-  }
-
-  const existingPart = parts[existingIndex];
-  if (!existingPart || existingPart.type !== "tool-call") {
-    return;
-  }
-
-  if (args !== undefined) {
-    existingPart.args = args;
-    existingPart.argsText = JSON.stringify(args, null, 2);
-  }
-
-  existingPart.result = normalizedResult;
 };
 
 const snapshotStreamingContent = (
@@ -1019,6 +982,10 @@ type StreamingState = {
   parts: StreamingContentPart[];
   toolPartIndexById: Map<string, number>;
 };
+type ContextUsageStreamEvent = Extract<
+  ChatStreamEvent,
+  { type: "context.usage" }
+>;
 
 const processStreamEvent = (
   event: { type: string; [key: string]: unknown },
@@ -1110,6 +1077,7 @@ async function* streamAssistantResponse(
   stream: ReadableStream<Uint8Array>,
   threadId: string,
   onRunId?: (runId: string) => void,
+  onContextUsage?: (event: ContextUsageStreamEvent) => void,
 ) {
   const state: StreamingState = {
     runId: null,
@@ -1122,6 +1090,10 @@ async function* streamAssistantResponse(
     if (event.type === "message.start" && "runId" in event && event.runId) {
       state.runId = event.runId as string;
       onRunId?.(state.runId);
+    }
+    if (event.type === "context.usage") {
+      onContextUsage?.(event);
+      continue;
     }
 
     const result = processStreamEvent(event, state, threadId);
@@ -1164,6 +1136,7 @@ async function* resumeStreamWithRetry(
   threadId: string,
   runId: string,
   signal?: AbortSignal,
+  onContextUsage?: (event: ContextUsageStreamEvent) => void,
 ): AsyncGenerator<ReturnType<typeof buildStreamingYield>, void, unknown> {
   for (let attempt = 0; attempt < SSE_RECONNECT_MAX_RETRIES; attempt++) {
     if (signal?.aborted) {
@@ -1202,7 +1175,12 @@ async function* resumeStreamWithRetry(
       }
 
       // Successfully reconnected - stream the response
-      yield* streamAssistantResponse(response.body, threadId);
+      yield* streamAssistantResponse(
+        response.body,
+        threadId,
+        undefined,
+        onContextUsage,
+      );
       return; // Success - exit retry loop
     } catch (error) {
       if (signal?.aborted) {
@@ -1628,9 +1606,16 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   const [selectedModel, setSelectedModel] =
     React.useState<string>(DEFAULT_MODEL);
+  const [selectedMode, setSelectedMode] =
+    React.useState<AssistantMode>(DEFAULT_MODE);
   const [isModelPickerOpen, setIsModelPickerOpen] = React.useState(false);
+  const [isModePickerOpen, setIsModePickerOpen] = React.useState(false);
   const [reasoningEnabled, setReasoningEnabled] = React.useState(false);
+  const [contextUsageByThread, setContextUsageByThread] =
+    React.useState<AssistantContextUsageByThread>({});
+  const hasHydratedContextUsageRef = React.useRef(false);
   const selectedModelRef = React.useRef(selectedModel);
+  const selectedModeRef = React.useRef<AssistantMode>(selectedMode);
   const reasoningEnabledRef = React.useRef(reasoningEnabled);
   const docIdRef = React.useRef(docId);
   const pendingLocalSessionIdRef = React.useRef<string | null | undefined>(
@@ -1678,8 +1663,41 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   }, []);
 
   React.useEffect(() => {
+    try {
+      const persisted = parsePersistedContextUsageByThread(
+        window.localStorage.getItem(ASSISTANT_CONTEXT_USAGE_STORAGE_KEY),
+      );
+      if (Object.keys(persisted).length === 0) {
+        return;
+      }
+      setContextUsageByThread((previous) => ({ ...persisted, ...previous }));
+    } catch {
+      // Ignore localStorage read failures
+    } finally {
+      hasHydratedContextUsageRef.current = true;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      const storedMode = window.localStorage.getItem(MODE_STORAGE_KEY)?.trim();
+      if (storedMode && MODE_OPTION_VALUES.has(storedMode as AssistantMode)) {
+        const nextMode = storedMode as AssistantMode;
+        setSelectedMode(nextMode);
+        selectedModeRef.current = nextMode;
+      }
+    } catch {
+      // Ignore localStorage read failures
+    }
+  }, []);
+
+  React.useEffect(() => {
     selectedModelRef.current = selectedModel;
   }, [selectedModel]);
+
+  React.useEffect(() => {
+    selectedModeRef.current = selectedMode;
+  }, [selectedMode]);
 
   React.useEffect(() => {
     reasoningEnabledRef.current = reasoningEnabled;
@@ -1704,9 +1722,40 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     }
   }, [reasoningEnabled]);
 
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(MODE_STORAGE_KEY, selectedMode);
+    } catch {
+      // Ignore localStorage write failures
+    }
+  }, [selectedMode]);
+
+  React.useEffect(() => {
+    if (!hasHydratedContextUsageRef.current) {
+      return;
+    }
+
+    try {
+      const entries = Object.entries(contextUsageByThread);
+      if (entries.length === 0) {
+        window.localStorage.removeItem(ASSISTANT_CONTEXT_USAGE_STORAGE_KEY);
+        return;
+      }
+      window.localStorage.setItem(
+        ASSISTANT_CONTEXT_USAGE_STORAGE_KEY,
+        JSON.stringify(contextUsageByThread),
+      );
+    } catch {
+      // Ignore localStorage write failures
+    }
+  }, [contextUsageByThread]);
+
   const selectedModelLabel =
     MODEL_OPTIONS.find((option) => option.value === selectedModel)?.label ??
     selectedModel;
+  const selectedModeLabel =
+    MODE_OPTIONS.find((option) => option.value === selectedMode)?.label ??
+    selectedMode;
 
   const handleSelectModel = React.useCallback((model: string) => {
     setSelectedModel(model);
@@ -1714,10 +1763,40 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     setIsModelPickerOpen(false);
   }, []);
 
+  const handleSelectMode = React.useCallback((mode: AssistantMode) => {
+    setSelectedMode(mode);
+    selectedModeRef.current = mode;
+    setIsModePickerOpen(false);
+  }, []);
+
   const markThreadStarted = React.useCallback(() => {
     pendingLocalSessionIdRef.current = threadId;
     markThreadStartedInUrl();
   }, [markThreadStartedInUrl, threadId]);
+  const setContextUsageForThread = React.useCallback(
+    (targetThreadId: string, usage: AssistantContextUsage | null) => {
+      setContextUsageByThread((previous) =>
+        usage
+          ? setThreadContextUsage(previous, targetThreadId, usage)
+          : clearThreadContextUsage(previous, targetThreadId),
+      );
+    },
+    [],
+  );
+  const handleContextUsageEvent = React.useCallback(
+    (event: ContextUsageStreamEvent) => {
+      setContextUsageForThread(threadId, event);
+    },
+    [setContextUsageForThread, threadId],
+  );
+  const clearCurrentThreadContextUsage = React.useCallback(() => {
+    setContextUsageForThread(threadId, null);
+  }, [setContextUsageForThread, threadId]);
+  const activeContextThreadId = sessionIdFromUrl ?? threadId;
+  const contextUsage = React.useMemo(
+    () => getThreadContextUsage(contextUsageByThread, activeContextThreadId),
+    [activeContextThreadId, contextUsageByThread],
+  );
 
   const chatAdapter = React.useMemo<ChatModelAdapter>(
     () => ({
@@ -1753,6 +1832,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             message,
             images,
             model,
+            mode: selectedModeRef.current,
             provider: getProviderForModel(model),
             reasoningEnabled: reasoningEnabledRef.current,
             context: contextSnapshot,
@@ -1772,9 +1852,14 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             throw new Error("Assistant stream is unavailable.");
           }
 
-          yield* streamAssistantResponse(response.body, threadId, (runId) => {
-            currentRunId = runId;
-          });
+          yield* streamAssistantResponse(
+            response.body,
+            threadId,
+            (runId) => {
+              currentRunId = runId;
+            },
+            handleContextUsageEvent,
+          );
         } catch (error) {
           if (isAbortError(error)) {
             return;
@@ -1784,7 +1869,12 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           if (isNetworkError(error) && currentRunId) {
             try {
               // Attempt to resume the stream with exponential backoff
-              yield* resumeStreamWithRetry(threadId, currentRunId, abortSignal);
+              yield* resumeStreamWithRetry(
+                threadId,
+                currentRunId,
+                abortSignal,
+                handleContextUsageEvent,
+              );
               return;
             } catch {
               // Resume failed after retries - show connection lost message
@@ -1809,7 +1899,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
       },
     }),
-    [markThreadStarted, threadId],
+    [handleContextUsageEvent, markThreadStarted, threadId],
   );
 
   const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
@@ -1872,6 +1962,17 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           return;
         }
 
+        if (resumeData) {
+          const resumeEvents = Array.isArray(resumeData.events)
+            ? resumeData.events
+            : [];
+          const latestContextUsage =
+            getLatestContextUsageFromRunEvents(resumeEvents);
+          if (latestContextUsage) {
+            setContextUsageForThread(normalizedThreadId, latestContextUsage);
+          }
+        }
+
         if (resumeData?.run.status === "running") {
           setIsHydratingSession(false);
           setIsResumingRun(true);
@@ -1895,15 +1996,14 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             );
 
             if (streamResponse.ok && streamResponse.body) {
-              // Consume the stream - we just need to wait for it to complete
-              const reader = streamResponse.body.getReader();
-              try {
-                while (true) {
-                  const { done } = await reader.read();
-                  if (done) break;
+              // Consume stream events and keep context usage synced while restoring.
+              for await (const streamEvent of parseChatStream(
+                streamResponse.body,
+              )) {
+                const usageEvent = parseAssistantContextUsageEvent(streamEvent);
+                if (usageEvent) {
+                  setContextUsageForThread(normalizedThreadId, usageEvent);
                 }
-              } finally {
-                reader.releaseLock();
               }
             }
           } catch (streamError) {
@@ -1942,7 +2042,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
       }
     },
-    [runtime],
+    [runtime, setContextUsageForThread],
   );
 
   React.useEffect(() => {
@@ -2002,8 +2102,9 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const startNewThread = React.useCallback(() => {
     pendingLocalSessionIdRef.current = null;
     cancelHydration();
+    clearCurrentThreadContextUsage();
     startNewThreadInUrl();
-  }, [cancelHydration, startNewThreadInUrl]);
+  }, [cancelHydration, clearCurrentThreadContextUsage, startNewThreadInUrl]);
 
   const selectThread = React.useCallback(
     async (nextThreadId: string) => {
@@ -2070,6 +2171,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     isHydratingSession,
     isResumingRun,
     isReconnecting,
+    contextUsage,
     startNewThread,
     selectThread,
     forkConversation,
@@ -2078,10 +2180,15 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     setSelectedModel: handleSelectModel,
     isModelPickerOpen,
     setIsModelPickerOpen,
+    selectedMode,
+    setSelectedMode: handleSelectMode,
+    isModePickerOpen,
+    setIsModePickerOpen,
     reasoningEnabled,
     setReasoningEnabled,
     reasoningEnabledRef,
     selectedModelLabel,
+    selectedModeLabel,
   };
 }
 
@@ -3981,7 +4088,7 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
         onClick={() => setIsOpen(true)}
         className={cn(
           "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
-          iconOnly ? "" : "gap-1.5 px-2.5 whitespace-nowrap",
+          iconOnly ? "px-2" : "gap-1.5 px-2.5 whitespace-nowrap",
         )}
         aria-label="Manage skills"
         title="Manage skills"
@@ -4388,7 +4495,7 @@ function NewSessionButton({
       onClick={handleNewSession}
       className={cn(
         "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
-        iconOnly ? "" : "gap-1.5 px-2.5 whitespace-nowrap",
+        iconOnly ? "px-2" : "gap-1.5 px-2.5 whitespace-nowrap",
       )}
       aria-label="New session"
       title="Start new session"
@@ -4572,7 +4679,7 @@ function SessionPickerButton({
           size="sm"
           className={cn(
             "rnc-assistant-chip h-8 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)",
-            iconOnly ? "" : "gap-1.5 px-2.5 whitespace-nowrap",
+            iconOnly ? "px-2" : "gap-1.5 px-2.5 whitespace-nowrap",
           )}
           aria-label="Session history"
           title="Load a previous session"
@@ -4690,11 +4797,17 @@ type WorkspaceAssistantPanelProps = {
   isHydratingSession?: boolean;
   isResumingRun?: boolean;
   isReconnecting?: boolean;
+  contextUsage?: AssistantContextUsage | null;
   selectedModel: string;
   selectedModelLabel: string;
   isModelPickerOpen: boolean;
   setIsModelPickerOpen: (open: boolean) => void;
   setSelectedModel: (model: string) => void;
+  selectedMode: AssistantMode;
+  selectedModeLabel: string;
+  isModePickerOpen: boolean;
+  setIsModePickerOpen: (open: boolean) => void;
+  setSelectedMode: (mode: AssistantMode) => void;
   reasoningEnabled: boolean;
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
@@ -4705,7 +4818,9 @@ type WorkspaceAssistantPanelProps = {
 const ASSISTANT_TAGLINE =
   "Plan edits, formulas, and workbook changes without leaving your sheet.";
 const ASSISTANT_HEADER_COMPACT_WIDTH = 560;
-const MODEL_PICKER_HIDE_WIDTH = 460;
+const ASSISTANT_COMPOSER_COMPACT_WIDTH = 480;
+const CONTEXT_USAGE_WARNING_COPY =
+  "Create a new chat when context runs low for better AI performance.";
 
 type CreditsApiResponse = {
   credits?: {
@@ -4732,12 +4847,53 @@ type PanelImageDropPayload = {
 };
 
 type AssistantComposerProps = Omit<WorkspaceAssistantPanelProps, "prompts"> & {
-  remainingCredits: number | null;
-  isUnlimitedCredits: boolean;
-  isCreditsLoading: boolean;
+  hasCredits: boolean;
   panelImageDrop: PanelImageDropPayload | null;
   onPanelImageDropHandled: (dropId: string) => void;
 };
+
+const formatTokenCount = (value: number) =>
+  Number.isFinite(value)
+    ? Math.max(0, Math.round(value)).toLocaleString()
+    : "0";
+
+function ContextUsageTooltipTrigger({
+  contextUsage,
+}: {
+  contextUsage?: AssistantContextUsage | null;
+}) {
+  if (!contextUsage || contextUsage.warning !== "high") {
+    return null;
+  }
+
+  const usageSummary = `${contextUsage.usedPercent}% context used`;
+  const remainingSummary = `${contextUsage.remainingPercent}% context remaining`;
+  const tokenSummary = `${formatTokenCount(contextUsage.inputTokensPeak)} / ${formatTokenCount(contextUsage.contextWindowTokens)} input tokens`;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Context usage: ${usageSummary}, ${remainingSummary}`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-orange-500/45 bg-orange-100 text-orange-700 transition-colors hover:bg-orange-200 dark:border-orange-400/45 dark:bg-orange-500/15 dark:text-orange-300 dark:hover:bg-orange-500/25"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center">
+        <div className="space-y-1">
+          <p className="font-medium">{remainingSummary}</p>
+          <p className="opacity-90">{usageSummary}</p>
+          <p className="opacity-90">{tokenSummary}</p>
+          <p className="font-medium text-orange-700 dark:text-orange-300">
+            {CONTEXT_USAGE_WARNING_COPY}
+          </p>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 const AssistantDebugAccessContext = React.createContext<{ isAdmin: boolean }>({
   isAdmin: false,
@@ -4758,13 +4914,17 @@ function AssistantComposer({
   isModelPickerOpen,
   setIsModelPickerOpen,
   setSelectedModel,
+  selectedMode,
+  selectedModeLabel,
+  isModePickerOpen,
+  setIsModePickerOpen,
+  setSelectedMode,
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
+  contextUsage,
   forceCompactHeader = false,
-  remainingCredits,
-  isUnlimitedCredits,
-  isCreditsLoading,
+  hasCredits,
   panelImageDrop,
   onPanelImageDropHandled,
 }: AssistantComposerProps) {
@@ -4778,16 +4938,19 @@ function AssistantComposer({
     },
     [setIsModelPickerOpen, setSelectedModel],
   );
+  const handleSelectMode = React.useCallback(
+    (mode: AssistantMode) => {
+      setSelectedMode(mode);
+      setIsModePickerOpen(false);
+    },
+    [setIsModePickerOpen, setSelectedMode],
+  );
   const composerRuntime = useComposerRuntime();
   const threadRuntime = useThreadRuntime();
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const dragDepthRef = React.useRef(0);
   const isThreadRunning = useThread((thread) => thread.isRunning);
   const composerText = useComposer((composer) => composer.text);
-  const hasCredits =
-    isUnlimitedCredits ||
-    remainingCredits === null ||
-    remainingCredits >= MIN_CREDITS_PER_RUN;
   const [composerImages, setComposerImages] = React.useState<
     ComposerImageAttachment[]
   >([]);
@@ -4803,6 +4966,8 @@ function AssistantComposer({
   const [queuedMessages, setQueuedMessages] = React.useState<
     QueuedComposerMessage[]
   >([]);
+  const [isReasoningPickerOpen, setIsReasoningPickerOpen] =
+    React.useState(false);
   const queuedMessagesRef = React.useRef<QueuedComposerMessage[]>([]);
   const hasQueuedDispatchRef = React.useRef(false);
   const lastHandledPanelDropIdRef = React.useRef<string | null>(null);
@@ -4859,32 +5024,35 @@ function AssistantComposer({
 
     const footer = composerFooterRef.current;
     if (!footer) {
+      setIsComposerCompact(isThreadRunning);
       return;
     }
 
-    const updateComposerWidthState = () => {
+    const updateComposerCompactState = () => {
       const { width } = footer.getBoundingClientRect();
-      setIsComposerCompact(width < MODEL_PICKER_HIDE_WIDTH);
+      setIsComposerCompact(
+        isThreadRunning || width < ASSISTANT_COMPOSER_COMPACT_WIDTH,
+      );
     };
 
-    updateComposerWidthState();
+    updateComposerCompactState();
 
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateComposerWidthState);
+      window.addEventListener("resize", updateComposerCompactState);
       return () => {
-        window.removeEventListener("resize", updateComposerWidthState);
+        window.removeEventListener("resize", updateComposerCompactState);
       };
     }
 
     const resizeObserver = new ResizeObserver(() => {
-      updateComposerWidthState();
+      updateComposerCompactState();
     });
     resizeObserver.observe(footer);
 
     return () => {
       resizeObserver.disconnect();
     };
-  }, [forceCompactHeader]);
+  }, [forceCompactHeader, isThreadRunning]);
 
   const getReadyComposerImageParts = React.useCallback(() => {
     return composerImagesRef.current
@@ -5182,7 +5350,9 @@ function AssistantComposer({
       const pastedFiles = Array.from(event.clipboardData.items)
         .filter((item) => item.kind === "file")
         .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null && isSupportedImageFile(file));
+        .filter(
+          (file): file is File => file !== null && isSupportedImageFile(file),
+        );
 
       if (pastedFiles.length === 0) {
         return;
@@ -5383,12 +5553,12 @@ function AssistantComposer({
         </div>
       )}
       {composerImages.length > 0 && (
-        <div className="rnc-assistant-muted-surface max-h-40 overflow-y-auto border-b border-black/8 bg-[#fff9f4] px-3 py-2">
+        <div className="rnc-assistant-muted-surface max-h-40 border-b border-black/8 bg-[#fff9f4] px-3 py-2">
           <div className="flex flex-wrap gap-2">
             {composerImages.map((image) => (
               <div
                 key={image.id}
-                className="group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-(--card-border) bg-(--card-bg-solid)"
+                className="group relative flex h-12 w-12 items-center justify-center rounded-lg border border-(--card-border) bg-(--card-bg-solid)"
                 title={
                   image.status === "error"
                     ? image.error || "Upload failed"
@@ -5420,11 +5590,15 @@ function AssistantComposer({
                 <IconButton
                   type="button"
                   onClick={() => handleRemoveComposerImage(image.id)}
-                  className="absolute right-1 top-1 inline-flex"
+                  className={cn(
+                    "absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full",
+                    "border border-white/20 bg-black/55 text-white shadow-sm backdrop-blur-sm",
+                    "opacity-100 transition md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100",
+                    "hover:border-[#fca5a5] hover:bg-[#d94848]",
+                  )}
                   aria-label="Remove image"
-                  title="Remove image"
                 >
-                  <X className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </IconButton>
                 {image.status === "uploading" && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 text-white">
@@ -5489,13 +5663,11 @@ function AssistantComposer({
           >
             <Paperclip className="h-3.5 w-3.5" />
           </IconButton>
-          {isComposerCompact ? (
-            <Popover
-              open={isModelPickerOpen}
-              onOpenChange={setIsModelPickerOpen}
-            >
-              <PopoverTrigger asChild>
+          <Popover open={isModelPickerOpen} onOpenChange={setIsModelPickerOpen}>
+            <PopoverTrigger asChild>
+              {isComposerCompact ? (
                 <IconButton
+                  tooltip={`Model: ${selectedModelLabel}`}
                   type="button"
                   variant="secondary"
                   size="sm"
@@ -5503,136 +5675,175 @@ function AssistantComposer({
                   aria-expanded={isModelPickerOpen}
                   aria-label={`Select model. Current model: ${selectedModelLabel}`}
                   title={`Model: ${selectedModelLabel}`}
-                  className="rnc-assistant-chip h-8 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2] "
+                  className="rnc-assistant-chip h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-[#faf6f0] px-0 text-foreground shadow-none hover:bg-[#f6ede2]"
                 >
                   <Cpu className="h-3.5 w-3.5" />
                 </IconButton>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-72 p-0">
-                <Command>
-                  <CommandInput placeholder="Search model..." />
-                  <CommandList>
-                    <CommandEmpty>No model found.</CommandEmpty>
-                    {MODEL_OPTION_GROUPS.map((group) => (
-                      <CommandGroup key={group.label} heading={group.label}>
-                        {group.options.map((option) => (
-                          <CommandItem
-                            key={option.value}
-                            value={`${option.label} ${option.value} ${group.label}`}
-                            onSelect={() => handleSelectModel(option.value)}
-                            className="text-xs"
-                          >
-                            <Check
-                              className={cn(
-                                "h-3.5 w-3.5 shrink-0",
-                                selectedModel === option.value
-                                  ? "opacity-100"
-                                  : "opacity-0",
-                              )}
-                            />
-                            <span className="truncate">{option.label}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    ))}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          ) : (
-            <label className="flex items-center gap-2 text-xs text-(--muted-foreground)">
-              <span className="uppercase tracking-[0.16em]">Model</span>
-              <Popover
-                open={isModelPickerOpen}
-                onOpenChange={setIsModelPickerOpen}
-              >
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    role="combobox"
-                    aria-expanded={isModelPickerOpen}
-                    aria-label="Select model"
-                    className="rnc-assistant-chip h-8 min-w-40 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
-                  >
-                    <span className="truncate">{selectedModelLabel}</span>
-                    <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-72 p-0">
-                  <Command>
-                    <CommandInput placeholder="Search model..." />
-                    <CommandList>
-                      <CommandEmpty>No model found.</CommandEmpty>
-                      {MODEL_OPTION_GROUPS.map((group) => (
-                        <CommandGroup key={group.label} heading={group.label}>
-                          {group.options.map((option) => (
-                            <CommandItem
-                              key={option.value}
-                              value={`${option.label} ${option.value} ${group.label}`}
-                              onSelect={() => handleSelectModel(option.value)}
-                              className="text-xs"
-                            >
-                              <Check
-                                className={cn(
-                                  "h-3.5 w-3.5 shrink-0",
-                                  selectedModel === option.value
-                                    ? "opacity-100"
-                                    : "opacity-0",
-                                )}
-                              />
-                              <span className="truncate">{option.label}</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      ))}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </label>
-          )}
-          <IconButton
-            tooltip={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
-            variant="unstyled"
-            type="button"
-            onClick={() =>
-              setReasoningEnabled((previous) => {
-                const next = !previous;
-                reasoningEnabledRef.current = next;
-                return next;
-              })
-            }
-            className={cn(
-              "inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-none transition",
-              reasoningEnabled
-                ? "border-(--panel-border-strong) bg-(--assistant-chip-hover) text-foreground hover:bg-(--assistant-suggestion-hover) hover:text-foreground"
-                : "rnc-assistant-chip border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground) hover:bg-(--assistant-chip-hover) hover:text-foreground",
-            )}
-            aria-label={`Reasoning ${reasoningEnabled ? "on" : "off"}`}
-            title={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
-          >
-            <Sparkles
-              className={cn(
-                "h-3.5 w-3.5 transition-colors",
-                reasoningEnabled
-                  ? "text-(--accent)"
-                  : "text-(--muted-foreground)",
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  role="combobox"
+                  aria-expanded={isModelPickerOpen}
+                  aria-label="Select model"
+                  className="rnc-assistant-chip h-8 min-w-36 sm:min-w-44 justify-between rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]"
+                >
+                  <span className="truncate">{selectedModelLabel}</span>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                </Button>
               )}
-            />
-          </IconButton>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-72 p-0">
+              <Command>
+                <CommandInput placeholder="Search model..." />
+                <CommandList>
+                  <CommandEmpty>No model found.</CommandEmpty>
+                  {MODEL_OPTION_GROUPS.map((group) => (
+                    <CommandGroup key={group.label} heading={group.label}>
+                      {group.options.map((option) => (
+                        <CommandItem
+                          key={option.value}
+                          value={`${option.label} ${option.value} ${group.label}`}
+                          onSelect={() => handleSelectModel(option.value)}
+                          className="text-xs"
+                        >
+                          <Check
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0",
+                              selectedModel === option.value
+                                ? "opacity-100"
+                                : "opacity-0",
+                            )}
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ))}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+          <Popover open={isModePickerOpen} onOpenChange={setIsModePickerOpen}>
+            <PopoverTrigger asChild>
+              <IconButton
+                tooltip={`Mode: ${selectedModeLabel}`}
+                type="button"
+                variant="secondary"
+                size="sm"
+                role="combobox"
+                aria-expanded={isModePickerOpen}
+                aria-label={`Select mode. Current mode: ${selectedModeLabel}`}
+                title={`Mode: ${selectedModeLabel}`}
+                className="rnc-assistant-chip h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-[#faf6f0] px-0 text-foreground shadow-none hover:bg-[#f6ede2]"
+              >
+                <FileText className="h-3.5 w-3.5" />
+              </IconButton>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-56 p-0">
+              <Command>
+                <CommandList>
+                  <CommandEmpty>No mode found.</CommandEmpty>
+                  <CommandGroup>
+                    {MODE_OPTIONS.map((option) => (
+                      <CommandItem
+                        key={option.value}
+                        value={`${option.label} ${option.value}`}
+                        onSelect={() => handleSelectMode(option.value)}
+                        className="text-xs"
+                      >
+                        <Check
+                          className={cn(
+                            "h-3.5 w-3.5 shrink-0",
+                            selectedMode === option.value
+                              ? "opacity-100"
+                              : "opacity-0",
+                          )}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+          <ContextUsageTooltipTrigger contextUsage={contextUsage} />
+          <Popover
+            open={isReasoningPickerOpen}
+            onOpenChange={setIsReasoningPickerOpen}
+          >
+            <PopoverTrigger asChild>
+              <IconButton
+                tooltip={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
+                variant="unstyled"
+                type="button"
+                role="combobox"
+                aria-expanded={isReasoningPickerOpen}
+                className={cn(
+                  "inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-none transition",
+                  reasoningEnabled
+                    ? "border-(--panel-border-strong) bg-(--assistant-chip-hover) text-foreground hover:bg-(--assistant-suggestion-hover) hover:text-foreground"
+                    : "rnc-assistant-chip border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground) hover:bg-(--assistant-chip-hover) hover:text-foreground",
+                )}
+                aria-label={`Reasoning ${reasoningEnabled ? "on" : "off"}`}
+                title={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
+              >
+                <Sparkles
+                  className={cn(
+                    "h-3.5 w-3.5 transition-colors",
+                    reasoningEnabled
+                      ? "text-(--accent)"
+                      : "text-(--muted-foreground)",
+                  )}
+                />
+              </IconButton>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-48 p-0">
+              <Command>
+                <CommandList>
+                  <CommandGroup>
+                    <CommandItem
+                      value="Reasoning on"
+                      onSelect={() => {
+                        reasoningEnabledRef.current = true;
+                        setReasoningEnabled(true);
+                        setIsReasoningPickerOpen(false);
+                      }}
+                      className="text-xs"
+                    >
+                      <Check
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0",
+                          reasoningEnabled ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <span className="truncate">Reasoning on</span>
+                    </CommandItem>
+                    <CommandItem
+                      value="Reasoning off"
+                      onSelect={() => {
+                        reasoningEnabledRef.current = false;
+                        setReasoningEnabled(false);
+                        setIsReasoningPickerOpen(false);
+                      }}
+                      className="text-xs"
+                    >
+                      <Check
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0",
+                          reasoningEnabled ? "opacity-0" : "opacity-100",
+                        )}
+                      />
+                      <span className="truncate">Reasoning off</span>
+                    </CommandItem>
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
         </div>
         <div className="flex items-center gap-2">
-          <span
-            className="rnc-assistant-chip inline-flex h-8 items-center rounded-lg border border-black/10 bg-[#faf6f0] px-2.5 text-[10px] uppercase tracking-[0.12em] text-(--muted-foreground)"
-            title="Remaining credits"
-          >
-            {isCreditsLoading
-              ? "Credits ..."
-              : isUnlimitedCredits
-                ? "Credits Unlimited"
-                : `Credits ${remainingCredits ?? 0}/${INITIAL_CREDITS}`}
-          </span>
           {isThreadRunning && (
             <IconButton
               tooltip="Stop"
@@ -5690,11 +5901,17 @@ function WorkspaceAssistantPanel({
   isHydratingSession = false,
   isResumingRun = false,
   isReconnecting = false,
+  contextUsage,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
   setIsModelPickerOpen,
   setSelectedModel,
+  selectedMode,
+  selectedModeLabel,
+  isModePickerOpen,
+  setIsModePickerOpen,
+  setSelectedMode,
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
@@ -5711,6 +5928,15 @@ function WorkspaceAssistantPanel({
   );
   const [isUnlimitedCredits, setIsUnlimitedCredits] = React.useState(false);
   const [isCreditsLoading, setIsCreditsLoading] = React.useState(true);
+  const hasCredits =
+    isUnlimitedCredits ||
+    remainingCredits === null ||
+    remainingCredits >= MIN_CREDITS_PER_RUN;
+  const creditsLabel = isCreditsLoading
+    ? "Loading credits..."
+    : isUnlimitedCredits
+      ? "Credits: Unlimited"
+      : `Credits: ${remainingCredits ?? 0}/${INITIAL_CREDITS}`;
   const [isRestoringSessionFromPicker, setIsRestoringSessionFromPicker] =
     React.useState(false);
   const panelDragDepthRef = React.useRef(0);
@@ -5960,14 +6186,15 @@ function WorkspaceAssistantPanel({
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="display-font mt-1 text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
+            <h2 className="display-font mt-1 whitespace-nowrap text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
               Spreadsheet Agent
             </h2>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <SkillsManagerButton iconOnly={isAssistantHeaderCompact} />
             {onSelectSession && (
               <SessionPickerButton
-                iconOnly={isAssistantHeaderCompact}
+                iconOnly
                 currentThreadId={threadId}
                 onSelectSession={onSelectSession}
                 onSessionRestoreStart={handleSessionRestoreStart}
@@ -5975,11 +6202,20 @@ function WorkspaceAssistantPanel({
                 onRestoreModel={setSelectedModel}
               />
             )}
-            <NewSessionButton
-              iconOnly={isAssistantHeaderCompact}
-              onNewSession={onNewSession}
-            />
-            <SkillsManagerButton iconOnly={isAssistantHeaderCompact} />
+            <NewSessionButton iconOnly onNewSession={onNewSession} />
+
+            <IconButton
+              tooltip={creditsLabel}
+              type="button"
+              className="rnc-assistant-chip inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-[#faf6f0] text-(--muted-foreground)"
+              aria-label={creditsLabel}
+            >
+              {isCreditsLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CircleDollarSign className="h-3.5 w-3.5" />
+              )}
+            </IconButton>
             {onClose && !forceCompactHeader && (
               <IconButton
                 tooltip="Minimize Assistant"
@@ -6034,13 +6270,17 @@ function WorkspaceAssistantPanel({
                   isModelPickerOpen={isModelPickerOpen}
                   setIsModelPickerOpen={setIsModelPickerOpen}
                   setSelectedModel={setSelectedModel}
+                  selectedMode={selectedMode}
+                  selectedModeLabel={selectedModeLabel}
+                  isModePickerOpen={isModePickerOpen}
+                  setIsModePickerOpen={setIsModePickerOpen}
+                  setSelectedMode={setSelectedMode}
                   reasoningEnabled={reasoningEnabled}
                   setReasoningEnabled={setReasoningEnabled}
                   reasoningEnabledRef={reasoningEnabledRef}
+                  contextUsage={contextUsage}
                   forceCompactHeader={forceCompactHeader}
-                  remainingCredits={remainingCredits}
-                  isUnlimitedCredits={isUnlimitedCredits}
-                  isCreditsLoading={isCreditsLoading}
+                  hasCredits={hasCredits}
                   panelImageDrop={panelImageDrop}
                   onPanelImageDropHandled={handlePanelImageDropHandled}
                 />
@@ -6120,11 +6360,17 @@ export function WorkspaceAssistantUI({
   isHydratingSession,
   isResumingRun,
   isReconnecting,
+  contextUsage,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
   setIsModelPickerOpen,
   setSelectedModel,
+  selectedMode,
+  selectedModeLabel,
+  isModePickerOpen,
+  setIsModePickerOpen,
+  setSelectedMode,
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
@@ -6144,11 +6390,17 @@ export function WorkspaceAssistantUI({
       isHydratingSession={isHydratingSession}
       isResumingRun={isResumingRun}
       isReconnecting={isReconnecting}
+      contextUsage={contextUsage}
       selectedModel={selectedModel}
       selectedModelLabel={selectedModelLabel}
       isModelPickerOpen={isModelPickerOpen}
       setIsModelPickerOpen={setIsModelPickerOpen}
       setSelectedModel={setSelectedModel}
+      selectedMode={selectedMode}
+      selectedModeLabel={selectedModeLabel}
+      isModePickerOpen={isModePickerOpen}
+      setIsModePickerOpen={setIsModePickerOpen}
+      setSelectedMode={setSelectedMode}
       reasoningEnabled={reasoningEnabled}
       setReasoningEnabled={setReasoningEnabled}
       reasoningEnabledRef={reasoningEnabledRef}
@@ -6179,11 +6431,17 @@ export function WorkspaceAssistant({
         isHydratingSession={assistantRuntime.isHydratingSession}
         isResumingRun={assistantRuntime.isResumingRun}
         isReconnecting={assistantRuntime.isReconnecting}
+        contextUsage={assistantRuntime.contextUsage}
         selectedModel={assistantRuntime.selectedModel}
         selectedModelLabel={assistantRuntime.selectedModelLabel}
         isModelPickerOpen={assistantRuntime.isModelPickerOpen}
         setIsModelPickerOpen={assistantRuntime.setIsModelPickerOpen}
         setSelectedModel={assistantRuntime.setSelectedModel}
+        selectedMode={assistantRuntime.selectedMode}
+        selectedModeLabel={assistantRuntime.selectedModeLabel}
+        isModePickerOpen={assistantRuntime.isModePickerOpen}
+        setIsModePickerOpen={assistantRuntime.setIsModePickerOpen}
+        setSelectedMode={assistantRuntime.setSelectedMode}
         reasoningEnabled={assistantRuntime.reasoningEnabled}
         setReasoningEnabled={assistantRuntime.setReasoningEnabled}
         reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}

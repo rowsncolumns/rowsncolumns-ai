@@ -96,6 +96,7 @@ import type {
   DataValidationRuleRecord,
   CellFormat,
   ErrorValue,
+  GridRange,
 } from "@rowsncolumns/common-types";
 
 const failTool = (
@@ -4262,10 +4263,7 @@ const handleSpreadsheetChart = async (
             if (domainParsed.selection?.range) {
               specUpdates.domain = {
                 sheetId: domainParsed.sheetId,
-                startRowIndex: domainParsed.selection.range.startRowIndex,
-                endRowIndex: domainParsed.selection.range.endRowIndex,
-                startColumnIndex: domainParsed.selection.range.startColumnIndex,
-                endColumnIndex: domainParsed.selection.range.endColumnIndex,
+                ...domainParsed.selection.range,
               };
             }
           }
@@ -4292,10 +4290,7 @@ const handleSpreadsheetChart = async (
                 );
               return {
                 sheetId: parsed.sheetId,
-                startRowIndex: parsed.selection.range.startRowIndex,
-                endRowIndex: parsed.selection.range.endRowIndex,
-                startColumnIndex: parsed.selection.range.startColumnIndex,
-                endColumnIndex: parsed.selection.range.endColumnIndex,
+                ...parsed.selection.range,
               };
             });
           }
@@ -4609,10 +4604,7 @@ const handleSpreadsheetDataValidation = async (
             ranges: [
               {
                 sheetId: resolvedSheetId,
-                startRowIndex: rangeParsed.selection.range.startRowIndex,
-                endRowIndex: rangeParsed.selection.range.endRowIndex,
-                startColumnIndex: rangeParsed.selection.range.startColumnIndex,
-                endColumnIndex: rangeParsed.selection.range.endColumnIndex,
+                ...rangeParsed.selection.range,
               },
             ],
             condition: {
@@ -4703,11 +4695,7 @@ const handleSpreadsheetDataValidation = async (
               updates.ranges = [
                 {
                   sheetId: rangeParsed.sheetId,
-                  startRowIndex: rangeParsed.selection.range.startRowIndex,
-                  endRowIndex: rangeParsed.selection.range.endRowIndex,
-                  startColumnIndex:
-                    rangeParsed.selection.range.startColumnIndex,
-                  endColumnIndex: rangeParsed.selection.range.endColumnIndex,
+                  ...rangeParsed.selection.range,
                 },
               ];
             }
@@ -5055,10 +5043,7 @@ const handleSpreadsheetConditionalFormat = async (
             ranges: [
               {
                 sheetId: resolvedSheetId,
-                startRowIndex: rangeParsed.selection.range.startRowIndex,
-                endRowIndex: rangeParsed.selection.range.endRowIndex,
-                startColumnIndex: rangeParsed.selection.range.startColumnIndex,
-                endColumnIndex: rangeParsed.selection.range.endColumnIndex,
+                ...rangeParsed.selection.range,
               },
             ],
             enabled: true,
@@ -5208,11 +5193,7 @@ const handleSpreadsheetConditionalFormat = async (
               updates.ranges = [
                 {
                   sheetId: rangeParsed.sheetId,
-                  startRowIndex: rangeParsed.selection.range.startRowIndex,
-                  endRowIndex: rangeParsed.selection.range.endRowIndex,
-                  startColumnIndex:
-                    rangeParsed.selection.range.startColumnIndex,
-                  endColumnIndex: rangeParsed.selection.range.endColumnIndex,
+                  ...rangeParsed.selection.range,
                 },
               ];
             }
@@ -5520,12 +5501,7 @@ const handleSpreadsheetGetAuditSnapshot = async (
         // Collect merges
         const merges: string[] = [];
         const sheetMerges = (sheet as Record<string, unknown>)?.merges as
-          | Array<{
-              startRowIndex: number;
-              endRowIndex: number;
-              startColumnIndex: number;
-              endColumnIndex: number;
-            }>
+          | Array<GridRange>
           | undefined;
         if (sheetMerges) {
           for (const merge of sheetMerges) {

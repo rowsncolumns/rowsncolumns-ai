@@ -36,6 +36,16 @@ export type ChatStreamEvent =
       isError?: boolean;
     }
   | {
+      type: "context.usage";
+      runId: string;
+      model: string;
+      inputTokensPeak: number;
+      contextWindowTokens: number;
+      usedPercent: number;
+      remainingPercent: number;
+      warning: "normal" | "high";
+    }
+  | {
       type: "error";
       error: string;
     };

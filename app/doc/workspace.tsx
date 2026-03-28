@@ -1847,11 +1847,17 @@ export function NewWorkspace({
       isHydratingSession={assistantRuntime.isHydratingSession}
       isResumingRun={assistantRuntime.isResumingRun}
       isReconnecting={assistantRuntime.isReconnecting}
+      contextUsage={assistantRuntime.contextUsage}
       selectedModel={assistantRuntime.selectedModel}
       selectedModelLabel={assistantRuntime.selectedModelLabel}
       isModelPickerOpen={assistantRuntime.isModelPickerOpen}
       setIsModelPickerOpen={assistantRuntime.setIsModelPickerOpen}
       setSelectedModel={assistantRuntime.setSelectedModel}
+      selectedMode={assistantRuntime.selectedMode}
+      selectedModeLabel={assistantRuntime.selectedModeLabel}
+      isModePickerOpen={assistantRuntime.isModePickerOpen}
+      setIsModePickerOpen={assistantRuntime.setIsModePickerOpen}
+      setSelectedMode={assistantRuntime.setSelectedMode}
       reasoningEnabled={assistantRuntime.reasoningEnabled}
       setReasoningEnabled={assistantRuntime.setReasoningEnabled}
       reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
