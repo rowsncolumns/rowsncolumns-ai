@@ -2023,6 +2023,11 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Conditional format operation completed",
     failed: "Failed conditional format operation",
   },
+  spreadsheet_getAuditSnapshot: {
+    running: "Auditing spreadsheet",
+    success: "Completed spreadsheet audit",
+    failed: "Failed to audit spreadsheet",
+  },
 };
 
 const formatToolNameFallback = (toolName: string) =>
