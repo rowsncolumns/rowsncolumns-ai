@@ -20,7 +20,6 @@ import {
   useComposer,
   useComposerRuntime,
   useAssistantInstructions,
-  useAssistantRuntime,
   useMessagePartText,
   useLocalRuntime,
   useMessage,
@@ -66,7 +65,6 @@ import {
   GitFork,
   Info,
   Loader2,
-  History,
   Image as ImageIcon,
   Minus,
   Navigation,
@@ -78,7 +76,6 @@ import {
   Sparkles,
   Trash2,
   X,
-  Edit,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
@@ -131,6 +128,11 @@ import {
   resizeImageForAssistant,
   uploadAssistantImage,
 } from "@/components/workspace-assistant/image-utils";
+import {
+  NewSessionButton,
+  SessionPickerButton,
+} from "@/components/workspace-assistant/session-controls";
+import { useIsTouchInputDevice } from "@/components/workspace-assistant/touch-input-device";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { buildSkillsInstruction } from "@/lib/chat/instructions";
 import {
@@ -245,21 +247,6 @@ type AssistantSkill = {
   createdAt: string;
   updatedAt: string;
 };
-
-type AssistantSessionSummary = {
-  threadId: string;
-  updatedAt: string;
-  docId?: string;
-  title?: string;
-  model?: string;
-};
-
-const SESSION_LIST_CACHE_TTL_MS = 60_000;
-type SessionListCacheEntry = {
-  sessions: AssistantSessionSummary[];
-  fetchedAt: number;
-};
-let sessionListCache: SessionListCacheEntry | null = null;
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
 const ASSISTANT_MAX_COMPOSER_IMAGES = 5;
@@ -1174,138 +1161,6 @@ const parsePersistedThreadHistoryPayload = (
   return messages
     .map(parsePersistedThreadHistoryMessage)
     .filter((message): message is ThreadMessageLike => message !== null);
-};
-
-const parseAssistantSessionSummary = (
-  value: unknown,
-): AssistantSessionSummary | null => {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const maybeSession = value as {
-    threadId?: unknown;
-    updatedAt?: unknown;
-    docId?: unknown;
-    title?: unknown;
-    model?: unknown;
-  };
-  if (
-    typeof maybeSession.threadId !== "string" ||
-    maybeSession.threadId.trim().length === 0
-  ) {
-    return null;
-  }
-
-  const updatedAt =
-    typeof maybeSession.updatedAt === "string" ? maybeSession.updatedAt : "";
-  const docId =
-    typeof maybeSession.docId === "string" &&
-    maybeSession.docId.trim().length > 0
-      ? maybeSession.docId
-      : undefined;
-  const title =
-    typeof maybeSession.title === "string" &&
-    maybeSession.title.trim().length > 0
-      ? maybeSession.title
-      : undefined;
-  const model =
-    typeof maybeSession.model === "string" &&
-    maybeSession.model.trim().length > 0
-      ? maybeSession.model
-      : undefined;
-
-  return {
-    threadId: maybeSession.threadId,
-    updatedAt,
-    ...(docId ? { docId } : {}),
-    ...(title ? { title } : {}),
-    ...(model ? { model } : {}),
-  };
-};
-
-const parseRecentAssistantSessionsPayload = (
-  value: unknown,
-): AssistantSessionSummary[] => {
-  if (!value || typeof value !== "object") {
-    return [];
-  }
-
-  const sessions = (value as { sessions?: unknown }).sessions;
-  if (!Array.isArray(sessions)) {
-    return [];
-  }
-
-  return sessions
-    .map(parseAssistantSessionSummary)
-    .filter((session): session is AssistantSessionSummary => session !== null);
-};
-
-const fetchRecentAssistantSessions = async (input: {
-  signal: AbortSignal;
-  limit?: number;
-  currentThreadId?: string;
-}) => {
-  const params = new URLSearchParams();
-  params.set("list", "sessions");
-  params.set("limit", String(input.limit ?? 10));
-  if (input.currentThreadId?.trim()) {
-    params.set("currentThreadId", input.currentThreadId.trim());
-  }
-
-  const response = await fetch(`${CHAT_HISTORY_API_ENDPOINT}?${params}`, {
-    method: "GET",
-    cache: "no-store",
-    signal: input.signal,
-  });
-  if (!response.ok) {
-    return [] as AssistantSessionSummary[];
-  }
-
-  const payload = (await response.json().catch(() => null)) as unknown;
-  return parseRecentAssistantSessionsPayload(payload);
-};
-
-const deleteAssistantSessionByThreadId = async (input: {
-  threadId: string;
-}) => {
-  const normalizedThreadId = input.threadId.trim();
-  if (!normalizedThreadId) {
-    return false;
-  }
-
-  const params = new URLSearchParams();
-  params.set("list", "sessions");
-  params.set("threadId", normalizedThreadId);
-
-  const response = await fetch(`${CHAT_HISTORY_API_ENDPOINT}?${params}`, {
-    method: "DELETE",
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to delete session.");
-  }
-
-  const payload = (await response.json().catch(() => null)) as {
-    deleted?: unknown;
-  } | null;
-  return payload?.deleted === true;
-};
-
-const formatSessionTimestamp = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown time";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(date);
 };
 
 const fetchPersistedThreadHistory = async (
@@ -4212,326 +4067,6 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
 }
 
 /**
- * Button to start a new chat session by switching to a new thread.
- * Must be used inside an AssistantRuntimeProvider.
- */
-function NewSessionButton({
-  iconOnly = false,
-  onNewSession,
-}: {
-  iconOnly?: boolean;
-  onNewSession?: () => void;
-}) {
-  const runtime = useAssistantRuntime();
-
-  const handleNewSession = React.useCallback(() => {
-    onNewSession?.();
-    runtime.switchToNewThread();
-    // Focus the composer input after a brief delay to ensure the thread has switched
-    setTimeout(() => {
-      const composerInput = document.querySelector<HTMLTextAreaElement>(
-        "[data-composer-input], .aui-composer-input, textarea[placeholder]",
-      );
-      composerInput?.focus();
-    }, 50);
-  }, [onNewSession, runtime]);
-
-  return (
-    <Button
-      type="button"
-      variant="secondary"
-      size="sm"
-      onClick={handleNewSession}
-      className={cn(
-        "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
-        iconOnly ? "px-2" : "gap-1.5 px-2.5 whitespace-nowrap",
-      )}
-      aria-label="New session"
-      title="Start new session"
-    >
-      <Edit className="h-3.5 w-3.5" />
-      {!iconOnly && <span>New session</span>}
-    </Button>
-  );
-}
-
-function SessionPickerButton({
-  iconOnly = false,
-  currentThreadId,
-  onSelectSession,
-  onSessionRestoreStart,
-  onStartNewSession,
-  onRestoreModel,
-}: {
-  iconOnly?: boolean;
-  currentThreadId?: string;
-  onSelectSession?: (threadId: string) => void | Promise<void>;
-  onSessionRestoreStart?: () => void;
-  onStartNewSession?: () => void;
-  onRestoreModel?: (model: string) => void;
-}) {
-  const runtime = useAssistantRuntime();
-  const [isOpen, setIsOpen] = React.useState(false);
-  const [sessions, setSessions] = React.useState<AssistantSessionSummary[]>(
-    () => sessionListCache?.sessions ?? [],
-  );
-  const [lastFetchedAt, setLastFetchedAt] = React.useState<number>(
-    () => sessionListCache?.fetchedAt ?? 0,
-  );
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [isSwitchingSession, setIsSwitchingSession] = React.useState(false);
-  const [deletingSessionThreadId, setDeletingSessionThreadId] = React.useState<
-    string | null
-  >(null);
-  const [loadError, setLoadError] = React.useState("");
-
-  const loadSessions = React.useCallback(
-    async (signal: AbortSignal) => {
-      setIsLoading(true);
-      setLoadError("");
-      try {
-        const result = await fetchRecentAssistantSessions({
-          signal,
-          limit: 10,
-          currentThreadId,
-        });
-        if (signal.aborted) {
-          return;
-        }
-        setSessions(result);
-        const now = Date.now();
-        setLastFetchedAt(now);
-        sessionListCache = {
-          sessions: result,
-          fetchedAt: now,
-        };
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        setSessions([]);
-        setLoadError("Unable to load sessions.");
-      } finally {
-        if (!signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [currentThreadId],
-  );
-
-  React.useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const cacheIsFresh =
-      sessions.length > 0 &&
-      Date.now() - lastFetchedAt < SESSION_LIST_CACHE_TTL_MS;
-    if (cacheIsFresh) {
-      return;
-    }
-
-    const controller = new AbortController();
-    void loadSessions(controller.signal);
-    return () => {
-      controller.abort();
-    };
-  }, [isOpen, loadSessions, lastFetchedAt, sessions.length]);
-
-  const handleSelectSession = React.useCallback(
-    async (sessionThreadId: string) => {
-      const normalizedThreadId = sessionThreadId.trim();
-      if (!normalizedThreadId) {
-        return;
-      }
-      if (normalizedThreadId === currentThreadId) {
-        setIsOpen(false);
-        return;
-      }
-
-      // Find the session to get its model
-      const session = sessions.find((s) => s.threadId === normalizedThreadId);
-
-      setLoadError("");
-      setIsSwitchingSession(true);
-      try {
-        onSessionRestoreStart?.();
-        // Restore the model before loading history
-        if (session?.model && onRestoreModel) {
-          onRestoreModel(session.model);
-        }
-        await onSelectSession?.(normalizedThreadId);
-        setIsOpen(false);
-      } catch {
-        setLoadError("Unable to restore session.");
-      } finally {
-        setIsSwitchingSession(false);
-      }
-    },
-    [
-      currentThreadId,
-      onSelectSession,
-      onSessionRestoreStart,
-      onRestoreModel,
-      sessions,
-    ],
-  );
-
-  const handleDeleteSession = React.useCallback(
-    async (sessionThreadId: string) => {
-      const normalizedThreadId = sessionThreadId.trim();
-      if (!normalizedThreadId) {
-        return;
-      }
-
-      setLoadError("");
-      setDeletingSessionThreadId(normalizedThreadId);
-      try {
-        await deleteAssistantSessionByThreadId({
-          threadId: normalizedThreadId,
-        });
-        const now = Date.now();
-        setSessions((previousSessions) => {
-          const nextSessions = previousSessions.filter(
-            (session) => session.threadId !== normalizedThreadId,
-          );
-          sessionListCache = {
-            sessions: nextSessions,
-            fetchedAt: now,
-          };
-          return nextSessions;
-        });
-        setLastFetchedAt(now);
-
-        if (normalizedThreadId === currentThreadId) {
-          onStartNewSession?.();
-          runtime.switchToNewThread();
-        }
-      } catch {
-        setLoadError("Unable to delete session.");
-      } finally {
-        setDeletingSessionThreadId((previousThreadId) =>
-          previousThreadId === normalizedThreadId ? null : previousThreadId,
-        );
-      }
-    },
-    [currentThreadId, onStartNewSession, runtime],
-  );
-
-  return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          className={cn(
-            "rnc-assistant-chip h-8 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)",
-            iconOnly ? "px-2" : "gap-1.5 px-2.5 whitespace-nowrap",
-          )}
-          aria-label="Session history"
-          title="Load a previous session"
-          disabled={!onSelectSession || isSwitchingSession}
-        >
-          <History className="h-3.5 w-3.5" />
-          {!iconOnly && <span>Sessions</span>}
-          {!iconOnly && <ChevronsUpDown className="h-3 w-3 opacity-70" />}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="z-[180] w-[320px] overflow-hidden rounded-xl border border-[var(--card-border)] bg-[var(--card-bg-solid)] p-0 text-[var(--foreground)] shadow-[0_18px_38px_var(--card-shadow)]"
-      >
-        <Command className="bg-[var(--card-bg-solid)]">
-          <CommandInput placeholder="Search sessions..." />
-          <CommandList className="bg-[var(--card-bg-solid)]">
-            {isLoading && sessions.length === 0 && (
-              <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
-                Loading sessions...
-              </div>
-            )}
-            {!isLoading && loadError && (
-              <div className="px-3 py-4 text-xs text-[#c23f2c]">
-                {loadError}
-              </div>
-            )}
-            {!isLoading && !loadError && sessions.length === 0 && (
-              <CommandEmpty>No saved sessions yet.</CommandEmpty>
-            )}
-            {!isLoading && !loadError && sessions.length > 0 && (
-              <CommandGroup heading="Recent Sessions">
-                {sessions.map((session) => {
-                  const isCurrent = session.threadId === currentThreadId;
-                  const isDeletingSession =
-                    deletingSessionThreadId === session.threadId;
-                  return (
-                    <CommandItem
-                      key={session.threadId}
-                      value={session.threadId}
-                      keywords={
-                        session.title
-                          ? [session.title, session.title.toLowerCase()]
-                          : undefined
-                      }
-                      onSelect={handleSelectSession}
-                      className="items-start gap-2 py-2"
-                    >
-                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-xs font-medium">
-                            {session.title || session.threadId}
-                          </span>
-                          {isCurrent && (
-                            <span className="rounded bg-[var(--assistant-chip-bg)] px-1.5 py-0.5 text-[9px] text-[var(--muted-foreground)]">
-                              Current
-                            </span>
-                          )}
-                        </div>
-                        {session.title && (
-                          <span className="truncate text-[10px] text-[var(--muted-foreground)]">
-                            {session.threadId}
-                          </span>
-                        )}
-                        <span className="text-[10px] text-[var(--muted-foreground)]">
-                          {formatSessionTimestamp(session.updatedAt)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] transition hover:bg-[var(--assistant-chip-hover)] hover:text-[#c23f2c] disabled:opacity-50"
-                        aria-label={`Delete session ${session.title || session.threadId}`}
-                        title="Delete session"
-                        disabled={isDeletingSession || isSwitchingSession}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          void handleDeleteSession(session.threadId);
-                        }}
-                      >
-                        {isDeletingSession ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/**
  * Shared props for assistant panel rendering.
  */
 type WorkspaceAssistantPanelProps = {
@@ -4635,6 +4170,7 @@ function AssistantComposer({
   onPanelImageDropHandled,
 }: AssistantComposerProps) {
   const composerFooterRef = React.useRef<HTMLDivElement | null>(null);
+  const isTouchInput = useIsTouchInputDevice();
   const [isComposerCompact, setIsComposerCompact] =
     React.useState(forceCompactHeader);
   const handleSelectModel = React.useCallback(
@@ -5399,9 +4935,19 @@ function AssistantComposer({
                 </Button>
               )}
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-72 p-0">
+            <PopoverContent
+              align="start"
+              className="w-72 p-0"
+              onOpenAutoFocus={(event) => {
+                if (isTouchInput) {
+                  event.preventDefault();
+                }
+              }}
+            >
               <Command>
-                <CommandInput placeholder="Search model..." />
+                {!isTouchInput ? (
+                  <CommandInput placeholder="Search model..." />
+                ) : null}
                 <CommandList>
                   <CommandEmpty>No model found.</CommandEmpty>
                   {MODEL_OPTION_GROUPS.map((group) => (
