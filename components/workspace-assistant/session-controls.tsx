@@ -411,9 +411,7 @@ export function SessionPickerButton({
         }}
       >
         <Command className="bg-[var(--card-bg-solid)]">
-          {!isTouchInput ? (
-            <CommandInput placeholder="Search sessions..." />
-          ) : null}
+          <CommandInput placeholder="Search sessions..." />
           <CommandList className="bg-[var(--card-bg-solid)]">
             {isLoading && sessions.length === 0 && (
               <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">

@@ -4886,7 +4886,10 @@ function AssistantComposer({
           onPaste={handleComposerInputPaste}
           addAttachmentOnPaste={false}
           placeholder="Type to start sending a message"
-          className="min-h-10 sm:min-h-14 max-h-48 w-full resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
+          className={cn(
+            "min-h-10 sm:min-h-14 max-h-48 w-full resize-none border-0 bg-transparent px-0 py-0 leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0",
+            isTouchInput ? "text-base" : "text-sm",
+          )}
         />
       </div>
       <div
@@ -4945,9 +4948,7 @@ function AssistantComposer({
               }}
             >
               <Command>
-                {!isTouchInput ? (
-                  <CommandInput placeholder="Search model..." />
-                ) : null}
+                <CommandInput placeholder="Search model..." />
                 <CommandList>
                   <CommandEmpty>No model found.</CommandEmpty>
                   {MODEL_OPTION_GROUPS.map((group) => (
