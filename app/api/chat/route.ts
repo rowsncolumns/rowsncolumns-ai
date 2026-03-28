@@ -16,7 +16,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 600; // 10 minutes
+export const maxDuration = 300; // Vercel limit (Railway ignores this)
 
 const DEFAULT_CHAT_SERVER_TIMEOUT_MS = 600_000; // 10 minutes
 const MAX_CHAT_SERVER_TIMEOUT_MS = 600_000; // 10 minutes

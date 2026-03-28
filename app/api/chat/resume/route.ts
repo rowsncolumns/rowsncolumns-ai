@@ -10,6 +10,7 @@ import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300; // Vercel limit (Railway ignores this)
 
 export async function GET(request: Request) {
   try {
