@@ -1,10 +1,139 @@
 import { z } from "zod";
 
-export type CellFormatType = Record<string, unknown>;
+// ThemeColor schema
+const ThemeColorSchema = z.object({
+  theme: z.number().int().min(0).max(10).describe("Theme color index (0-10)"),
+  tint: z.number().nullable().optional().describe("Tint adjustment"),
+});
 
-export interface CellStyleData {
-  cellStyles?: CellFormatType;
-}
+// Color schema - hex string or theme reference
+const ColorSchema = z.union([
+  z.string().describe("Hex color string (e.g., '#FF0000')"),
+  ThemeColorSchema,
+]);
+
+// Border style enum
+const BorderStyleSchema = z.enum([
+  "dotted",
+  "dashed",
+  "solid",
+  "solid_medium",
+  "solid_thick",
+  "double",
+]);
+
+// Single border schema
+const BorderSchema = z
+  .object({
+    style: BorderStyleSchema.describe("Border style"),
+    width: z.number().int().describe("Border width in pixels"),
+    color: ColorSchema.optional().describe(
+      "Border color as hex string (e.g., '#FF0000') or theme reference",
+    ),
+  })
+  .optional();
+
+// Borders schema with detailed description
+const BordersSchema = z
+  .object({
+    top: BorderSchema.describe("Top border of the cell"),
+    right: BorderSchema.describe("Right border of the cell"),
+    bottom: BorderSchema.describe("Bottom border of the cell"),
+    left: BorderSchema.describe("Left border of the cell"),
+  })
+  .optional()
+  .describe(
+    "Border configuration for cells. Common patterns: All borders (grid), outer only (box), inner only, horizontal/vertical lines, single side (underline effect).",
+  );
+
+// Text format schema
+const TextFormatSchema = z
+  .object({
+    color: ColorSchema.optional().describe(
+      "Text color as hex string (e.g., '#FF0000') or theme reference",
+    ),
+    fontFamily: z.string().optional().describe("Font family name"),
+    fontSize: z.number().int().optional().describe("Font size in points"),
+    bold: z.boolean().optional().describe("Bold text"),
+    italic: z.boolean().optional().describe("Italic text"),
+    strikethrough: z.boolean().optional().describe("Strikethrough text"),
+    underline: z.boolean().optional().describe("Underlined text"),
+  })
+  .optional();
+
+// Number format type enum
+const NumberFormatTypeSchema = z.enum([
+  "GENERAL",
+  "NUMBER",
+  "CURRENCY",
+  "ACCOUNTING",
+  "DATE",
+  "TIME",
+  "DATE_TIME",
+  "PERCENT",
+  "FRACTION",
+  "SCIENTIFIC",
+  "TEXT",
+  "SPECIAL",
+]);
+
+// Number format schema
+const NumberFormatSchema = z
+  .object({
+    type: NumberFormatTypeSchema.describe(
+      "Target number format category (NUMBER, CURRENCY, DATE, etc.)",
+    ),
+    pattern: z
+      .string()
+      .describe(
+        "Excel-compatible format string. If omitted, server picks a default based on type (e.g., NUMBER → '#,##0', CURRENCY → '$#,##0.00').",
+      ),
+  })
+  .optional();
+
+// CellFormat schema
+const CellFormatSchema = z
+  .object({
+    backgroundColor: ColorSchema.optional().describe(
+      "Background color as hex string (e.g., '#FF0000') or theme reference",
+    ),
+    borders: BordersSchema.describe("Cell borders"),
+    textFormat: TextFormatSchema.describe("Text formatting"),
+    numberFormat: NumberFormatSchema.describe("Number format"),
+    horizontalAlignment: z
+      .enum(["left", "center", "right"])
+      .optional()
+      .describe("Horizontal alignment"),
+    verticalAlignment: z
+      .enum(["top", "middle", "bottom"])
+      .optional()
+      .describe("Vertical alignment"),
+    wrapStrategy: z
+      .enum(["overflow", "wrap", "clip"])
+      .optional()
+      .describe("Text wrap strategy"),
+    indent: z.number().int().optional().describe("Text indent level"),
+    textRotation: z
+      .union([z.number().int(), z.literal("vertical")])
+      .optional()
+      .describe("Text rotation in degrees or 'vertical'"),
+    // Shorthand properties (converted to textFormat)
+    fontWeight: z
+      .string()
+      .optional()
+      .describe("Shorthand: 'bold' -> textFormat.bold"),
+    fontStyle: z
+      .string()
+      .optional()
+      .describe("Shorthand: 'italic' -> textFormat.italic"),
+    textDecoration: z
+      .string()
+      .optional()
+      .describe("Shorthand: 'underline'/'line-through' -> textFormat"),
+  })
+  .loose();
+
+export type CellFormatType = z.infer<typeof CellFormatSchema>;
 
 const ToolExplanationSchemaShape = {
   explanation: z
@@ -41,6 +170,9 @@ const CellDataSchema = z
           "- External URLs: https://example.com/source?excerpt=[EXCERPT]\n\n" +
           "The 'excerpt' parameter enables scroll-to-text: clicking the citation scrolls to and highlights that text.",
       ),
+    cellStyles: CellFormatSchema.optional().describe(
+      'Formatting properties. Example: {"textFormat": {"bold": true}, "backgroundColor": "#FF0000"}',
+    ),
   })
   .strict()
   .describe("A single cell's data with optional value, formula, and citation");
@@ -58,7 +190,7 @@ export const SpreadsheetChangeBatchSchema = z.object({
       z.string().describe("JSON string representation of 2D cell array"),
     ])
     .describe(
-      "2D array of CellData objects. Each cell can have 'value' (string/number/boolean) and/or 'formula' (string starting with =)",
+      "2D array of CellData objects. Each cell can have 'value' (string/number/boolean), 'formula' (string starting with =), and optional 'citation'/'cellStyles'",
     ),
   ...ToolExplanationSchemaShape,
 });
@@ -66,77 +198,6 @@ export const SpreadsheetChangeBatchSchema = z.object({
 export type SpreadsheetChangeBatchInput = z.infer<
   typeof SpreadsheetChangeBatchSchema
 >;
-
-// GridRange schema for merges and other range references
-const GridRangeSchema = z.object({
-  startRowIndex: z
-    .number()
-    .int()
-    .describe(
-      "Start row index (1-based, INCLUSIVE). First row of the range. For A1 this would be 1, for A5 this would be 5.",
-    ),
-  endRowIndex: z
-    .number()
-    .int()
-    .describe(
-      "End row index (1-based, INCLUSIVE). Last row of the range. For range A1:A5, this would be 5. For single cells, equals startRowIndex.",
-    ),
-  startColumnIndex: z
-    .number()
-    .int()
-    .describe(
-      "Start column index (1-based, INCLUSIVE). First column of the range. A=1, B=2, C=3, etc. For range A1:C5, this would be 1.",
-    ),
-  endColumnIndex: z
-    .number()
-    .int()
-    .describe(
-      "End column index (1-based, INCLUSIVE). Last column of the range. For range A1:C5, this would be 3. For single columns, equals startColumnIndex.",
-    ),
-});
-
-// DimensionProperties schema for row/column metadata
-const DimensionPropertiesSchema = z
-  .object({
-    size: z
-      .number()
-      .int()
-      .optional()
-      .describe(
-        "Size in pixels. For columns, this is the width. For rows, this is the height. Default: 100px for columns, 21px for rows.",
-      ),
-    resizedByUser: z
-      .boolean()
-      .optional()
-      .describe(
-        "True if the user manually resized this dimension. Must be set to True whenever you set the 'size' field.",
-      ),
-    hiddenByUser: z
-      .boolean()
-      .optional()
-      .describe(
-        "True if the user explicitly hid this row/column. Set to False to unhide.",
-      ),
-    hiddenByFilter: z
-      .boolean()
-      .optional()
-      .describe(
-        "True if this row/column is hidden due to a filter. Do not modify directly - managed by filter operations.",
-      ),
-  })
-  .nullable();
-
-// ThemeColor schema
-const ThemeColorSchema = z.object({
-  theme: z.number().int().min(0).max(10).describe("Theme color index (0-10)"),
-  tint: z.number().nullable().optional().describe("Tint adjustment"),
-});
-
-// Color schema - hex string or theme reference
-const ColorSchema = z.union([
-  z.string().describe("Hex color string (e.g., '#FF0000')"),
-  ThemeColorSchema,
-]);
 
 // Spreadsheet CreateSheet
 const SheetSpecSchema = z
@@ -267,127 +328,6 @@ export type SpreadsheetGetSheetMetadataInput = z.infer<
   typeof SpreadsheetGetSheetMetadataSchema
 >;
 
-// Border style enum
-const BorderStyleSchema = z.enum([
-  "dotted",
-  "dashed",
-  "solid",
-  "solid_medium",
-  "solid_thick",
-  "double",
-]);
-
-// Single border schema
-const BorderSchema = z
-  .object({
-    style: BorderStyleSchema.describe("Border style"),
-    width: z.number().int().describe("Border width in pixels"),
-    color: ColorSchema.optional().describe(
-      "Border color as hex string (e.g., '#FF0000') or theme reference",
-    ),
-  })
-  .optional();
-
-// Borders schema with detailed description
-const BordersSchema = z
-  .object({
-    top: BorderSchema.describe("Top border of the cell"),
-    right: BorderSchema.describe("Right border of the cell"),
-    bottom: BorderSchema.describe("Bottom border of the cell"),
-    left: BorderSchema.describe("Left border of the cell"),
-  })
-  .optional()
-  .describe(
-    "Border configuration for cells. Common patterns: All borders (grid), outer only (box), inner only, horizontal/vertical lines, single side (underline effect).",
-  );
-
-// Text format schema
-const TextFormatSchema = z
-  .object({
-    color: ColorSchema.optional().describe(
-      "Text color as hex string (e.g., '#FF0000') or theme reference",
-    ),
-    fontFamily: z.string().optional().describe("Font family name"),
-    fontSize: z.number().int().optional().describe("Font size in points"),
-    bold: z.boolean().optional().describe("Bold text"),
-    italic: z.boolean().optional().describe("Italic text"),
-    strikethrough: z.boolean().optional().describe("Strikethrough text"),
-    underline: z.boolean().optional().describe("Underlined text"),
-  })
-  .optional();
-
-// Number format type enum
-const NumberFormatTypeSchema = z.enum([
-  "GENERAL",
-  "NUMBER",
-  "CURRENCY",
-  "ACCOUNTING",
-  "DATE",
-  "TIME",
-  "DATE_TIME",
-  "PERCENT",
-  "FRACTION",
-  "SCIENTIFIC",
-  "TEXT",
-  "SPECIAL",
-]);
-
-// Number format schema
-const NumberFormatSchema = z
-  .object({
-    type: NumberFormatTypeSchema.describe(
-      "Target number format category (NUMBER, CURRENCY, DATE, etc.)",
-    ),
-    pattern: z
-      .string()
-      .describe(
-        "Excel-compatible format string. If omitted, server picks a default based on type (e.g., NUMBER → '#,##0', CURRENCY → '$#,##0.00').",
-      ),
-  })
-  .optional();
-
-// CellFormat schema
-const CellFormatSchema = z
-  .object({
-    backgroundColor: ColorSchema.optional().describe(
-      "Background color as hex string (e.g., '#FF0000') or theme reference",
-    ),
-    borders: BordersSchema.describe("Cell borders"),
-    textFormat: TextFormatSchema.describe("Text formatting"),
-    numberFormat: NumberFormatSchema.describe("Number format"),
-    horizontalAlignment: z
-      .enum(["left", "center", "right"])
-      .optional()
-      .describe("Horizontal alignment"),
-    verticalAlignment: z
-      .enum(["top", "middle", "bottom"])
-      .optional()
-      .describe("Vertical alignment"),
-    wrapStrategy: z
-      .enum(["overflow", "wrap", "clip"])
-      .optional()
-      .describe("Text wrap strategy"),
-    indent: z.number().int().optional().describe("Text indent level"),
-    textRotation: z
-      .union([z.number().int(), z.literal("vertical")])
-      .optional()
-      .describe("Text rotation in degrees or 'vertical'"),
-    // Shorthand properties (converted to textFormat)
-    fontWeight: z
-      .string()
-      .optional()
-      .describe("Shorthand: 'bold' -> textFormat.bold"),
-    fontStyle: z
-      .string()
-      .optional()
-      .describe("Shorthand: 'italic' -> textFormat.italic"),
-    textDecoration: z
-      .string()
-      .optional()
-      .describe("Shorthand: 'underline'/'line-through' -> textFormat"),
-  })
-  .loose();
-
 // CellStyleData schema for formatRange
 const CellStyleDataSchema = z
   .object({
@@ -398,6 +338,8 @@ const CellStyleDataSchema = z
   .describe(
     'Cell with formatting. MUST use cellStyles wrapper: {"cellStyles": {"textFormat": {"bold": true}}}',
   );
+
+export type CellStyleData = z.infer<typeof CellStyleDataSchema>;
 
 // Spreadsheet FormatRange
 export const SpreadsheetFormatRangeSchema = z.object({
@@ -410,10 +352,10 @@ export const SpreadsheetFormatRangeSchema = z.object({
       z.string().describe("JSON string representation of 2D cell style array"),
     ])
     .describe(
-      '2D array where each cell MUST have cellStyles wrapper. ' +
+      "2D array where each cell MUST have cellStyles wrapper. " +
         'Structure: [[{"cellStyles": {...}}, {"cellStyles": {...}}], ...]. ' +
         'Example for bold A1:B1: [[{"cellStyles": {"textFormat": {"bold": true}}}, {"cellStyles": {"textFormat": {"bold": true}}}]]. ' +
-        'Use {} for cells with no formatting.',
+        "Use {} for cells with no formatting.",
     ),
   ...ToolExplanationSchemaShape,
 });
