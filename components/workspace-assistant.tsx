@@ -238,6 +238,13 @@ const ASSISTANT_IMAGE_QUALITY_MIN = 0.5;
 const ASSISTANT_IMAGE_QUALITY_STEP = 0.08;
 const ASSISTANT_IMAGE_UPLOAD_MIME_TYPE = "image/jpeg";
 const ASSISTANT_MAX_COMPOSER_IMAGES = 5;
+const HEIC_IMAGE_CONTENT_TYPES = new Set([
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
+]);
+const HEIC_IMAGE_EXTENSIONS = new Set(["heic", "heif"]);
 
 type ChatImageInput = {
   url: string;
@@ -446,22 +453,43 @@ const resizeImageForAssistant = async (file: File) => {
   };
 };
 
+const getFileExtension = (filename: string) =>
+  filename.split(".").pop()?.trim().toLowerCase() ?? "";
+
+const isHeicLikeFile = (file: File) => {
+  const contentType = file.type?.trim().toLowerCase() ?? "";
+  if (HEIC_IMAGE_CONTENT_TYPES.has(contentType)) {
+    return true;
+  }
+  return HEIC_IMAGE_EXTENSIONS.has(getFileExtension(file.name));
+};
+
+const isSupportedImageFile = (file: File) => {
+  const contentType = file.type?.trim().toLowerCase() ?? "";
+  if (contentType.startsWith("image/")) {
+    return true;
+  }
+  return isHeicLikeFile(file);
+};
+
 const getImageFilesFromDataTransfer = (transfer: DataTransfer | null) => {
   if (!transfer) {
     return [] as File[];
   }
 
   const files = Array.from(transfer.files).filter((file) =>
-    file.type.startsWith("image/"),
+    isSupportedImageFile(file),
   );
   if (files.length > 0) {
     return files;
   }
 
   return Array.from(transfer.items)
-    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile())
-    .filter((file): file is File => file !== null);
+    .filter(
+      (file): file is File => file !== null && isSupportedImageFile(file),
+    );
 };
 
 const hasFileItemsInDataTransfer = (transfer: DataTransfer | null) => {
@@ -4768,9 +4796,9 @@ function AssistantComposer({
     alt: string;
   } | null>(null);
   const composerImagesRef = React.useRef<ComposerImageAttachment[]>([]);
-  const uploadAbortControllersRef = React.useRef<
-    Map<string, AbortController>
-  >(new Map());
+  const uploadAbortControllersRef = React.useRef<Map<string, AbortController>>(
+    new Map(),
+  );
   const [isDragActive, setIsDragActive] = React.useState(false);
   const [queuedMessages, setQueuedMessages] = React.useState<
     QueuedComposerMessage[]
@@ -4889,7 +4917,7 @@ function AssistantComposer({
   }, [composerRuntime, getReadyComposerImageParts]);
 
   const addImageFilesToComposer = React.useCallback(async (files: File[]) => {
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    const imageFiles = files.filter((file) => isSupportedImageFile(file));
     if (imageFiles.length === 0) {
       return;
     }
@@ -4938,25 +4966,47 @@ function AssistantComposer({
             ),
           );
 
-          const resizedImage = await resizeImageForAssistant(file);
-          setComposerImages((previous) =>
-            previous.map((image) =>
-              image.id === id
-                ? {
-                    ...image,
-                    uploadProgress: Math.max(15, image.uploadProgress ?? 0),
-                    width: resizedImage.width,
-                    height: resizedImage.height,
-                    contentType: resizedImage.contentType,
-                    sizeBytes: resizedImage.sizeBytes,
-                  }
-                : image,
-            ),
-          );
+          let uploadFile = file;
+          try {
+            const resizedImage = await resizeImageForAssistant(file);
+            uploadFile = resizedImage.file;
+            setComposerImages((previous) =>
+              previous.map((image) =>
+                image.id === id
+                  ? {
+                      ...image,
+                      uploadProgress: Math.max(15, image.uploadProgress ?? 0),
+                      width: resizedImage.width,
+                      height: resizedImage.height,
+                      contentType: resizedImage.contentType,
+                      sizeBytes: resizedImage.sizeBytes,
+                    }
+                  : image,
+              ),
+            );
+          } catch (resizeError) {
+            if (!isHeicLikeFile(file)) {
+              throw resizeError;
+            }
+            // Some browsers cannot decode HEIC for canvas resizing.
+            // Upload raw HEIC/HEIF and let the server convert + resize.
+            setComposerImages((previous) =>
+              previous.map((image) =>
+                image.id === id
+                  ? {
+                      ...image,
+                      uploadProgress: Math.max(15, image.uploadProgress ?? 0),
+                      contentType: file.type || image.contentType,
+                      sizeBytes: file.size,
+                    }
+                  : image,
+              ),
+            );
+          }
 
           let lastProgressPercent = 15;
           const uploadedImage = await uploadAssistantImage({
-            file: resizedImage.file,
+            file: uploadFile,
             signal: uploadController.signal,
             onProgress: (fraction) => {
               const nextProgressPercent = Math.min(
@@ -4989,7 +5039,7 @@ function AssistantComposer({
                     filename:
                       uploadedImage.filename?.trim() ||
                       image.filename ||
-                      resizedImage.file.name,
+                      uploadFile.name,
                     imageUrl: uploadedImage.url,
                     contentType: uploadedImage.contentType || image.contentType,
                     sizeBytes: uploadedImage.sizeBytes ?? image.sizeBytes,
@@ -5130,11 +5180,9 @@ function AssistantComposer({
   const handleComposerInputPaste = React.useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const pastedFiles = Array.from(event.clipboardData.items)
-        .filter(
-          (item) => item.kind === "file" && item.type.startsWith("image/"),
-        )
+        .filter((item) => item.kind === "file")
         .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null);
+        .filter((file): file is File => file !== null && isSupportedImageFile(file));
 
       if (pastedFiles.length === 0) {
         return;
