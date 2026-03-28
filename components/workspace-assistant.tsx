@@ -2437,11 +2437,11 @@ function ReasoningBlock({
 
   return (
     <Collapsible.Root open={isOpen} onOpenChange={setIsOpen}>
-      <Collapsible.Trigger className="flex w-full items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-left text-xs font-medium text-purple-700 transition hover:bg-purple-100">
-        <Sparkles className="h-3.5 w-3.5" />
+      <Collapsible.Trigger className="inline-flex max-w-full items-center gap-2 rounded-md border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-(--assistant-chip-hover)">
+        <Sparkles className="h-3.5 w-3.5 text-violet-500" />
         <span>Thinking</span>
         <ChevronDown
-          className={`ml-auto h-3.5 w-3.5 transition-transform ${
+          className={`ml-auto h-3.5 w-3.5 shrink-0 text-(--muted-foreground) transition-transform ${
             isOpen ? "rotate-180" : ""
           }`}
         />
@@ -3188,7 +3188,7 @@ function AssistantMessageBody() {
     () => ({
       Text: AssistantTextPart,
       Reasoning: () => (
-        <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50/50 p-3 text-xs text-purple-900/80">
+        <div className="mt-1.5 rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2 text-xs text-foreground">
           <MarkdownText />
         </div>
       ),
