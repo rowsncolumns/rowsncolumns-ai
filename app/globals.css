@@ -28,6 +28,7 @@
   --assistant-suggestion-hover: #fff2e3;
   --assistant-bubble-ai-bg: #fff7f1;
   --assistant-bubble-user-bg: #111827;
+  --assistant-overlay-backdrop: rgba(255, 255, 255, 0.58);
   --assistant-stop-bg: #fff1ee;
   --assistant-stop-hover: #ffe5df;
   --assistant-stop-fg: #c23f2c;
@@ -79,6 +80,7 @@ body.rnc-dark {
   --assistant-suggestion-hover: rgba(46, 61, 84, 0.95);
   --assistant-bubble-ai-bg: rgba(33, 45, 63, 0.9);
   --assistant-bubble-user-bg: #2b3b54;
+  --assistant-overlay-backdrop: rgba(0, 0, 0, 0.6);
   --assistant-stop-bg: rgba(143, 50, 49, 0.24);
   --assistant-stop-hover: rgba(167, 63, 59, 0.36);
   --assistant-stop-fg: #ffb7a4;

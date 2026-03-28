@@ -58,6 +58,10 @@ const getEnv = (name: string) => {
 };
 
 type Provider = "openai" | "anthropic";
+export type ChatImageInput = {
+  url: string;
+  filename?: string;
+};
 type OpenAIReasoningSummary = "auto" | "concise" | "detailed" | null;
 type OpenAIReasoningEffort = "low" | "medium" | "high";
 type AnthropicThinkingMode = "enabled" | "adaptive" | "disabled";
@@ -1154,6 +1158,12 @@ type PersistedThreadReasoningPart = {
   text: string;
 };
 
+type PersistedThreadImagePart = {
+  type: "image";
+  image: string;
+  filename?: string;
+};
+
 type PersistedThreadToolCallPart = {
   type: "tool-call";
   toolCallId: string;
@@ -1166,6 +1176,7 @@ type PersistedThreadToolCallPart = {
 type PersistedThreadContentPart =
   | PersistedThreadTextPart
   | PersistedThreadReasoningPart
+  | PersistedThreadImagePart
   | PersistedThreadToolCallPart;
 
 export type PersistedThreadMessage = {
@@ -1431,6 +1442,130 @@ const getPendingToolCallLocationByName = (
   return null;
 };
 
+const getPersistedImageFromContentPart = (
+  value: unknown,
+): PersistedThreadImagePart | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const part = value as {
+    type?: unknown;
+    image?: unknown;
+    filename?: unknown;
+    url?: unknown;
+    image_url?: unknown;
+    source?: unknown;
+  };
+
+  const getFilename = () =>
+    typeof part.filename === "string" && part.filename.trim().length > 0
+      ? part.filename.trim()
+      : undefined;
+
+  if (part.type === "image" && typeof part.image === "string") {
+    const image = part.image.trim();
+    if (!image) return null;
+    const filename = getFilename();
+    return {
+      type: "image",
+      image,
+      ...(filename ? { filename } : {}),
+    };
+  }
+
+  if (part.type === "image_url") {
+    const imageUrl =
+      typeof part.image_url === "string"
+        ? part.image_url
+        : part.image_url &&
+            typeof part.image_url === "object" &&
+            "url" in (part.image_url as Record<string, unknown>) &&
+            typeof (part.image_url as { url?: unknown }).url === "string"
+          ? ((part.image_url as { url: string }).url ?? "")
+          : "";
+    const image = imageUrl.trim();
+    if (!image) return null;
+    const filename = getFilename();
+    return {
+      type: "image",
+      image,
+      ...(filename ? { filename } : {}),
+    };
+  }
+
+  if (part.type === "image" && typeof part.url === "string") {
+    const image = part.url.trim();
+    if (!image) return null;
+    const filename = getFilename();
+    return {
+      type: "image",
+      image,
+      ...(filename ? { filename } : {}),
+    };
+  }
+
+  if (
+    part.type === "image" &&
+    part.source &&
+    typeof part.source === "object" &&
+    "url" in (part.source as Record<string, unknown>) &&
+    typeof (part.source as { url?: unknown }).url === "string"
+  ) {
+    const image = ((part.source as { url: string }).url ?? "").trim();
+    if (!image) return null;
+    const filename = getFilename();
+    return {
+      type: "image",
+      image,
+      ...(filename ? { filename } : {}),
+    };
+  }
+
+  return null;
+};
+
+const getPersistedUserContentParts = (
+  value: unknown,
+): Array<PersistedThreadTextPart | PersistedThreadImagePart> => {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text ? [{ type: "text", text: value }] : [];
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const parts: Array<PersistedThreadTextPart | PersistedThreadImagePart> = [];
+  for (const item of value) {
+    if (typeof item === "string") {
+      if (item.trim().length > 0) {
+        parts.push({ type: "text", text: item });
+      }
+      continue;
+    }
+
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const maybeText =
+      "text" in item && typeof item.text === "string" ? item.text : "";
+    if (maybeText.trim().length > 0) {
+      parts.push({ type: "text", text: maybeText });
+      continue;
+    }
+
+    const imagePart = getPersistedImageFromContentPart(item);
+    if (imagePart) {
+      parts.push(imagePart);
+    }
+  }
+
+  return parts;
+};
+
 const buildPersistedThreadMessages = (
   values: unknown[],
 ): PersistedThreadMessage[] => {
@@ -1574,7 +1709,29 @@ const buildPersistedThreadMessages = (
       continue;
     }
 
-    const text = contentToText(getStoredMessageProperty(rawMessage, "content"));
+    const storedContent = getStoredMessageProperty(rawMessage, "content");
+    if (role === "user") {
+      const userContentParts = getPersistedUserContentParts(storedContent);
+      if (userContentParts.length === 0) {
+        continue;
+      }
+
+      if (userContentParts.length === 1 && userContentParts[0]?.type === "text") {
+        persistedMessages.push({
+          role,
+          content: userContentParts[0].text,
+        });
+        continue;
+      }
+
+      persistedMessages.push({
+        role,
+        content: userContentParts,
+      });
+      continue;
+    }
+
+    const text = contentToText(storedContent);
     if (!text.trim()) {
       continue;
     }
@@ -2099,12 +2256,46 @@ const repairOrphanedToolCalls = async (input: {
   }
 };
 
+const buildUserMessageContent = (input: {
+  message: string;
+  images?: ChatImageInput[];
+}) => {
+  const text = input.message.trim();
+  const images = input.images ?? [];
+  if (images.length === 0) {
+    return text;
+  }
+
+  const content: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail: "low" } }
+  > = [];
+
+  content.push({
+    type: "text",
+    text: text || "Please analyze the attached image(s).",
+  });
+
+  for (const image of images) {
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: image.url,
+        detail: "low",
+      },
+    });
+  }
+
+  return content;
+};
+
 export async function* streamSpreadsheetAssistant(input: {
   threadId: string;
   userId?: string;
   docId?: string;
   sessionTitle?: string;
   message: string;
+  images?: ChatImageInput[];
   model?: string;
   provider?: Provider;
   reasoningEnabled?: boolean;
@@ -2135,7 +2326,14 @@ export async function* streamSpreadsheetAssistant(input: {
   // Use streamEvents to get proper LangSmith tracing with the thread
   const eventStream = (await getGraph()).streamEvents(
     {
-      messages: [new HumanMessage(input.message)],
+      messages: [
+        new HumanMessage(
+          buildUserMessageContent({
+            message: input.message,
+            images: input.images,
+          }),
+        ),
+      ],
     },
     {
       ...config,

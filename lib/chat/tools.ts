@@ -5843,15 +5843,13 @@ export const spreadsheetTools = [
   spreadsheetGetRowColMetadataTool,
   spreadsheetSetRowColDimensionsTool,
   spreadsheetApplyFillTool,
-  // Consolidated: set/delete note
-  spreadsheetNoteTool,
   // Consolidated tools
+  spreadsheetNoteTool,
   spreadsheetClearCellsTool,
   spreadsheetTableTool,
   spreadsheetChartTool,
   spreadsheetDataValidationTool,
   spreadsheetConditionalFormatTool,
-  // Consolidated: create/update/delete/duplicate sheet
   spreadsheetSheetTool,
   // Audit tools
   spreadsheetGetAuditSnapshotTool,

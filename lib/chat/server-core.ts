@@ -33,10 +33,16 @@ import {
 
 export type ChatProvider = "openai" | "anthropic";
 
+export type ChatImageInput = {
+  url: string;
+  filename?: string;
+};
+
 export type ChatRequestBody = {
   threadId?: string;
   docId?: string;
   message?: string;
+  images?: unknown;
   model?: string;
   provider?: string;
   reasoningEnabled?: boolean;
@@ -55,6 +61,7 @@ export type ResolvedChatRequest = {
   threadId: string;
   docId?: string;
   message: string;
+  images: ChatImageInput[];
   model?: string;
   provider?: ChatProvider;
   reasoningEnabled?: boolean;
@@ -115,9 +122,100 @@ const parseAllowedModelsFromEnv = () => {
 
 const ALLOWED_MODELS = parseAllowedModelsFromEnv();
 const ALLOW_ANY_MODEL = ALLOWED_MODELS.has("*");
+const MAX_CHAT_IMAGES = 8;
 
 const isAllowedModel = (model: string) =>
   ALLOW_ANY_MODEL || ALLOWED_MODELS.has(model);
+
+const parseChatImages = (
+  value: unknown,
+):
+  | { ok: true; images: ChatImageInput[] }
+  | { ok: false; error: ChatErrorResponse } => {
+  if (value === undefined || value === null) {
+    return { ok: true, images: [] };
+  }
+
+  if (!Array.isArray(value)) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        payload: { error: "images must be an array." },
+      },
+    };
+  }
+
+  if (value.length > MAX_CHAT_IMAGES) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        payload: { error: `A maximum of ${MAX_CHAT_IMAGES} images is allowed.` },
+      },
+    };
+  }
+
+  const images: ChatImageInput[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Each image must be an object." },
+        },
+      };
+    }
+
+    const candidate = item as { url?: unknown; filename?: unknown };
+    const rawUrl = typeof candidate.url === "string" ? candidate.url.trim() : "";
+    if (!rawUrl) {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Each image requires a url." },
+        },
+      };
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl);
+    } catch {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Each image url must be a valid URL." },
+        },
+      };
+    }
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Image urls must use http or https." },
+        },
+      };
+    }
+
+    const filename =
+      typeof candidate.filename === "string" && candidate.filename.trim().length
+        ? candidate.filename.trim()
+        : undefined;
+
+    images.push({
+      url: parsedUrl.toString(),
+      ...(filename ? { filename } : {}),
+    });
+  }
+
+  return { ok: true, images };
+};
 
 const parseProvider = (
   value: string | undefined | null,
@@ -165,13 +263,21 @@ export const resolveChatRequest = (
     };
   }
 
-  const message = body.message?.trim();
-  if (!message) {
+  const message = body.message?.trim() ?? "";
+  const parsedImages = parseChatImages(body.images);
+  if (!parsedImages.ok) {
+    return {
+      ok: false,
+      error: parsedImages.error,
+    };
+  }
+
+  if (!message && parsedImages.images.length === 0) {
     return {
       ok: false,
       error: {
         status: 400,
-        payload: { error: "message is required." },
+        payload: { error: "message or images are required." },
       },
     };
   }
@@ -241,6 +347,7 @@ export const resolveChatRequest = (
       threadId,
       docId: body.docId?.trim() || undefined,
       message,
+      images: parsedImages.images,
       model,
       provider,
       reasoningEnabled,
@@ -403,7 +510,11 @@ export const executeChatRunStream = async (input: {
     sessionTitle = await resolveSpreadsheetAssistantSessionTitle({
       threadId: input.request.threadId,
       userId: input.userId,
-      message: input.request.message,
+      message:
+        input.request.message.trim() ||
+        (input.request.images.length > 0
+          ? `Analyze ${input.request.images.length} image${input.request.images.length === 1 ? "" : "s"}`
+          : "Untitled session"),
       model: input.request.model,
       provider: input.request.provider,
       reasoningEnabled: input.request.reasoningEnabled,
@@ -439,6 +550,7 @@ export const executeChatRunStream = async (input: {
       docId: input.request.docId,
       sessionTitle,
       message: input.request.message,
+      images: input.request.images,
       model: input.request.model,
       provider: input.request.provider,
       reasoningEnabled: input.request.reasoningEnabled,

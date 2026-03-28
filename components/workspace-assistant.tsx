@@ -3,6 +3,7 @@
 import type {
   AssistantToolUIProps,
   ChatModelAdapter,
+  ThreadAssistantMessagePart,
   ThreadMessage,
   ThreadMessageLike,
   ToolCallMessagePartProps,
@@ -28,6 +29,7 @@ import {
   useThread,
   useThreadRuntime,
   useAuiState,
+  useMessagePartImage,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import * as Collapsible from "@radix-ui/react-collapsible";
@@ -40,6 +42,7 @@ import {
   Sheet,
   SpreadsheetTheme,
   TableView,
+  ToolbarIconButton,
   useNavigateToSheetRange,
   useSpreadsheetApi,
 } from "@rowsncolumns/spreadsheet";
@@ -64,8 +67,10 @@ import {
   Info,
   Loader2,
   History,
+  Image as ImageIcon,
   Minus,
   Navigation,
+  Paperclip,
   Pencil,
   Plus,
   RotateCcw,
@@ -226,6 +231,41 @@ type SessionListCacheEntry = {
 let sessionListCache: SessionListCacheEntry | null = null;
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
+const CHAT_IMAGE_UPLOAD_API_ENDPOINT = "/api/chat/attachments/image";
+const ASSISTANT_MAX_IMAGE_DIMENSION = 600;
+const ASSISTANT_MAX_IMAGE_BYTES = 1_500_000;
+const ASSISTANT_IMAGE_QUALITY_START = 0.86;
+const ASSISTANT_IMAGE_QUALITY_MIN = 0.5;
+const ASSISTANT_IMAGE_QUALITY_STEP = 0.08;
+const ASSISTANT_IMAGE_UPLOAD_MIME_TYPE = "image/jpeg";
+const ASSISTANT_MAX_COMPOSER_IMAGES = 5;
+
+type ChatImageInput = {
+  url: string;
+  filename?: string;
+};
+
+type UploadedAssistantImage = {
+  url: string;
+  key?: string;
+  filename?: string;
+  contentType?: string;
+  sizeBytes?: number;
+};
+
+type ComposerImageAttachment = {
+  id: string;
+  filename: string;
+  status: "uploading" | "ready" | "error";
+  uploadProgress?: number;
+  previewUrl?: string;
+  imageUrl?: string;
+  width?: number;
+  height?: number;
+  contentType?: string;
+  sizeBytes?: number;
+  error?: string;
+};
 
 type ChatRunResumeResponse = {
   run: {
@@ -309,10 +349,227 @@ const getProviderForModel = (model: string | undefined) => {
   return /^claude/i.test(model) ? ("anthropic" as const) : ("openai" as const);
 };
 
+const canvasToBlob = async (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number,
+) => {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Failed to encode image."));
+          return;
+        }
+        resolve(blob);
+      },
+      type,
+      quality,
+    );
+  });
+};
+
+const loadImageElementFromFile = async (file: File) => {
+  const imageUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Unable to read image file."));
+      element.src = imageUrl;
+    });
+    return image;
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+};
+
+const resizeImageForAssistant = async (file: File) => {
+  const image = await loadImageElementFromFile(file);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error("Image has invalid dimensions.");
+  }
+
+  const maxSourceDimension = Math.max(sourceWidth, sourceHeight);
+  const scale =
+    maxSourceDimension > ASSISTANT_MAX_IMAGE_DIMENSION
+      ? ASSISTANT_MAX_IMAGE_DIMENSION / maxSourceDimension
+      : 1;
+  const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Canvas is unavailable for image resizing.");
+  }
+
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+  let quality = ASSISTANT_IMAGE_QUALITY_START;
+  let blob = await canvasToBlob(
+    canvas,
+    ASSISTANT_IMAGE_UPLOAD_MIME_TYPE,
+    quality,
+  );
+
+  while (
+    blob.size > ASSISTANT_MAX_IMAGE_BYTES &&
+    quality > ASSISTANT_IMAGE_QUALITY_MIN
+  ) {
+    quality = Math.max(
+      ASSISTANT_IMAGE_QUALITY_MIN,
+      quality - ASSISTANT_IMAGE_QUALITY_STEP,
+    );
+    blob = await canvasToBlob(
+      canvas,
+      ASSISTANT_IMAGE_UPLOAD_MIME_TYPE,
+      quality,
+    );
+  }
+
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
+  const resizedFileName = `${baseName}.jpg`;
+  const resizedFile = new File([blob], resizedFileName, {
+    type: ASSISTANT_IMAGE_UPLOAD_MIME_TYPE,
+  });
+
+  return {
+    file: resizedFile,
+    width: targetWidth,
+    height: targetHeight,
+    contentType: ASSISTANT_IMAGE_UPLOAD_MIME_TYPE,
+    sizeBytes: blob.size,
+  };
+};
+
+const getImageFilesFromDataTransfer = (transfer: DataTransfer | null) => {
+  if (!transfer) {
+    return [] as File[];
+  }
+
+  const files = Array.from(transfer.files).filter((file) =>
+    file.type.startsWith("image/"),
+  );
+  if (files.length > 0) {
+    return files;
+  }
+
+  return Array.from(transfer.items)
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+};
+
+const hasFileItemsInDataTransfer = (transfer: DataTransfer | null) => {
+  if (!transfer) {
+    return false;
+  }
+
+  if (Array.from(transfer.types ?? []).includes("Files")) {
+    return true;
+  }
+
+  return Array.from(transfer.items).some((item) => item.kind === "file");
+};
+
+const hasImageFilesInDataTransfer = (
+  transfer: DataTransfer | null,
+  options?: { allowUnknownFiles?: boolean },
+) => {
+  if (getImageFilesFromDataTransfer(transfer).length > 0) {
+    return true;
+  }
+
+  return options?.allowUnknownFiles === true
+    ? hasFileItemsInDataTransfer(transfer)
+    : false;
+};
+
+const uploadAssistantImage = async (input: {
+  file: File;
+  signal?: AbortSignal;
+  onProgress?: (fraction: number) => void;
+}): Promise<UploadedAssistantImage> => {
+  return new Promise<UploadedAssistantImage>((resolve, reject) => {
+    const formData = new FormData();
+    formData.append("file", input.file, input.file.name);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", CHAT_IMAGE_UPLOAD_API_ENDPOINT);
+    xhr.withCredentials = true;
+    xhr.responseType = "json";
+
+    const abortHandler = () => {
+      xhr.abort();
+    };
+
+    xhr.upload.onprogress = (event) => {
+      if (!input.onProgress || !event.lengthComputable || event.total <= 0) {
+        return;
+      }
+      input.onProgress(event.loaded / event.total);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const payload = (xhr.response ||
+          JSON.parse(xhr.responseText || "{}")) as UploadedAssistantImage;
+        resolve(payload);
+        return;
+      }
+
+      const errorPayload =
+        (xhr.response as { error?: string } | null) ??
+        (() => {
+          try {
+            return JSON.parse(xhr.responseText || "{}") as { error?: string };
+          } catch {
+            return null;
+          }
+        })();
+      reject(
+        new Error(
+          errorPayload?.error?.trim() || "Failed to upload image attachment.",
+        ),
+      );
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Failed to upload image attachment."));
+    };
+
+    xhr.onabort = () => {
+      reject(new Error("Upload cancelled."));
+    };
+
+    if (input.signal) {
+      if (input.signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      input.signal.addEventListener("abort", abortHandler, { once: true });
+    }
+
+    xhr.onloadend = () => {
+      if (input.signal) {
+        input.signal.removeEventListener("abort", abortHandler);
+      }
+    };
+
+    xhr.send(formData);
+  });
+};
+
 const requestAssistantChat = async (input: {
   threadId: string;
   docId?: string;
   message: string;
+  images?: ChatImageInput[];
   model?: string;
   provider?: "openai" | "anthropic";
   reasoningEnabled?: boolean;
@@ -323,6 +580,9 @@ const requestAssistantChat = async (input: {
     threadId: input.threadId,
     docId: input.docId,
     message: input.message,
+    ...(input.images && input.images.length > 0
+      ? { images: input.images }
+      : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.provider ? { provider: input.provider } : {}),
     ...(typeof input.reasoningEnabled === "boolean"
@@ -653,7 +913,9 @@ const setStreamingToolResult = (
   existingPart.result = normalizedResult;
 };
 
-const snapshotStreamingContent = (parts: StreamingContentPart[]) =>
+const snapshotStreamingContent = (
+  parts: StreamingContentPart[],
+): ThreadAssistantMessagePart[] =>
   parts.map((part) => {
     if (part.type !== "tool-call") {
       return { ...part };
@@ -667,7 +929,7 @@ const snapshotStreamingContent = (parts: StreamingContentPart[]) =>
           ? [...part.args]
           : part.args,
     };
-  }) as any[];
+  }) as unknown as ThreadAssistantMessagePart[];
 
 /**
  * Marks any pending tool calls (those without results) as incomplete.
@@ -990,6 +1252,8 @@ const parsePersistedThreadHistoryContentPart = (
   const part = value as {
     type?: unknown;
     text?: unknown;
+    image?: unknown;
+    filename?: unknown;
     toolCallId?: unknown;
     toolName?: unknown;
     args?: unknown;
@@ -1016,6 +1280,20 @@ const parsePersistedThreadHistoryContentPart = (
     return {
       type: "reasoning" as const,
       text: part.text,
+    };
+  }
+
+  if (part.type === "image") {
+    if (typeof part.image !== "string" || part.image.trim().length === 0) {
+      return null;
+    }
+
+    return {
+      type: "image" as const,
+      image: part.image.trim(),
+      ...(typeof part.filename === "string" && part.filename.trim().length > 0
+        ? { filename: part.filename.trim() }
+        : {}),
     };
   }
 
@@ -1421,11 +1699,15 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           .reverse()
           .find((message) => message.role === "user");
         const message = getMessageText(latestUserMessage);
+        const images = getMessageImages(latestUserMessage);
 
-        if (!message) {
+        if (!message && images.length === 0) {
           yield {
             content: [
-              { type: "text", text: "I need a prompt before I can help." },
+              {
+                type: "text",
+                text: "I need a prompt or image before I can help.",
+              },
             ],
             status: { type: "complete", reason: "stop" },
           };
@@ -1442,6 +1724,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             threadId,
             docId: docIdRef.current,
             message,
+            images,
             model,
             provider: getProviderForModel(model),
             reasoningEnabled: reasoningEnabledRef.current,
@@ -1916,6 +2199,34 @@ const getMessageText = (message: ThreadMessage | undefined) => {
     .trim();
 };
 
+const getMessageImages = (
+  message: ThreadMessage | undefined,
+): ChatImageInput[] => {
+  if (!message) {
+    return [];
+  }
+
+  return message.content
+    .map((part) => {
+      if (part.type !== "image" || typeof part.image !== "string") {
+        return null;
+      }
+
+      const url = part.image.trim();
+      if (!url) {
+        return null;
+      }
+
+      return {
+        url,
+        ...(typeof part.filename === "string" && part.filename.trim().length > 0
+          ? { filename: part.filename.trim() }
+          : {}),
+      };
+    })
+    .filter((part): part is ChatImageInput => part !== null);
+};
+
 type ToolCopy = {
   running: string;
   success: string;
@@ -2253,7 +2564,7 @@ function ReasoningBlock({
         />
       </Collapsible.Trigger>
       <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
-        {children as any}
+        {children}
       </Collapsible.Content>
     </Collapsible.Root>
   );
@@ -2285,6 +2596,103 @@ function AssistantTextPart() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ImageLightbox({
+  open,
+  imageUrl,
+  alt,
+  onClose,
+}: {
+  open: boolean;
+  imageUrl: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose, open]);
+
+  if (!open || typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-4 top-4 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/40 bg-black/75 text-white shadow-lg backdrop-blur-sm transition hover:bg-black/90"
+        aria-label="Close image preview"
+        title="Close"
+      >
+        <X className="h-5 w-5 text-white" />
+      </button>
+      <img
+        src={imageUrl}
+        alt={alt}
+        className="max-h-[90vh] max-w-[92vw] rounded-lg border border-white/20 bg-black object-contain shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      />
+      <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/60 px-2.5 py-1 text-[11px] text-white/90">
+        Press Esc to close
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function UserImagePart() {
+  const imagePart = useMessagePartImage();
+  const imageUrl = imagePart.image?.trim();
+  const [isLightboxOpen, setIsLightboxOpen] = React.useState(false);
+  if (!imageUrl) {
+    return null;
+  }
+
+  const altText = imagePart.filename || "Uploaded image";
+
+  return (
+    <div className="inline-flex max-w-full shrink-0">
+      <ToolbarIconButton
+        variant="ghost"
+        type="button"
+        onClick={() => setIsLightboxOpen(true)}
+        aria-label="Open image preview"
+        tooltip="Open image preview"
+        className="p-0 border border-black/15 border-solid"
+      >
+        <img
+          src={imageUrl}
+          alt={altText}
+          className="block h-16 w-auto max-w-[132px] rounded-lg object-contain"
+          loading="lazy"
+        />
+      </ToolbarIconButton>
+      <ImageLightbox
+        open={isLightboxOpen}
+        imageUrl={imageUrl}
+        alt={altText}
+        onClose={() => setIsLightboxOpen(false)}
+      />
+    </div>
   );
 }
 
@@ -2834,6 +3242,7 @@ function AssistantMessageBody() {
           .join("")
           .trim(),
   );
+  const hasUserText = userMessageText.length > 0;
   const isMessageRunning = useAuiState(
     ({ message }) => message.status?.type === "running",
   );
@@ -2989,29 +3398,42 @@ function AssistantMessageBody() {
         )}
         {role === "user" && (
           <div className="flex max-w-[85%] flex-col items-end gap-1">
-            <Card className="rnc-assistant-bubble-user w-fit max-w-full border-black/10 bg-foreground text-white">
-              <CardContent className="py-2 px-3">
-                <div className="whitespace-normal break-words text-sm leading-6 text-white/90">
-                  <MessagePrimitive.Content
-                    components={{
-                      Text: MarkdownText,
-                    }}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-            <IconButton
-              tooltip="Copy"
-              type="button"
-              onClick={handleCopyUserMessage}
-              aria-label="Copy message"
-            >
-              {isUserCopySuccess ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </IconButton>
+            <div className="flex w-full flex-wrap justify-end gap-2">
+              <MessagePrimitive.Content
+                components={{
+                  Text: () => null,
+                  Image: UserImagePart,
+                }}
+              />
+            </div>
+            {hasUserText && (
+              <Card className="rnc-assistant-bubble-user w-fit max-w-full border-black/10 bg-foreground text-white">
+                <CardContent className="py-2 px-3">
+                  <div className="whitespace-normal break-words text-sm leading-6 text-white/90">
+                    <MessagePrimitive.Content
+                      components={{
+                        Text: MarkdownText,
+                        Image: () => null,
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {hasUserText && (
+              <IconButton
+                tooltip="Copy"
+                type="button"
+                onClick={handleCopyUserMessage}
+                aria-label="Copy message"
+              >
+                {isUserCopySuccess ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </IconButton>
+            )}
           </div>
         )}
         {showDebugIcon || showForkButton ? (
@@ -4122,7 +4544,7 @@ function SessionPickerButton({
           variant="secondary"
           size="sm"
           className={cn(
-            "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
+            "rnc-assistant-chip h-8 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)",
             iconOnly ? "" : "gap-1.5 px-2.5 whitespace-nowrap",
           )}
           aria-label="Session history"
@@ -4136,18 +4558,20 @@ function SessionPickerButton({
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[320px] p-0 border border-(--card-border) bg-[#fffaf5] text-foreground shadow-xl"
+        className="z-[180] w-[320px] overflow-hidden rounded-xl border border-[var(--card-border)] bg-[var(--card-bg-solid)] p-0 text-[var(--foreground)] shadow-[0_18px_38px_var(--card-shadow)]"
       >
-        <Command className="bg-[#fffaf5]">
+        <Command className="bg-[var(--card-bg-solid)]">
           <CommandInput placeholder="Search sessions..." />
-          <CommandList className="bg-[#fffaf5]">
+          <CommandList className="bg-[var(--card-bg-solid)]">
             {isLoading && sessions.length === 0 && (
-              <div className="px-3 py-4 text-xs text-(--muted-foreground)">
+              <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
                 Loading sessions...
               </div>
             )}
             {!isLoading && loadError && (
-              <div className="px-3 py-4 text-xs text-red-600">{loadError}</div>
+              <div className="px-3 py-4 text-xs text-[#c23f2c]">
+                {loadError}
+              </div>
             )}
             {!isLoading && !loadError && sessions.length === 0 && (
               <CommandEmpty>No saved sessions yet.</CommandEmpty>
@@ -4176,23 +4600,23 @@ function SessionPickerButton({
                             {session.title || session.threadId}
                           </span>
                           {isCurrent && (
-                            <span className="rounded bg-[#ece8df] px-1.5 py-0.5 text-[9px] text-(--muted-foreground)">
+                            <span className="rounded bg-[var(--assistant-chip-bg)] px-1.5 py-0.5 text-[9px] text-[var(--muted-foreground)]">
                               Current
                             </span>
                           )}
                         </div>
                         {session.title && (
-                          <span className="truncate text-[10px] text-(--muted-foreground)">
+                          <span className="truncate text-[10px] text-[var(--muted-foreground)]">
                             {session.threadId}
                           </span>
                         )}
-                        <span className="text-[10px] text-(--muted-foreground)">
+                        <span className="text-[10px] text-[var(--muted-foreground)]">
                           {formatSessionTimestamp(session.updatedAt)}
                         </span>
                       </div>
                       <button
                         type="button"
-                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-(--muted-foreground) transition hover:bg-[#ece8df] hover:text-[#c23f2c] disabled:opacity-50"
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] transition hover:bg-[var(--assistant-chip-hover)] hover:text-[#c23f2c] disabled:opacity-50"
                         aria-label={`Delete session ${session.title || session.threadId}`}
                         title="Delete session"
                         disabled={isDeletingSession || isSwitchingSession}
@@ -4268,12 +4692,24 @@ type CreditsApiResponse = {
 type QueuedComposerMessage = {
   id: string;
   text: string;
+  imageCount: number;
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; image: string; filename?: string }
+  >;
+};
+
+type PanelImageDropPayload = {
+  id: string;
+  files: File[];
 };
 
 type AssistantComposerProps = Omit<WorkspaceAssistantPanelProps, "prompts"> & {
   remainingCredits: number | null;
   isUnlimitedCredits: boolean;
   isCreditsLoading: boolean;
+  panelImageDrop: PanelImageDropPayload | null;
+  onPanelImageDropHandled: (dropId: string) => void;
 };
 
 const AssistantDebugAccessContext = React.createContext<{ isAdmin: boolean }>({
@@ -4302,6 +4738,8 @@ function AssistantComposer({
   remainingCredits,
   isUnlimitedCredits,
   isCreditsLoading,
+  panelImageDrop,
+  onPanelImageDropHandled,
 }: AssistantComposerProps) {
   const composerFooterRef = React.useRef<HTMLDivElement | null>(null);
   const [isComposerCompact, setIsComposerCompact] =
@@ -4315,23 +4753,60 @@ function AssistantComposer({
   );
   const composerRuntime = useComposerRuntime();
   const threadRuntime = useThreadRuntime();
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const dragDepthRef = React.useRef(0);
   const isThreadRunning = useThread((thread) => thread.isRunning);
+  const composerText = useComposer((composer) => composer.text);
   const hasCredits =
     isUnlimitedCredits ||
     remainingCredits === null ||
     remainingCredits >= MIN_CREDITS_PER_RUN;
-  const canSendFromComposer = useComposer(
-    (composer) => composer.isEditing && !composer.isEmpty,
-  );
+  const [composerImages, setComposerImages] = React.useState<
+    ComposerImageAttachment[]
+  >([]);
+  const [composerLightboxImage, setComposerLightboxImage] = React.useState<{
+    url: string;
+    alt: string;
+  } | null>(null);
+  const composerImagesRef = React.useRef<ComposerImageAttachment[]>([]);
+  const [isDragActive, setIsDragActive] = React.useState(false);
   const [queuedMessages, setQueuedMessages] = React.useState<
     QueuedComposerMessage[]
   >([]);
   const queuedMessagesRef = React.useRef<QueuedComposerMessage[]>([]);
   const hasQueuedDispatchRef = React.useRef(false);
+  const lastHandledPanelDropIdRef = React.useRef<string | null>(null);
+
+  const releasePreviewUrl = React.useCallback((url?: string) => {
+    if (url && url.startsWith("blob:")) {
+      URL.revokeObjectURL(url);
+    }
+  }, []);
+
+  const clearComposerImages = React.useCallback(() => {
+    setComposerImages((previous) => {
+      previous.forEach((image) => {
+        releasePreviewUrl(image.previewUrl);
+      });
+      return [];
+    });
+  }, [releasePreviewUrl]);
+
+  React.useEffect(() => {
+    composerImagesRef.current = composerImages;
+  }, [composerImages]);
 
   React.useEffect(() => {
     queuedMessagesRef.current = queuedMessages;
   }, [queuedMessages]);
+
+  React.useEffect(() => {
+    return () => {
+      composerImagesRef.current.forEach((image) => {
+        releasePreviewUrl(image.previewUrl);
+      });
+    };
+  }, [releasePreviewUrl]);
 
   React.useEffect(() => {
     if (forceCompactHeader) {
@@ -4368,19 +4843,220 @@ function AssistantComposer({
     };
   }, [forceCompactHeader]);
 
+  const getReadyComposerImageParts = React.useCallback(() => {
+    return composerImagesRef.current
+      .filter(
+        (image): image is ComposerImageAttachment & { imageUrl: string } =>
+          image.status === "ready" &&
+          typeof image.imageUrl === "string" &&
+          image.imageUrl.trim().length > 0,
+      )
+      .map((image) => ({
+        type: "image" as const,
+        image: image.imageUrl.trim(),
+        ...(image.filename ? { filename: image.filename } : {}),
+      }));
+  }, []);
+
+  const getCurrentComposerPayload = React.useCallback(() => {
+    const text = composerRuntime.getState().text.trim();
+    const imageParts = getReadyComposerImageParts();
+    const content: QueuedComposerMessage["content"] = [];
+    if (text) {
+      content.push({ type: "text", text });
+    }
+    content.push(...imageParts);
+    return {
+      text,
+      imageParts,
+      content,
+    };
+  }, [composerRuntime, getReadyComposerImageParts]);
+
+  const addImageFilesToComposer = React.useCallback(async (files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      return;
+    }
+
+    const slotsRemaining = Math.max(
+      0,
+      ASSISTANT_MAX_COMPOSER_IMAGES - composerImagesRef.current.length,
+    );
+    const filesToProcess = imageFiles.slice(0, slotsRemaining);
+    if (filesToProcess.length === 0) {
+      return;
+    }
+
+    const pendingAttachments = filesToProcess.map((file) => ({
+      id: uuidString(),
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+    setComposerImages((previous) => [
+      ...pendingAttachments.map(({ id, file, previewUrl }) => ({
+        id,
+        filename: file.name,
+        status: "uploading" as const,
+        uploadProgress: 0,
+        previewUrl,
+        contentType: file.type || undefined,
+        sizeBytes: file.size,
+      })),
+      ...previous,
+    ]);
+
+    void Promise.allSettled(
+      pendingAttachments.map(async ({ id, file }) => {
+        try {
+          setComposerImages((previous) =>
+            previous.map((image) =>
+              image.id === id
+                ? {
+                    ...image,
+                    uploadProgress: Math.max(5, image.uploadProgress ?? 0),
+                  }
+                : image,
+            ),
+          );
+
+          const resizedImage = await resizeImageForAssistant(file);
+          setComposerImages((previous) =>
+            previous.map((image) =>
+              image.id === id
+                ? {
+                    ...image,
+                    uploadProgress: Math.max(15, image.uploadProgress ?? 0),
+                    width: resizedImage.width,
+                    height: resizedImage.height,
+                    contentType: resizedImage.contentType,
+                    sizeBytes: resizedImage.sizeBytes,
+                  }
+                : image,
+            ),
+          );
+
+          let lastProgressPercent = 15;
+          const uploadedImage = await uploadAssistantImage({
+            file: resizedImage.file,
+            onProgress: (fraction) => {
+              const nextProgressPercent = Math.min(
+                99,
+                Math.max(15, Math.round(fraction * 100)),
+              );
+              if (nextProgressPercent === lastProgressPercent) {
+                return;
+              }
+              lastProgressPercent = nextProgressPercent;
+              setComposerImages((previous) =>
+                previous.map((image) =>
+                  image.id === id
+                    ? {
+                        ...image,
+                        uploadProgress: nextProgressPercent,
+                      }
+                    : image,
+                ),
+              );
+            },
+          });
+          setComposerImages((previous) =>
+            previous.map((image) =>
+              image.id === id
+                ? {
+                    ...image,
+                    status: "ready",
+                    uploadProgress: 100,
+                    filename:
+                      uploadedImage.filename?.trim() ||
+                      image.filename ||
+                      resizedImage.file.name,
+                    imageUrl: uploadedImage.url,
+                    contentType: uploadedImage.contentType || image.contentType,
+                    sizeBytes: uploadedImage.sizeBytes ?? image.sizeBytes,
+                  }
+                : image,
+            ),
+          );
+        } catch (error) {
+          setComposerImages((previous) =>
+            previous.map((image) =>
+              image.id === id
+                ? {
+                    ...image,
+                    status: "error",
+                    error: normalizeAssistantClientError(error),
+                  }
+                : image,
+            ),
+          );
+        }
+      }),
+    );
+  }, []);
+
+  const hasUploadingImages = composerImages.some(
+    (image) => image.status === "uploading",
+  );
+  const hasReadyImages = composerImages.some(
+    (image) => image.status === "ready",
+  );
+  const canSendFromComposer =
+    (composerText.trim().length > 0 || hasReadyImages) && !hasUploadingImages;
+
   const enqueueCurrentComposerMessage = React.useCallback(() => {
-    const message = composerRuntime.getState().text.trim();
-    if (!message) {
+    if (
+      composerImagesRef.current.some((image) => image.status === "uploading")
+    ) {
+      return false;
+    }
+
+    const payload = getCurrentComposerPayload();
+    if (payload.content.length === 0) {
       return false;
     }
 
     setQueuedMessages((previous) => [
-      { id: uuidString(), text: message },
+      {
+        id: uuidString(),
+        text: payload.text,
+        imageCount: payload.imageParts.length,
+        content: payload.content,
+      },
       ...previous,
     ]);
     composerRuntime.setText("");
+    clearComposerImages();
     return true;
-  }, [composerRuntime]);
+  }, [clearComposerImages, composerRuntime, getCurrentComposerPayload]);
+
+  const sendCurrentComposerMessage = React.useCallback(() => {
+    if (
+      composerImagesRef.current.some((image) => image.status === "uploading")
+    ) {
+      return false;
+    }
+
+    const payload = getCurrentComposerPayload();
+    if (payload.content.length === 0) {
+      return false;
+    }
+
+    threadRuntime.append({
+      content: payload.content,
+      runConfig: composerRuntime.getState().runConfig,
+      startRun: true,
+    });
+    composerRuntime.setText("");
+    clearComposerImages();
+    return true;
+  }, [
+    clearComposerImages,
+    composerRuntime,
+    getCurrentComposerPayload,
+    threadRuntime,
+  ]);
 
   const handleRemoveQueuedMessage = React.useCallback((messageId: string) => {
     setQueuedMessages((previous) =>
@@ -4398,13 +5074,13 @@ function AssistantComposer({
       return;
     }
 
-    composerRuntime.send();
+    sendCurrentComposerMessage();
   }, [
     canSendFromComposer,
-    composerRuntime,
     enqueueCurrentComposerMessage,
     hasCredits,
     isThreadRunning,
+    sendCurrentComposerMessage,
   ]);
 
   const handleStopRun = React.useCallback(() => {
@@ -4417,10 +5093,6 @@ function AssistantComposer({
 
   const handleQueueOnEnter = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!isThreadRunning) {
-        return;
-      }
-
       if (
         event.nativeEvent.isComposing ||
         event.key !== "Enter" ||
@@ -4430,10 +5102,136 @@ function AssistantComposer({
       }
 
       event.preventDefault();
-      enqueueCurrentComposerMessage();
+      handleSendOrQueue();
     },
-    [enqueueCurrentComposerMessage, isThreadRunning],
+    [handleSendOrQueue],
   );
+
+  const handleComposerInputPaste = React.useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const pastedFiles = Array.from(event.clipboardData.items)
+        .filter(
+          (item) => item.kind === "file" && item.type.startsWith("image/"),
+        )
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+
+      if (pastedFiles.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      void addImageFilesToComposer(pastedFiles);
+    },
+    [addImageFilesToComposer],
+  );
+
+  const handleFileInputChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.currentTarget.files ?? []);
+      event.currentTarget.value = "";
+      if (files.length === 0) {
+        return;
+      }
+
+      void addImageFilesToComposer(files);
+    },
+    [addImageFilesToComposer],
+  );
+
+  const handleAttachClick = React.useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleRemoveComposerImage = React.useCallback(
+    (imageId: string) => {
+      setComposerImages((previous) => {
+        const nextImages = previous.filter((image) => image.id !== imageId);
+        const removedImage = previous.find((image) => image.id === imageId);
+        releasePreviewUrl(removedImage?.previewUrl);
+        return nextImages;
+      });
+    },
+    [releasePreviewUrl],
+  );
+
+  const handleComposerDragEnter = React.useCallback(
+    (event: React.DragEvent<HTMLFormElement>) => {
+      if (
+        !hasImageFilesInDataTransfer(event.dataTransfer, {
+          allowUnknownFiles: true,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      dragDepthRef.current += 1;
+      setIsDragActive(true);
+    },
+    [],
+  );
+
+  const handleComposerDragOver = React.useCallback(
+    (event: React.DragEvent<HTMLFormElement>) => {
+      if (
+        !hasImageFilesInDataTransfer(event.dataTransfer, {
+          allowUnknownFiles: true,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    [],
+  );
+
+  const handleComposerDragLeave = React.useCallback(
+    (event: React.DragEvent<HTMLFormElement>) => {
+      if (!isDragActive) {
+        return;
+      }
+
+      event.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) {
+        setIsDragActive(false);
+      }
+    },
+    [isDragActive],
+  );
+
+  const handleComposerDrop = React.useCallback(
+    (event: React.DragEvent<HTMLFormElement>) => {
+      if (
+        !hasImageFilesInDataTransfer(event.dataTransfer, {
+          allowUnknownFiles: true,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      dragDepthRef.current = 0;
+      setIsDragActive(false);
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    if (!panelImageDrop || panelImageDrop.files.length === 0) {
+      return;
+    }
+    if (lastHandledPanelDropIdRef.current === panelImageDrop.id) {
+      return;
+    }
+
+    lastHandledPanelDropIdRef.current = panelImageDrop.id;
+    void addImageFilesToComposer(panelImageDrop.files);
+    onPanelImageDropHandled(panelImageDrop.id);
+  }, [addImageFilesToComposer, onPanelImageDropHandled, panelImageDrop]);
 
   React.useEffect(() => {
     if (isThreadRunning) {
@@ -4455,14 +5253,32 @@ function AssistantComposer({
     queuedMessagesRef.current = remainingMessages;
     setQueuedMessages(remainingMessages);
     threadRuntime.append({
-      content: [{ type: "text", text: nextMessage.text }],
+      content: nextMessage.content,
       runConfig: composerRuntime.getState().runConfig,
       startRun: true,
     });
   }, [composerRuntime, isThreadRunning, threadRuntime]);
 
   return (
-    <ComposerPrimitive.Root className="rnc-assistant-composer overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+    <ComposerPrimitive.Root
+      onDragEnter={handleComposerDragEnter}
+      onDragOver={handleComposerDragOver}
+      onDragLeave={handleComposerDragLeave}
+      onDrop={handleComposerDrop}
+      className={cn(
+        "rnc-assistant-composer overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]",
+        isDragActive &&
+          "border-(--accent) ring-2 ring-(--accent)/30 ring-offset-0",
+      )}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
       {queuedMessages.length > 0 && (
         <div className="rnc-assistant-muted-surface max-h-32 overflow-y-auto border-b border-black/8 bg-[#fff9f4] px-3 py-2">
           <div className="space-y-2">
@@ -4472,7 +5288,11 @@ function AssistantComposer({
                 className="rnc-assistant-item flex items-center gap-2 rounded-lg border border-black/10 bg-white px-2 py-1.5"
               >
                 <p className="flex-1 text-xs leading-5 text-foreground">
-                  {queuedMessage.text}
+                  {queuedMessage.text ||
+                    `${queuedMessage.imageCount} image${queuedMessage.imageCount === 1 ? "" : "s"}`}
+                  {queuedMessage.text && queuedMessage.imageCount > 0
+                    ? ` (${queuedMessage.imageCount} image${queuedMessage.imageCount === 1 ? "" : "s"})`
+                    : ""}
                 </p>
                 <IconButton
                   tooltip="Remove queued message"
@@ -4489,10 +5309,93 @@ function AssistantComposer({
           </div>
         </div>
       )}
+      {composerImages.length > 0 && (
+        <div className="rnc-assistant-muted-surface max-h-40 overflow-y-auto border-b border-black/8 bg-[#fff9f4] px-3 py-2">
+          <div className="flex flex-wrap gap-2">
+            {composerImages.map((image) => (
+              <div
+                key={image.id}
+                className="group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-rnc-border bg-white"
+                title={
+                  image.status === "error"
+                    ? image.error || "Upload failed"
+                    : image.filename
+                }
+              >
+                {image.previewUrl ? (
+                  <Button
+                    type="button"
+                    onClick={() =>
+                      setComposerLightboxImage({
+                        url: image.previewUrl as string,
+                        alt: image.filename || "Attached image",
+                      })
+                    }
+                    className="p-0 cursor-zoom-in w-full h-full"
+                    aria-label="Open image preview"
+                    title="Open image preview"
+                  >
+                    <img
+                      src={image.previewUrl}
+                      alt={image.filename}
+                      className="h-full w-full object-cover"
+                    />
+                  </Button>
+                ) : (
+                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                )}
+                <IconButton
+                  type="button"
+                  onClick={() => handleRemoveComposerImage(image.id)}
+                  className="absolute right-1 top-1 inline-flex"
+                  aria-label="Remove image"
+                  title="Remove image"
+                >
+                  <X className="h-3 w-3" />
+                </IconButton>
+                {image.status === "uploading" && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 text-white">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="mt-1 text-[9px] font-medium">
+                      {Math.min(
+                        99,
+                        Math.max(0, Math.round(image.uploadProgress ?? 0)),
+                      )}
+                      %
+                    </span>
+                    <div className="absolute inset-x-1 bottom-1 h-1 overflow-hidden rounded-full bg-white/30">
+                      <div
+                        className="h-full rounded-full bg-white transition-[width] duration-150 ease-out"
+                        style={{
+                          width: `${Math.min(99, Math.max(4, Math.round(image.uploadProgress ?? 0)))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {image.status === "error" && (
+                  <div className="absolute inset-x-0 bottom-0 bg-[#7a1e1e]/90 px-1 py-0.5 text-[9px] text-white">
+                    Error
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <ImageLightbox
+        open={composerLightboxImage !== null}
+        imageUrl={composerLightboxImage?.url ?? ""}
+        alt={composerLightboxImage?.alt ?? "Attached image"}
+        onClose={() => setComposerLightboxImage(null)}
+      />
       <div className="px-4 pt-4">
         <ComposerPrimitive.Input
           rows={3}
           onKeyDown={handleQueueOnEnter}
+          submitMode="none"
+          onPaste={handleComposerInputPaste}
+          addAttachmentOnPaste={false}
           placeholder="Type to start sending a message"
           className="min-h-10 sm:min-h-14 max-h-48 w-full resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
         />
@@ -4502,6 +5405,17 @@ function AssistantComposer({
         className="flex items-center justify-between border-t border-black/8 px-3 py-2"
       >
         <div className="flex items-center gap-2">
+          <IconButton
+            tooltip="Attach image"
+            type="button"
+            onClick={handleAttachClick}
+            className="rnc-assistant-chip inline-flex h-8 w-8 items-center justify-center rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground) shadow-none transition hover:bg-(--assistant-chip-hover) hover:text-foreground"
+            aria-label="Attach image"
+            title="Attach image"
+            disabled={composerImages.length >= ASSISTANT_MAX_COMPOSER_IMAGES}
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </IconButton>
           {isComposerCompact ? (
             <Popover
               open={isModelPickerOpen}
@@ -4680,6 +5594,17 @@ function AssistantComposer({
   );
 }
 
+function AssistantStatusOverlay({ label }: { label: string }) {
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-(--assistant-overlay-backdrop) backdrop-blur-[1px]">
+      <div className="inline-flex items-center gap-2 rounded-lg border border-(--panel-border) bg-background px-3 py-2 text-sm text-foreground shadow-lg">
+        <Loader2 className="h-4 w-4 animate-spin text-(--accent)" />
+        {label}
+      </div>
+    </div>
+  );
+}
+
 function WorkspaceAssistantPanel({
   prompts,
   docId,
@@ -4715,6 +5640,15 @@ function WorkspaceAssistantPanel({
   const [isCreditsLoading, setIsCreditsLoading] = React.useState(true);
   const [isRestoringSessionFromPicker, setIsRestoringSessionFromPicker] =
     React.useState(false);
+  const panelDragDepthRef = React.useRef(0);
+  const [isPanelImageDragActive, setIsPanelImageDragActive] =
+    React.useState(false);
+  const [panelImageDrop, setPanelImageDrop] =
+    React.useState<PanelImageDropPayload | null>(null);
+  const clearPanelDragState = React.useCallback(() => {
+    panelDragDepthRef.current = 0;
+    setIsPanelImageDragActive(false);
+  }, []);
 
   // Fork context: use provided ref or create a fallback
   const fallbackForkingRef = React.useRef(false);
@@ -4828,8 +5762,125 @@ function WorkspaceAssistantPanel({
     };
   }, [isHydratingSession, isRestoringSessionFromPicker]);
 
+  const handlePanelDragEnter = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (
+        !hasImageFilesInDataTransfer(event.dataTransfer, {
+          allowUnknownFiles: true,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      panelDragDepthRef.current += 1;
+      setIsPanelImageDragActive(true);
+    },
+    [],
+  );
+
+  const handlePanelDragOver = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (
+        !hasImageFilesInDataTransfer(event.dataTransfer, {
+          allowUnknownFiles: true,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    [],
+  );
+
+  const handlePanelDragLeave = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!isPanelImageDragActive) {
+        return;
+      }
+
+      event.preventDefault();
+      const relatedTarget = event.relatedTarget as Node | null;
+      if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+        return;
+      }
+
+      panelDragDepthRef.current = Math.max(0, panelDragDepthRef.current - 1);
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const isPointerInsideBounds =
+        event.clientX > bounds.left &&
+        event.clientX < bounds.right &&
+        event.clientY > bounds.top &&
+        event.clientY < bounds.bottom;
+      if (panelDragDepthRef.current === 0 || !isPointerInsideBounds) {
+        clearPanelDragState();
+      }
+    },
+    [clearPanelDragState, isPanelImageDragActive],
+  );
+
+  const handlePanelDrop = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (
+        !hasImageFilesInDataTransfer(event.dataTransfer, {
+          allowUnknownFiles: true,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      clearPanelDragState();
+      const files = getImageFilesFromDataTransfer(event.dataTransfer);
+      if (files.length === 0) {
+        return;
+      }
+
+      setPanelImageDrop({
+        id: uuidString(),
+        files,
+      });
+    },
+    [clearPanelDragState],
+  );
+
+  React.useEffect(() => {
+    if (!isPanelImageDragActive) {
+      return;
+    }
+
+    const handleGlobalDragEnd = () => {
+      clearPanelDragState();
+    };
+
+    window.addEventListener("drop", handleGlobalDragEnd);
+    window.addEventListener("dragend", handleGlobalDragEnd);
+    window.addEventListener("blur", handleGlobalDragEnd);
+    return () => {
+      window.removeEventListener("drop", handleGlobalDragEnd);
+      window.removeEventListener("dragend", handleGlobalDragEnd);
+      window.removeEventListener("blur", handleGlobalDragEnd);
+    };
+  }, [clearPanelDragState, isPanelImageDragActive]);
+
+  const handlePanelImageDropHandled = React.useCallback((dropId: string) => {
+    setPanelImageDrop((current) => (current?.id === dropId ? null : current));
+  }, []);
+
   return (
-    <Card className="rnc-assistant-panel flex h-full min-h-128 flex-col overflow-hidden border-(--card-border) bg-(--assistant-panel-bg) rounded-lg">
+    <Card
+      onDragEnter={handlePanelDragEnter}
+      onDragOver={handlePanelDragOver}
+      onDragLeave={handlePanelDragLeave}
+      onDrop={handlePanelDrop}
+      className={cn(
+        "rnc-assistant-panel relative flex h-full min-h-128 flex-col overflow-hidden rounded-lg border-(--card-border) bg-(--assistant-panel-bg) transition-colors",
+        isPanelImageDragActive &&
+          "border-(--accent) ring-2 ring-(--accent)/35 ring-offset-0",
+      )}
+    >
       <div
         ref={assistantHeaderRef}
         className="rnc-assistant-divider border-b border-black/8 px-5 py-4"
@@ -4876,7 +5927,7 @@ function WorkspaceAssistantPanel({
         <ForkContext.Provider value={forkContextValue}>
           <ThreadPrimitive.Root
             key={threadId || "active-thread"}
-            className="relative flex min-h-0 flex-1 flex-col"
+            className={cn("relative flex min-h-0 flex-1 flex-col")}
           >
             <SpreadsheetToolUIRegistry />
             <ThreadPrimitive.Viewport
@@ -4917,6 +5968,8 @@ function WorkspaceAssistantPanel({
                   remainingCredits={remainingCredits}
                   isUnlimitedCredits={isUnlimitedCredits}
                   isCreditsLoading={isCreditsLoading}
+                  panelImageDrop={panelImageDrop}
+                  onPanelImageDropHandled={handlePanelImageDropHandled}
                 />
                 <ThreadPrimitive.If empty>
                   <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
@@ -4953,32 +6006,26 @@ function WorkspaceAssistantPanel({
               </div>
             </div>
             {(isHydratingSession || isRestoringSessionFromPicker) && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
-                <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Restoring session...
-                </div>
-              </div>
+              <AssistantStatusOverlay label="Restoring session..." />
             )}
             {isResumingRun && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
-                <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Continuing response...
-                </div>
-              </div>
+              <AssistantStatusOverlay label="Continuing response..." />
             )}
             {isReconnecting && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
-                <div className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-(--muted-foreground) shadow-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Reconnecting...
-                </div>
-              </div>
+              <AssistantStatusOverlay label="Reconnecting..." />
             )}
           </ThreadPrimitive.Root>
         </ForkContext.Provider>
       </AssistantDebugAccessContext.Provider>
+      {isPanelImageDragActive && (
+        <div className="pointer-events-none absolute inset-0 z-[15] flex items-center justify-center backdrop-blur-[1px] bg-(--assistant-overlay-backdrop)">
+          <div className="absolute inset-2 rounded-xl border-2 border-dashed border-(--accent)/70" />
+          <div className="mx-4 inline-flex items-center gap-2 rounded-xl border border-(--accent)/45 bg-background/90 px-4 py-2 text-sm text-foreground shadow-lg">
+            <ImageIcon className="h-4 w-4 text-(--accent)" />
+            <span>Drop images anywhere to attach</span>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

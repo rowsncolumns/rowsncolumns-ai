@@ -966,18 +966,13 @@ function SpreadsheetPane({
           }
         />
         <ButtonCopyToClipboard
-          isActive={isPaintFormatActive}
           onClick={async () => {
             const range = selections.length
               ? selections[selections.length - 1].range
               : selectionFromActiveCell(activeCell)[0].range;
-            const blob = await api?.exportRange?.(
+            await api?.exportRange?.(
               {
                 ...range,
-                startColumnIndex: range.startColumnIndex,
-                endColumnIndex: 10,
-                startRowIndex: 1,
-                endRowIndex: 50,
                 sheetId: activeSheetId,
               },
               {
