@@ -16,10 +16,10 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 600; // 10 minutes
 
-const DEFAULT_CHAT_SERVER_TIMEOUT_MS = 280_000;
-const MAX_CHAT_SERVER_TIMEOUT_MS = 295_000;
+const DEFAULT_CHAT_SERVER_TIMEOUT_MS = 600_000; // 10 minutes
+const MAX_CHAT_SERVER_TIMEOUT_MS = 600_000; // 10 minutes
 
 const CHAT_MODEL = process.env.CHAT_MODEL?.trim() || undefined;
 const CHAT_PROVIDER = (() => {
@@ -131,8 +131,18 @@ export async function POST(request: Request) {
     timeoutHandle.unref?.();
 
     const encoder = new TextEncoder();
+    const SSE_HEARTBEAT_INTERVAL_MS = 15_000; // 15 seconds
+
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        // SSE heartbeat: send comment lines to keep connection alive
+        const heartbeatHandle = setInterval(() => {
+          if (!clientDisconnected) {
+            // SSE comment format - ignored by parsers but keeps connection alive
+            controller.enqueue(encoder.encode(": ping\n\n"));
+          }
+        }, SSE_HEARTBEAT_INTERVAL_MS);
+
         try {
           await executeChatRunStream({
             request: runRequest,
@@ -165,6 +175,7 @@ export async function POST(request: Request) {
             ),
           );
         } finally {
+          clearInterval(heartbeatHandle);
           clearTimeout(timeoutHandle);
           request.signal.removeEventListener("abort", onClientDisconnect);
           controller.close();

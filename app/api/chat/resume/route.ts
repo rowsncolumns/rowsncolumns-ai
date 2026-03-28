@@ -79,13 +79,19 @@ export async function GET(request: Request) {
     // Streaming response - replay events and continue streaming if still running
     const encoder = new TextEncoder();
     const currentRunId = run.runId;
+    const SSE_HEARTBEAT_INTERVAL_MS = 15_000; // 15 seconds
 
     const readable = new ReadableStream({
       async start(controller) {
         let currentLastEventId = lastEventId;
         let isRunning = run!.status === "running";
-        const maxIterations = 300; // 5 minutes max (1 second intervals)
+        const maxIterations = 1200; // 10 minutes max (500ms intervals)
         let iterations = 0;
+
+        // SSE heartbeat: send comment lines to keep connection alive
+        const heartbeatHandle = setInterval(() => {
+          controller.enqueue(encoder.encode(": ping\n\n"));
+        }, SSE_HEARTBEAT_INTERVAL_MS);
 
         try {
           while (iterations < maxIterations) {
@@ -120,6 +126,8 @@ export async function GET(request: Request) {
         } catch (error) {
           console.error("[api/chat/resume] Stream error:", error);
           controller.error(error);
+        } finally {
+          clearInterval(heartbeatHandle);
         }
       },
     });

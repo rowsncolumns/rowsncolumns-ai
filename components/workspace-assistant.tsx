@@ -844,6 +844,92 @@ async function* streamAssistantResponse(
   });
 }
 
+// Standard SSE reconnection with exponential backoff
+const SSE_RECONNECT_MAX_RETRIES = 3;
+const SSE_RECONNECT_BASE_DELAY_MS = 1000;
+const SSE_RECONNECT_MAX_DELAY_MS = 8000;
+
+const computeReconnectDelay = (attempt: number): number => {
+  const exponential = SSE_RECONNECT_BASE_DELAY_MS * 2 ** attempt;
+  const capped = Math.min(exponential, SSE_RECONNECT_MAX_DELAY_MS);
+  // Add jitter to prevent thundering herd
+  const jitter = Math.floor(Math.random() * 500);
+  return capped + jitter;
+};
+
+const isNetworkError = (error: unknown): boolean =>
+  error instanceof TypeError ||
+  (error instanceof Error &&
+    (error.message.includes("Load failed") ||
+      error.message.includes("network") ||
+      error.message.includes("fetch") ||
+      error.message.includes("Failed to fetch") ||
+      error.message.includes("NetworkError")));
+
+async function* resumeStreamWithRetry(
+  threadId: string,
+  runId: string,
+  signal?: AbortSignal,
+): AsyncGenerator<ReturnType<typeof buildStreamingYield>, void, unknown> {
+  for (let attempt = 0; attempt < SSE_RECONNECT_MAX_RETRIES; attempt++) {
+    if (signal?.aborted) {
+      return;
+    }
+
+    // Wait with exponential backoff before retry (except first attempt)
+    if (attempt > 0) {
+      const delay = computeReconnectDelay(attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
+    if (signal?.aborted) {
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.set("threadId", threadId);
+      params.set("runId", runId);
+      params.set("stream", "true");
+
+      const response = await fetch(`${getChatResumeUrl()}?${params}`, {
+        method: "GET",
+        credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
+        signal,
+      });
+
+      if (!response.ok) {
+        // Server error - don't retry, let caller handle
+        throw new Error(`Resume failed with status ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("Resume stream is unavailable.");
+      }
+
+      // Successfully reconnected - stream the response
+      yield* streamAssistantResponse(response.body, threadId);
+      return; // Success - exit retry loop
+    } catch (error) {
+      if (signal?.aborted) {
+        return;
+      }
+
+      // Only retry on network errors
+      if (!isNetworkError(error)) {
+        throw error;
+      }
+
+      // Last attempt failed - propagate the error
+      if (attempt === SSE_RECONNECT_MAX_RETRIES - 1) {
+        throw error;
+      }
+
+      // Will retry on next iteration
+    }
+  }
+}
+
 const isAbortError = (error: unknown) =>
   (error instanceof DOMException && error.name === "AbortError") ||
   (error instanceof Error && error.name === "AbortError");
@@ -1379,20 +1465,25 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             return;
           }
 
-          // Try to reconnect if we have a runId or threadId
-          // This handles mobile app switching / network disconnection
-          const isNetworkError =
-            error instanceof TypeError ||
-            (error instanceof Error &&
-              (error.message.includes("Load failed") ||
-                error.message.includes("network") ||
-                error.message.includes("fetch")));
+          // Auto-reconnect on network errors using standard SSE retry pattern
+          if (isNetworkError(error) && currentRunId) {
+            try {
+              // Attempt to resume the stream with exponential backoff
+              yield* resumeStreamWithRetry(threadId, currentRunId, abortSignal);
+              return;
+            } catch (resumeError) {
+              // Resume failed after retries - show connection lost message
+              yield buildTerminalAssistantMessage(
+                "Connection lost. The response may still be generating. Please refresh to see the result.",
+              );
+              return;
+            }
+          }
 
-          if (isNetworkError) {
-            // Don't try to resume automatically - just show connection lost message
-            // User can refresh to see the completed response from history
+          // Network error but no runId to resume with
+          if (isNetworkError(error)) {
             yield buildTerminalAssistantMessage(
-              "Connection lost. The response may still be generating. Please refresh to see the result.",
+              "Connection lost. Please try again.",
             );
             return;
           }
