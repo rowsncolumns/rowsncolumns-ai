@@ -204,6 +204,13 @@ const SheetSpecSchema = z
       .describe(
         "List of column letters to unhide/show (e.g., ['A', 'B'] shows previously hidden columns A and B).",
       ),
+    basicFilter: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "A1 notation range for a basic filter (e.g., 'A1:D100'). Creates filter dropdowns on the header row of the range. Pass null to remove an existing filter.",
+      ),
   })
   .loose();
 

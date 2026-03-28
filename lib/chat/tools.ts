@@ -102,6 +102,7 @@ import type {
   DataValidationRuleRecord,
   CellFormat,
   ErrorValue,
+  Color,
 } from "@rowsncolumns/common-types";
 
 const failTool = (
@@ -495,6 +496,7 @@ const handleSpreadsheetCreateSheet = async (
     frozenColumnCount,
     showGridLines,
     tabColor,
+    basicFilter,
   } = input;
 
   if (!docId) {
@@ -532,7 +534,7 @@ const handleSpreadsheetCreateSheet = async (
         }
 
         // Build sheet spec for createNewSheet
-        const spec: Record<string, unknown> = {};
+        const spec: Partial<Sheet> = {};
 
         if (title) {
           spec.title = title;
@@ -553,7 +555,7 @@ const handleSpreadsheetCreateSheet = async (
               }
               return selection.range;
             })
-            .filter(Boolean);
+            .filter((m) => !isNil(m));
         }
         // Convert hideRows/showRows to rowMetadata
         const rowMetadata: DimensionProperties[] = [];
@@ -598,7 +600,21 @@ const handleSpreadsheetCreateSheet = async (
         }
         if (tabColor !== undefined) {
           // tabColor can be a hex string or { theme, tint } object
-          spec.tabColor = tabColor;
+          spec.tabColor = tabColor as Color;
+        }
+        // Convert basicFilter A1 notation to FilterView
+        if (basicFilter !== undefined) {
+          if (basicFilter === null) {
+            spec.basicFilter = null;
+          } else {
+            const filterSelection = addressToSelection(basicFilter);
+            if (filterSelection?.range) {
+              spec.basicFilter = {
+                id: uuidString(),
+                range: filterSelection.range,
+              };
+            }
+          }
         }
 
         // Create the new sheet
@@ -685,7 +701,12 @@ Example 6 — Create a sheet with hidden rows/columns:
   docId: "abc123"
   title: "Data"
   hideRows: [2, 3, 4]
-  hideCols: ["A", "B"]`,
+  hideCols: ["A", "B"]
+
+Example 7 — Create a sheet with a basic filter:
+  docId: "abc123"
+  title: "Filtered Data"
+  basicFilter: "A1:D100"`,
   schema: SpreadsheetCreateSheetSchema,
 });
 
@@ -714,6 +735,7 @@ const handleSpreadsheetUpdateSheet = async (
     frozenColumnCount,
     showGridLines,
     tabColor,
+    basicFilter,
   } = input;
 
   if (!docId) {
@@ -870,6 +892,25 @@ const handleSpreadsheetUpdateSheet = async (
         if (tabColor !== undefined) {
           spec.tabColor = tabColor as Sheet["tabColor"];
         }
+        // Convert basicFilter A1 notation to FilterView
+        if (basicFilter !== undefined) {
+          if (basicFilter === null) {
+            spec.basicFilter = null;
+          } else {
+            const filterSelection = addressToSelection(basicFilter);
+            if (filterSelection?.range) {
+              // Preserve existing filter ID if present, otherwise generate new one
+              const sheet = spreadsheet.sheets.find(
+                (s) => s.sheetId === sheetId,
+              );
+              const existingId = sheet?.basicFilter?.id;
+              spec.basicFilter = {
+                id: existingId ?? uuidString(),
+                range: filterSelection.range,
+              };
+            }
+          }
+        }
 
         // Handle unsetFields - explicitly set these to null
         // Valid SheetSpec keys that can be unset
@@ -882,6 +923,7 @@ const handleSpreadsheetUpdateSheet = async (
           "merges",
           "rowMetadata",
           "columnMetadata",
+          "basicFilter",
         ]);
 
         if (unsetFields && unsetFields.length > 0) {
@@ -949,6 +991,7 @@ WHEN TO USE THIS TOOL:
 - Hiding/showing rows or columns
 - Showing/hiding grid lines
 - Hiding/unhiding a sheet
+- Adding or removing a basic filter on a data range
 
 EXAMPLES:
 
@@ -1001,7 +1044,17 @@ Example 9 — Hide columns A and B:
 Example 10 — Show hidden columns:
   docId: "abc123"
   sheetId: 1
-  showCols: ["A", "B", "C"]`,
+  showCols: ["A", "B", "C"]
+
+Example 11 — Add a basic filter to a data range:
+  docId: "abc123"
+  sheetId: 1
+  basicFilter: "A1:D100"
+
+Example 12 — Remove the basic filter:
+  docId: "abc123"
+  sheetId: 1
+  basicFilter: null`,
   schema: SpreadsheetUpdateSheetSchema,
 });
 
