@@ -41,6 +41,10 @@ const isNavigationItemActive = (pathname: string, href: string): boolean => {
     return false;
   }
 
+  if (href.includes("#")) {
+    return false;
+  }
+
   const pathOnly = href.split("#")[0] || "/";
   if (pathOnly === "/") {
     return pathname === "/";

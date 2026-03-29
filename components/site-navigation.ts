@@ -4,7 +4,6 @@ export type NavigationItem = {
 };
 
 export const siteNavigation: NavigationItem[] = [
-  { label: "Sheets", href: "/sheets" },
   { label: "Platform", href: "/#platform" },
   { label: "Collaboration", href: "/#collaboration" },
   { label: "Workflows", href: "/#workflows" },
