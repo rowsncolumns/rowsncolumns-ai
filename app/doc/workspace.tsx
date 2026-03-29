@@ -306,6 +306,7 @@ const FINANCE_STARTER_PROMPTS = [
 ];
 
 const STARTER_PROMPT_COUNT = 3;
+const MOBILE_STARTER_PROMPT_COUNT = 2;
 
 const hashString = (value: string) => {
   let hash = 2166136261;
@@ -1981,10 +1982,10 @@ export function NewWorkspace({
     () =>
       pickSeededPrompts(
         FINANCE_STARTER_PROMPTS,
-        STARTER_PROMPT_COUNT,
+        isMobileLayout ? MOBILE_STARTER_PROMPT_COUNT : STARTER_PROMPT_COUNT,
         documentId,
       ),
-    [documentId],
+    [documentId, isMobileLayout],
   );
 
   useEffect(() => {

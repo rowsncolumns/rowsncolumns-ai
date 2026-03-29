@@ -2817,10 +2817,10 @@
     xlsx "^0.18.5"
     yup "^1.6.1"
 
-"@rowsncolumns/spreadsheet@^8.0.27":
-  version "8.0.27"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet/8.0.27/b336d9d7372e371d914e5ff238069d03f041ff4c#b336d9d7372e371d914e5ff238069d03f041ff4c"
-  integrity sha512-obg6V3wzuHuYo7cZGccGOWHtbhw5to+wvH5tBuUKjZsMFJywp90FBgFDKC396TV8FwsjjyBPtD65ApS/dtrg8w==
+"@rowsncolumns/spreadsheet@^8.0.28":
+  version "8.0.28"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/spreadsheet/8.0.28/b8daf5f4e239cb60274d890bd77d7bde56fb5807#b8daf5f4e239cb60274d890bd77d7bde56fb5807"
+  integrity sha512-VA92S0fkJQnAAcwGKydPpRha7crefAWbEVx0zeY39aVBIfTdTs0n9rgq49DACw79MP8B+vDFgkLCtr0JCeaJJQ==
   dependencies:
     "@dnd-kit/core" "^6.3.1"
     "@dnd-kit/modifiers" "^9.0.0"

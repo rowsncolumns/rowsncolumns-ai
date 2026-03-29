@@ -5874,7 +5874,14 @@ function WorkspaceAssistantPanel({
                   !isHydratingSession &&
                   !isRestoringSessionFromPicker &&
                   !isResumingRun ? (
-                    <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
+                    <div
+                      className={cn(
+                        "min-w-0 gap-2",
+                        forceCompactHeader
+                          ? "grid grid-cols-2"
+                          : "flex flex-wrap flex-row items-center justify-center",
+                      )}
+                    >
                       <TooltipProvider delayDuration={200}>
                         {prompts.map((prompt) => (
                           <Tooltip key={prompt}>
@@ -5882,13 +5889,18 @@ function WorkspaceAssistantPanel({
                               <ThreadPrimitive.Suggestion
                                 prompt={prompt}
                                 send
-                                className="rnc-assistant-suggestion w-56 rounded-xl border border-black/10 bg-[#fff9f2] px-4 py-3 text-left text-sm leading-5 text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]"
+                                className={cn(
+                                  "rnc-assistant-suggestion rounded-xl border border-black/10 bg-[#fff9f2] text-left text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]",
+                                  forceCompactHeader
+                                    ? "w-full min-w-0 px-3 py-2 text-xs leading-4"
+                                    : "w-56 px-4 py-3 text-sm leading-5",
+                                )}
                               >
                                 <span
                                   className="block overflow-hidden"
                                   style={{
                                     display: "-webkit-box",
-                                    WebkitLineClamp: 2,
+                                    WebkitLineClamp: 3,
                                     WebkitBoxOrient: "vertical",
                                     textOverflow: "ellipsis",
                                   }}

@@ -52,7 +52,7 @@
     "@rowsncolumns/functions": "^7.0.17",
     "@rowsncolumns/pivot": "^3.0.17",
     "@rowsncolumns/sharedb": "^1.0.29",
-    "@rowsncolumns/spreadsheet": "^8.0.27",
+    "@rowsncolumns/spreadsheet": "^8.0.28",
     "@rowsncolumns/spreadsheet-state": "^21.0.50",
     "@rowsncolumns/supabase-spreadsheet": "^22.0.17",
     "@rowsncolumns/ui": "^8.0.18",
