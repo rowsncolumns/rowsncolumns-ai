@@ -27,7 +27,9 @@
     "db:migrate:documents": "tsx scripts/create-document-ownership-table.ts",
     "db:migrate:document-shares": "tsx scripts/create-document-share-links-table.ts",
     "db:migrate:document-metadata": "tsx scripts/create-document-metadata-table.ts",
-    "db:migrate:document-access-grants": "tsx scripts/create-document-access-grants-table.ts"
+    "db:migrate:document-access-grants": "tsx scripts/create-document-access-grants-table.ts",
+    "db:migrate:document-share-permissions": "tsx scripts/add-share-permission-to-document-share-links.ts",
+    "db:migrate:document-favorites": "tsx scripts/create-document-favorites-table.ts"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.12.10",

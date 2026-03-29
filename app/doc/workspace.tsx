@@ -410,6 +410,7 @@ function SpreadsheetPane({
   currentUser,
   initialThemeMode,
   canManageShare,
+  canEdit,
   locale,
   currency,
 }: {
@@ -417,6 +418,7 @@ function SpreadsheetPane({
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
+  canEdit: boolean;
   locale: string;
   currency: string;
 }) {
@@ -777,6 +779,9 @@ function SpreadsheetPane({
     onChangePivotTables,
     onChangeSlicers,
     onChangeHistory(patches) {
+      if (!canEdit) {
+        return;
+      }
       onBroadcastPatch(patches);
     },
     iterativeCalculation: {
@@ -966,7 +971,12 @@ function SpreadsheetPane({
         getViewPort={getViewPort}
         namedRanges={namedRanges}
       />
-      <Toolbar enableFloating className="rounded-tl-xl rounded-tr-xl">
+      <Toolbar
+        enableFloating
+        className={`rounded-tl-xl rounded-tr-xl ${
+          canEdit ? "" : "pointer-events-none opacity-70"
+        }`}
+      >
         <FileMenu
           onImportExcel={handleImportExcel}
           onImportCSV={handleImportCSV}
@@ -1337,7 +1347,7 @@ function SpreadsheetPane({
         </IconButton>
       </Toolbar>
 
-      <FormulaBar>
+      <FormulaBar className={canEdit ? undefined : "pointer-events-none"}>
         <RangeSelector
           selections={selections}
           activeCell={activeCell}
@@ -1537,11 +1547,12 @@ function SpreadsheetPane({
               />
             </Suspense>
           )}
+          readonly={!canEdit}
         />
       </div>
 
       <BottomBar className="rounded-bl-xl rounded-br-xl">
-        <NewSheetButton onClick={onCreateNewSheet} />
+        {canEdit ? <NewSheetButton onClick={onCreateNewSheet} /> : null}
 
         <SheetSwitcher
           sheets={sheets}
@@ -1555,6 +1566,7 @@ function SpreadsheetPane({
           protectedRanges={protectedRanges}
           activeSheetId={activeSheetId}
           theme={theme}
+          readonly={!canEdit}
           onChangeActiveSheet={onChangeActiveSheet}
           onRenameSheet={onRenameSheet}
           onChangeSheetTabColor={onChangeSheetTabColor}
@@ -1704,6 +1716,7 @@ type NewWorkspaceProps = {
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
+  canEdit: boolean;
   initialIsMobileLayout: boolean;
   isAdmin: boolean;
   locale: string;
@@ -1715,6 +1728,7 @@ type SpreadsheetOnlyWorkspaceProps = {
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
+  canEdit: boolean;
   locale: string;
   currency: string;
 };
@@ -1934,6 +1948,7 @@ export function SpreadsheetOnlyWorkspace({
   currentUser,
   initialThemeMode,
   canManageShare,
+  canEdit,
   locale,
   currency,
 }: SpreadsheetOnlyWorkspaceProps) {
@@ -1946,6 +1961,7 @@ export function SpreadsheetOnlyWorkspace({
             currentUser={currentUser}
             initialThemeMode={initialThemeMode}
             canManageShare={canManageShare}
+            canEdit={canEdit}
             locale={locale}
             currency={currency}
           />
@@ -1962,6 +1978,7 @@ export function NewWorkspace({
   currentUser,
   initialThemeMode,
   canManageShare,
+  canEdit,
   initialIsMobileLayout,
   isAdmin,
   locale,
@@ -2030,6 +2047,7 @@ export function NewWorkspace({
       currentUser={currentUser}
       initialThemeMode={initialThemeMode}
       canManageShare={canManageShare}
+      canEdit={canEdit}
       locale={locale}
       currency={currency}
     />

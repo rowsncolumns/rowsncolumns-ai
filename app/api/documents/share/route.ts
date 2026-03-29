@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
-import { getOrCreateDocumentShareLink } from "@/lib/documents/repository";
+import {
+  getOrCreateDocumentShareLink,
+  updateDocumentSharePermission,
+} from "@/lib/documents/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +16,15 @@ const createShareLinkSchema = z.object({
     .trim()
     .min(1, "documentId is required.")
     .max(200, "documentId is too long."),
+});
+
+const updateSharePermissionSchema = z.object({
+  documentId: z
+    .string()
+    .trim()
+    .min(1, "documentId is required.")
+    .max(200, "documentId is too long."),
+  permission: z.enum(["view", "edit"]),
 });
 
 export async function POST(request: Request) {
@@ -49,10 +61,57 @@ export async function POST(request: Request) {
       shareUrl,
       shareToken: shareLink.shareToken,
       isActive: shareLink.isActive,
+      permission: shareLink.permission,
     });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to create share link.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const { data: session } = await auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const body = await request.json().catch(() => null);
+    const parsed = updateSharePermissionSchema.safeParse(body);
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? "Invalid request.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    const shareLink = await updateDocumentSharePermission({
+      docId: parsed.data.documentId,
+      userId,
+      permission: parsed.data.permission,
+    });
+
+    if (!shareLink) {
+      return NextResponse.json(
+        { error: "Only the document owner can update sharing permissions." },
+        { status: 403 },
+      );
+    }
+
+    const origin = new URL(request.url).origin;
+    const shareUrl = `${origin}/sheets/${encodeURIComponent(shareLink.docId)}?share=${encodeURIComponent(shareLink.shareToken)}`;
+
+    return NextResponse.json({
+      shareUrl,
+      shareToken: shareLink.shareToken,
+      isActive: shareLink.isActive,
+      permission: shareLink.permission,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to update share permission.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

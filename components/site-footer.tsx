@@ -15,10 +15,7 @@ export function SiteFooter({ fullWidth = false }: SiteFooterProps) {
           fullWidth ? "w-full" : "mx-auto max-w-7xl"
         }`}
       >
-        <p>
-          RowsnColumns AI. Built for spreadsheet-native teams that need speed
-          with control.
-        </p>
+        <p>RowsnColumns AI. Spreadsheets, supercharged.</p>
         <div className="flex flex-wrap items-center gap-4">
           {siteNavigation.map((item) => (
             <a

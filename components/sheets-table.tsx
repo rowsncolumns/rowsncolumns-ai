@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -25,6 +25,7 @@ type SheetListItem = {
   createdAt: string;
   lastModifiedAt: string;
   isShared: boolean;
+  isFavorite: boolean;
 };
 
 type SheetsTableProps = {
@@ -37,6 +38,11 @@ type SheetsTableProps = {
 };
 
 type DeleteDocumentResponse = {
+  error?: string;
+};
+
+type FavoriteDocumentResponse = {
+  favorite?: boolean;
   error?: string;
 };
 
@@ -93,6 +99,7 @@ export function SheetsTable({
   const [deleteTarget, setDeleteTarget] = useState<SheetListItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [favoritingDocId, setFavoritingDocId] = useState<string | null>(null);
   const [hasMounted, setHasMounted] = useState(false);
   const dateFormatter = useMemo(
     () =>
@@ -163,6 +170,44 @@ export function SheetsTable({
     }
   };
 
+  const handleToggleFavorite = async (document: SheetListItem) => {
+    if (isDeleting || favoritingDocId) {
+      return;
+    }
+
+    const nextFavorite = !document.isFavorite;
+
+    setFavoritingDocId(document.docId);
+
+    try {
+      const response = await fetch(
+        `/api/documents/${encodeURIComponent(document.docId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ favorite: nextFavorite }),
+        },
+      );
+      const payload = (await response
+        .json()
+        .catch(() => null)) as FavoriteDocumentResponse | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to update favorite.");
+      }
+
+      toast.success(nextFavorite ? "Added to favorites." : "Removed favorite.");
+      router.refresh();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to update favorite.";
+      toast.error(message);
+    } finally {
+      setFavoritingDocId(null);
+    }
+  };
+
   return (
     <>
       <div className="overflow-hidden rounded-2xl border border-(--card-border) bg-(--card-bg-solid)">
@@ -176,14 +221,18 @@ export function SheetsTable({
               {documents.map((document) => {
                 const isRowDeleting =
                   isDeleting && deletingDocId === document.docId;
+                const isRowFavoriting = favoritingDocId === document.docId;
 
                 return (
                   <li key={document.docId} className="space-y-3 px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <Link
                         href={`/sheets/${document.docId}`}
-                        className="line-clamp-2 text-sm font-semibold text-foreground hover:text-orange-500"
+                        className="inline-flex items-start gap-1 line-clamp-2 text-sm font-semibold text-foreground hover:text-orange-500"
                       >
+                        {document.isFavorite ? (
+                          <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-amber-500 text-amber-500" />
+                        ) : null}
                         {document.title}
                       </Link>
                       <span
@@ -225,8 +274,32 @@ export function SheetsTable({
                         type="button"
                         size="sm"
                         variant="ghost"
+                        className="h-9 rounded-lg px-3 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                        disabled={isDeleting || favoritingDocId !== null}
+                        onClick={() => {
+                          void handleToggleFavorite(document);
+                        }}
+                        aria-label={`${document.isFavorite ? "Remove favorite for" : "Favorite"} ${document.title}`}
+                      >
+                        {isRowFavoriting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Star
+                            className={`h-4 w-4 ${
+                              document.isFavorite
+                                ? "fill-amber-500 text-amber-500"
+                                : ""
+                            }`}
+                          />
+                        )}
+                        {document.isFavorite ? "Favorited" : "Favorite"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
                         className="h-9 rounded-lg px-3 text-red-500 hover:bg-red-50 hover:text-red-600"
-                        disabled={isDeleting}
+                        disabled={isDeleting || favoritingDocId !== null}
                         onClick={() => {
                           setDeleteTarget(document);
                         }}
@@ -282,6 +355,7 @@ export function SheetsTable({
                 documents.map((document) => {
                   const isRowDeleting =
                     isDeleting && deletingDocId === document.docId;
+                  const isRowFavoriting = favoritingDocId === document.docId;
 
                   return (
                     <tr
@@ -294,6 +368,9 @@ export function SheetsTable({
                             href={`/sheets/${document.docId}`}
                             className="inline-flex items-center gap-1 text-sm font-semibold text-foreground hover:text-orange-500"
                           >
+                            {document.isFavorite ? (
+                              <Star className="h-3.5 w-3.5 shrink-0 fill-amber-500 text-amber-500" />
+                            ) : null}
                             {document.title}
                           </Link>
                         </div>
@@ -325,8 +402,31 @@ export function SheetsTable({
                             type="button"
                             size="sm"
                             variant="ghost"
+                            className="h-8 rounded-lg px-2 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                            disabled={isDeleting || favoritingDocId !== null}
+                            onClick={() => {
+                              void handleToggleFavorite(document);
+                            }}
+                            aria-label={`${document.isFavorite ? "Remove favorite for" : "Favorite"} ${document.title}`}
+                          >
+                            {isRowFavoriting ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Star
+                                className={`h-4 w-4 ${
+                                  document.isFavorite
+                                    ? "fill-amber-500 text-amber-500"
+                                    : ""
+                                }`}
+                              />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
                             className="h-8 rounded-lg px-2 text-red-500 hover:bg-red-50 hover:text-red-600"
-                            disabled={isDeleting}
+                            disabled={isDeleting || favoritingDocId !== null}
                             onClick={() => {
                               setDeleteTarget(document);
                             }}

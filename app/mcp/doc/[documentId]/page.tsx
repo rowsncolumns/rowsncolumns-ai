@@ -55,6 +55,7 @@ export default async function McpPublicDocumentPage({ params }: PageProps) {
     <SpreadsheetOnlyWorkspace
       documentId={documentId}
       canManageShare={false}
+      canEdit={false}
       initialThemeMode={initialThemeMode}
       locale={locale}
       currency={currency}

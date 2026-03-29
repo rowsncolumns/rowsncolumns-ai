@@ -4,6 +4,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { supportEmail } from "@/components/site-navigation";
 import { Card } from "@/components/ui/card";
+import { getServerSessionSafe } from "@/lib/auth/session-safe";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -14,7 +15,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const session = await getServerSessionSafe();
+  const initialUser = session?.user
+    ? {
+        id: session.user.id,
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image,
+      }
+    : undefined;
+
   return (
     <main className="relative overflow-hidden">
       <div className="absolute inset-x-0 top-0 -z-10 h-[38rem] bg-[radial-gradient(circle_at_top,rgba(255,109,52,0.22),transparent_42%)]" />
@@ -23,7 +34,7 @@ export default function ContactPage() {
         <div className="mx-auto max-w-7xl">
           <Card className="hero-grid overflow-hidden bg-[var(--card-bg)]">
             <div className="p-4 sm:p-6">
-              <SiteHeader />
+              <SiteHeader initialUser={initialUser} />
             </div>
           </Card>
         </div>

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
-import { deleteOwnedDocument } from "@/lib/documents/repository";
+import {
+  deleteOwnedDocument,
+  setDocumentFavorite,
+} from "@/lib/documents/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +19,10 @@ const documentIdSchema = z
   .trim()
   .min(1, "documentId is required.")
   .max(200, "documentId is too long.");
+
+const updateFavoriteSchema = z.object({
+  favorite: z.boolean(),
+});
 
 export async function DELETE(_request: Request, context: RouteContext) {
   try {
@@ -48,6 +55,53 @@ export async function DELETE(_request: Request, context: RouteContext) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to delete document.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request, context: RouteContext) {
+  try {
+    const { data: session } = await auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const { documentId: rawDocumentId } = await context.params;
+    const parsedDocumentId = documentIdSchema.safeParse(rawDocumentId);
+    if (!parsedDocumentId.success) {
+      const message =
+        parsedDocumentId.error.issues[0]?.message ?? "Invalid request.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    const body = await request.json().catch(() => null);
+    const parsedBody = updateFavoriteSchema.safeParse(body);
+    if (!parsedBody.success) {
+      const message = parsedBody.error.issues[0]?.message ?? "Invalid request.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    const updated = await setDocumentFavorite({
+      docId: parsedDocumentId.data,
+      userId,
+      favorite: parsedBody.data.favorite,
+    });
+
+    if (!updated) {
+      return NextResponse.json(
+        { error: "Document not found or inaccessible by this user." },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json({
+      documentId: parsedDocumentId.data,
+      favorite: parsedBody.data.favorite,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to update favorite.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

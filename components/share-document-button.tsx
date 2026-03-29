@@ -13,8 +13,11 @@ type ShareDocumentButtonProps = {
   canManageShare: boolean;
 };
 
+type SharePermission = "view" | "edit";
+
 type ShareLinkResponse = {
   shareUrl?: string;
+  permission?: SharePermission;
   error?: string;
 };
 
@@ -24,7 +27,9 @@ export function ShareDocumentButton({
 }: ShareDocumentButtonProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [isUpdatingPermission, setIsUpdatingPermission] = React.useState(false);
   const [shareUrl, setShareUrl] = React.useState("");
+  const [permission, setPermission] = React.useState<SharePermission>("edit");
   const [copied, setCopied] = React.useState(false);
   const [canNativeShare, setCanNativeShare] = React.useState(false);
 
@@ -79,6 +84,7 @@ export function ShareDocumentButton({
       }
 
       setShareUrl(payload.shareUrl);
+      setPermission(payload.permission === "view" ? "view" : "edit");
     } catch (errorValue) {
       const message =
         errorValue instanceof Error
@@ -139,6 +145,57 @@ export function ShareDocumentButton({
     }
   }, [shareUrl]);
 
+  const updateSharePermission = React.useCallback(
+    async (nextPermission: SharePermission) => {
+      if (!canManageShare || isLoading || isUpdatingPermission) {
+        return;
+      }
+      if (nextPermission === permission) {
+        return;
+      }
+
+      setIsUpdatingPermission(true);
+      try {
+        const response = await fetch("/api/documents/share", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            documentId,
+            permission: nextPermission,
+          }),
+        });
+
+        const payload = (await response
+          .json()
+          .catch(() => null)) as ShareLinkResponse | null;
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to update permission.");
+        }
+
+        if (payload?.shareUrl) {
+          setShareUrl(payload.shareUrl);
+        }
+        setPermission(payload?.permission === "view" ? "view" : "edit");
+        toast.success(
+          nextPermission === "view"
+            ? "Share permission set to Can view."
+            : "Share permission set to Can edit.",
+        );
+      } catch (errorValue) {
+        const message =
+          errorValue instanceof Error
+            ? errorValue.message
+            : "Failed to update permission.";
+        toast.error(message);
+      } finally {
+        setIsUpdatingPermission(false);
+      }
+    },
+    [canManageShare, documentId, isLoading, isUpdatingPermission, permission],
+  );
+
   React.useEffect(() => {
     if (!isOpen) {
       return;
@@ -192,7 +249,8 @@ export function ShareDocumentButton({
                         Share Link
                       </p>
                       <p className="text-xs text-(--muted-foreground)">
-                        Anyone with this link can open this document.
+                        Anyone with this link can open this document. Permission
+                        controls whether they can edit.
                       </p>
                     </div>
                     <button
@@ -213,6 +271,42 @@ export function ShareDocumentButton({
                     </div>
                   ) : (
                     <div className="space-y-2">
+                      <div className="rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) p-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-(--muted-foreground)">
+                          Permission
+                        </p>
+                        <div className="mt-1.5 inline-flex rounded-lg border border-(--card-border) bg-(--card-bg-solid) p-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={
+                              permission === "view" ? "default" : "secondary"
+                            }
+                            onClick={() => void updateSharePermission("view")}
+                            disabled={isUpdatingPermission || isLoading}
+                            className="h-7 rounded-md px-2.5 text-xs"
+                          >
+                            Can view
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={
+                              permission === "edit" ? "default" : "secondary"
+                            }
+                            onClick={() => void updateSharePermission("edit")}
+                            disabled={isUpdatingPermission || isLoading}
+                            className="h-7 rounded-md px-2.5 text-xs"
+                          >
+                            Can edit
+                          </Button>
+                        </div>
+                        <p className="mt-1 text-[11px] text-(--muted-foreground)">
+                          {permission === "view"
+                            ? "Recipients can view but cannot edit."
+                            : "Recipients can view and edit."}
+                        </p>
+                      </div>
                       <input
                         readOnly
                         value={shareUrl}
@@ -235,7 +329,9 @@ export function ShareDocumentButton({
                               size="sm"
                               variant="secondary"
                               onClick={() => void handleNativeShare()}
-                              disabled={!shareUrl || isLoading}
+                              disabled={
+                                !shareUrl || isLoading || isUpdatingPermission
+                              }
                               className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
                             >
                               <Share2 className="h-3.5 w-3.5" />
@@ -246,7 +342,9 @@ export function ShareDocumentButton({
                             type="button"
                             size="sm"
                             onClick={() => void handleCopyLink()}
-                            disabled={!shareUrl || isLoading}
+                            disabled={
+                              !shareUrl || isLoading || isUpdatingPermission
+                            }
                             className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"
                           >
                             {copied ? (

@@ -106,6 +106,7 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
         documentId={documentId}
         initialDocumentTitle={documentMetadata.title}
         canManageShare={access.isOwner}
+        canEdit={access.permission === "edit"}
         initialThemeMode={initialThemeMode}
         initialIsMobileLayout={initialIsMobileLayout}
         isAdmin={isAdmin}

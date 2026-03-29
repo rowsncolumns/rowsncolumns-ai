@@ -11,6 +11,7 @@ type DocumentShareLinkRow = {
   doc_id: string;
   share_token: string;
   is_active: boolean;
+  permission?: string | null;
   created_by_user_id: string;
   created_at: Date | string;
   updated_at: Date | string;
@@ -30,6 +31,7 @@ type OwnedDocumentRow = {
   last_modified_at: Date | string;
   is_shared: boolean;
   access_type: "owned" | "shared";
+  is_favorite: boolean;
 };
 
 export type DocumentOwnerRecord = {
@@ -43,6 +45,7 @@ export type DocumentShareLinkRecord = {
   docId: string;
   shareToken: string;
   isActive: boolean;
+  permission: DocumentSharePermission;
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -63,7 +66,10 @@ export type EnsureDocumentOwnershipResult = {
 export type EnsureDocumentAccessResult = EnsureDocumentOwnershipResult & {
   canAccess: boolean;
   accessSource: "owner" | "share" | "none";
+  permission: DocumentSharePermission;
 };
+
+export type DocumentSharePermission = "view" | "edit";
 
 export type OwnedDocumentRecord = {
   docId: string;
@@ -72,6 +78,7 @@ export type OwnedDocumentRecord = {
   lastModifiedAt: string;
   isShared: boolean;
   accessType: "owned" | "shared";
+  isFavorite: boolean;
 };
 
 export type ListOwnedDocumentsResult = {
@@ -92,10 +99,13 @@ const mapRow = (row: DocumentOwnerRow): DocumentOwnerRecord => ({
   updatedAt: new Date(row.updated_at).toISOString(),
 });
 
-const mapShareLinkRow = (row: DocumentShareLinkRow): DocumentShareLinkRecord => ({
+const mapShareLinkRow = (
+  row: DocumentShareLinkRow,
+): DocumentShareLinkRecord => ({
   docId: row.doc_id,
   shareToken: row.share_token,
   isActive: row.is_active,
+  permission: normalizeSharePermission(row.permission),
   createdByUserId: row.created_by_user_id,
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
@@ -112,6 +122,10 @@ const normalizeShareToken = (shareToken?: string | null) => {
   const normalized = shareToken?.trim();
   return normalized ? normalized : null;
 };
+
+const normalizeSharePermission = (
+  permission?: string | null,
+): DocumentSharePermission => (permission === "view" ? "view" : "edit");
 
 const SHAREDB_COLLECTION =
   process.env.SHAREDB_COLLECTION?.trim() || "spreadsheets";
@@ -137,6 +151,12 @@ const isMissingRelationError = (error: unknown): boolean =>
   error !== null &&
   "code" in error &&
   (error as { code?: unknown }).code === "42P01";
+
+const isMissingColumnError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as { code?: unknown }).code === "42703";
 
 const createFallbackMetadata = (
   docId: string,
@@ -220,7 +240,8 @@ const toIsoTimestamp = (value: Date | string) => new Date(value).toISOString();
 const mapOwnedDocumentRow = (row: OwnedDocumentRow): OwnedDocumentRecord => {
   const createdAt = toIsoTimestamp(row.ownership_created_at);
   const lastModifiedAt = toIsoTimestamp(row.last_modified_at);
-  const title = row.metadata_title?.trim() || getDefaultDocumentTitle(row.doc_id);
+  const title =
+    row.metadata_title?.trim() || getDefaultDocumentTitle(row.doc_id);
 
   return {
     docId: row.doc_id,
@@ -229,6 +250,7 @@ const mapOwnedDocumentRow = (row: OwnedDocumentRow): OwnedDocumentRecord => {
     lastModifiedAt,
     isShared: row.is_shared,
     accessType: row.access_type,
+    isFavorite: row.is_favorite,
   };
 };
 
@@ -267,6 +289,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         COALESCE(shares.is_active, FALSE) AS is_shared,
+        (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
           FROM (
@@ -291,6 +314,9 @@ export async function listOwnedDocuments({
       LEFT JOIN document_share_links AS shares
         ON shares.doc_id = owners.doc_id
         AND shares.is_active = TRUE
+      LEFT JOIN document_favorites AS favorites
+        ON favorites.doc_id = owners.doc_id
+        AND favorites.user_id = ${userId}
       LEFT JOIN snapshots
         ON snapshots.collection = ${SHAREDB_COLLECTION}
         AND snapshots.doc_id = owners.doc_id
@@ -303,6 +329,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         TRUE AS is_shared,
+        (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
           FROM (
@@ -326,6 +353,9 @@ export async function listOwnedDocuments({
         ON owners.doc_id = grants.doc_id
       LEFT JOIN document_metadata AS metadata
         ON metadata.doc_id = grants.doc_id
+      LEFT JOIN document_favorites AS favorites
+        ON favorites.doc_id = grants.doc_id
+        AND favorites.user_id = ${userId}
       LEFT JOIN snapshots
         ON snapshots.collection = ${SHAREDB_COLLECTION}
         AND snapshots.doc_id = grants.doc_id
@@ -360,6 +390,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         COALESCE(shares.is_active, FALSE) AS is_shared,
+        (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
           FROM (
@@ -384,6 +415,9 @@ export async function listOwnedDocuments({
       LEFT JOIN document_share_links AS shares
         ON shares.doc_id = owners.doc_id
         AND shares.is_active = TRUE
+      LEFT JOIN document_favorites AS favorites
+        ON favorites.doc_id = owners.doc_id
+        AND favorites.user_id = ${userId}
       LEFT JOIN snapshots
         ON snapshots.collection = ${SHAREDB_COLLECTION}
         AND snapshots.doc_id = owners.doc_id
@@ -396,6 +430,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         TRUE AS is_shared,
+        (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
           FROM (
@@ -419,6 +454,9 @@ export async function listOwnedDocuments({
         ON owners.doc_id = grants.doc_id
       LEFT JOIN document_metadata AS metadata
         ON metadata.doc_id = grants.doc_id
+      LEFT JOIN document_favorites AS favorites
+        ON favorites.doc_id = grants.doc_id
+        AND favorites.user_id = ${userId}
       LEFT JOIN snapshots
         ON snapshots.collection = ${SHAREDB_COLLECTION}
         AND snapshots.doc_id = grants.doc_id
@@ -431,7 +469,8 @@ export async function listOwnedDocuments({
       metadata_title,
       last_modified_at,
       is_shared,
-      access_type
+      access_type,
+      is_favorite
     FROM owned_documents
     WHERE (
       (${normalizedFilter} = 'owned' AND access_type = 'owned')
@@ -446,7 +485,7 @@ export async function listOwnedDocuments({
         ${titleSearchPattern}::text IS NULL
         OR COALESCE(NULLIF(BTRIM(metadata_title), ''), 'Document ' || LEFT(doc_id, 8)) ILIKE ${titleSearchPattern}::text
       )
-    ORDER BY last_modified_at DESC, ownership_created_at DESC
+    ORDER BY is_favorite DESC, last_modified_at DESC, ownership_created_at DESC
     LIMIT ${safePageSize}
     OFFSET ${effectiveOffset}
   `;
@@ -459,6 +498,63 @@ export async function listOwnedDocuments({
     totalPages,
     filter: normalizedFilter,
   };
+}
+
+export async function setDocumentFavorite({
+  docId,
+  userId,
+  favorite,
+}: {
+  docId: string;
+  userId: string;
+  favorite: boolean;
+}): Promise<boolean> {
+  const accessibleRows = await db<{ doc_id: string }[]>`
+    WITH accessible_documents AS (
+      SELECT owners.doc_id
+      FROM document_owners AS owners
+      WHERE owners.doc_id = ${docId}
+        AND owners.user_id = ${userId}
+      UNION
+      SELECT grants.doc_id
+      FROM document_access_grants AS grants
+      WHERE grants.doc_id = ${docId}
+        AND grants.user_id = ${userId}
+    )
+    SELECT doc_id
+    FROM accessible_documents
+    LIMIT 1
+  `;
+
+  if (accessibleRows.length === 0) {
+    return false;
+  }
+
+  try {
+    if (favorite) {
+      await db`
+        INSERT INTO document_favorites (doc_id, user_id)
+        VALUES (${docId}, ${userId})
+        ON CONFLICT (doc_id, user_id) DO UPDATE
+          SET updated_at = NOW()
+      `;
+    } else {
+      await db`
+        DELETE FROM document_favorites
+        WHERE doc_id = ${docId}
+          AND user_id = ${userId}
+      `;
+    }
+  } catch (error) {
+    if (isMissingRelationError(error)) {
+      throw new Error(
+        "Document favorites storage is not initialized. Run the document favorites migration.",
+      );
+    }
+    throw error;
+  }
+
+  return true;
 }
 
 export async function ensureDocumentMetadata({
@@ -651,6 +747,82 @@ const upsertDocumentAccessGrant = async ({
   }
 };
 
+const getActiveSharePermissionByDocumentId = async (
+  docId: string,
+): Promise<DocumentSharePermission | null> => {
+  try {
+    const rows = await db<{ permission: string | null }[]>`
+      SELECT permission
+      FROM document_share_links
+      WHERE doc_id = ${docId}
+        AND is_active = TRUE
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return normalizeSharePermission(row.permission);
+  } catch (error) {
+    if (isMissingColumnError(error)) {
+      const rows = await db<{ doc_id: string }[]>`
+        SELECT doc_id
+        FROM document_share_links
+        WHERE doc_id = ${docId}
+          AND is_active = TRUE
+        LIMIT 1
+      `;
+      return rows.length > 0 ? "edit" : null;
+    }
+    throw error;
+  }
+};
+
+const getActiveShareLinkByToken = async ({
+  docId,
+  shareToken,
+}: {
+  docId: string;
+  shareToken: string;
+}): Promise<{ docId: string; permission: DocumentSharePermission } | null> => {
+  try {
+    const rows = await db<{ doc_id: string; permission: string | null }[]>`
+      SELECT
+        doc_id,
+        permission
+      FROM document_share_links
+      WHERE doc_id = ${docId}
+        AND is_active = TRUE
+        AND share_token = ${shareToken}
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      docId: row.doc_id,
+      permission: normalizeSharePermission(row.permission),
+    };
+  } catch (error) {
+    if (isMissingColumnError(error)) {
+      const rows = await db<{ doc_id: string }[]>`
+        SELECT doc_id
+        FROM document_share_links
+        WHERE doc_id = ${docId}
+          AND is_active = TRUE
+          AND share_token = ${shareToken}
+        LIMIT 1
+      `;
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        docId: row.doc_id,
+        permission: "edit",
+      };
+    }
+    throw error;
+  }
+};
+
 export async function ensureDocumentAccess({
   docId,
   userId,
@@ -666,15 +838,19 @@ export async function ensureDocumentAccess({
       ...ownershipResult,
       canAccess: true,
       accessSource: "owner",
+      permission: "edit",
     };
   }
 
   const hasPersistedAccess = await hasDocumentAccessGrant({ docId, userId });
   if (hasPersistedAccess) {
+    const permission =
+      (await getActiveSharePermissionByDocumentId(docId)) ?? "edit";
     return {
       ...ownershipResult,
       canAccess: true,
       accessSource: "share",
+      permission,
     };
   }
 
@@ -684,19 +860,15 @@ export async function ensureDocumentAccess({
       ...ownershipResult,
       canAccess: false,
       accessSource: "none",
+      permission: "view",
     };
   }
 
-  const sharedRows = await db<{ doc_id: string }[]>`
-    SELECT doc_id
-    FROM document_share_links
-    WHERE doc_id = ${docId}
-      AND is_active = TRUE
-      AND share_token = ${normalizedToken}
-    LIMIT 1
-  `;
-
-  const hasShareAccess = sharedRows.length > 0;
+  const shareAccess = await getActiveShareLinkByToken({
+    docId,
+    shareToken: normalizedToken,
+  });
+  const hasShareAccess = Boolean(shareAccess);
   if (hasShareAccess) {
     await upsertDocumentAccessGrant({ docId, userId });
   }
@@ -705,6 +877,7 @@ export async function ensureDocumentAccess({
     ...ownershipResult,
     canAccess: hasShareAccess,
     accessSource: hasShareAccess ? "share" : "none",
+    permission: shareAccess?.permission ?? "view",
   };
 }
 
@@ -720,58 +893,188 @@ export async function getOrCreateDocumentShareLink({
     return null;
   }
 
-  const existingRows = await db<DocumentShareLinkRow[]>`
-    SELECT
-      doc_id,
-      share_token,
-      is_active,
-      created_by_user_id,
-      created_at,
-      updated_at
-    FROM document_share_links
-    WHERE doc_id = ${docId}
-      AND is_active = TRUE
-    LIMIT 1
-  `;
+  try {
+    const existingRows = await db<DocumentShareLinkRow[]>`
+      SELECT
+        doc_id,
+        share_token,
+        is_active,
+        permission,
+        created_by_user_id,
+        created_at,
+        updated_at
+      FROM document_share_links
+      WHERE doc_id = ${docId}
+        AND is_active = TRUE
+      LIMIT 1
+    `;
 
-  const existingRow = existingRows[0];
-  if (existingRow) {
-    return mapShareLinkRow(existingRow);
+    const existingRow = existingRows[0];
+    if (existingRow) {
+      return mapShareLinkRow(existingRow);
+    }
+
+    const nextShareToken = crypto.randomUUID();
+    const upsertedRows = await db<DocumentShareLinkRow[]>`
+      INSERT INTO document_share_links (
+        doc_id,
+        share_token,
+        is_active,
+        permission,
+        created_by_user_id
+      )
+      VALUES (
+        ${docId},
+        ${nextShareToken},
+        TRUE,
+        'edit',
+        ${userId}
+      )
+      ON CONFLICT (doc_id) DO UPDATE
+        SET
+          share_token = EXCLUDED.share_token,
+          is_active = TRUE,
+          permission = COALESCE(document_share_links.permission, EXCLUDED.permission),
+          created_by_user_id = EXCLUDED.created_by_user_id,
+          updated_at = NOW()
+      RETURNING
+        doc_id,
+        share_token,
+        is_active,
+        permission,
+        created_by_user_id,
+        created_at,
+        updated_at
+    `;
+
+    const row = upsertedRows[0];
+    if (!row) {
+      throw new Error("Failed to create a document share link.");
+    }
+
+    return mapShareLinkRow(row);
+  } catch (error) {
+    if (!isMissingColumnError(error)) {
+      throw error;
+    }
+
+    const existingRows = await db<DocumentShareLinkRow[]>`
+      SELECT
+        doc_id,
+        share_token,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+      FROM document_share_links
+      WHERE doc_id = ${docId}
+        AND is_active = TRUE
+      LIMIT 1
+    `;
+    const existingRow = existingRows[0];
+    if (existingRow) {
+      return mapShareLinkRow(existingRow);
+    }
+
+    const nextShareToken = crypto.randomUUID();
+    const upsertedRows = await db<DocumentShareLinkRow[]>`
+      INSERT INTO document_share_links (
+        doc_id,
+        share_token,
+        is_active,
+        created_by_user_id
+      )
+      VALUES (
+        ${docId},
+        ${nextShareToken},
+        TRUE,
+        ${userId}
+      )
+      ON CONFLICT (doc_id) DO UPDATE
+        SET
+          share_token = EXCLUDED.share_token,
+          is_active = TRUE,
+          created_by_user_id = EXCLUDED.created_by_user_id,
+          updated_at = NOW()
+      RETURNING
+        doc_id,
+        share_token,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+    `;
+
+    const row = upsertedRows[0];
+    if (!row) {
+      throw new Error("Failed to create a document share link.");
+    }
+
+    return mapShareLinkRow(row);
+  }
+}
+
+export async function updateDocumentSharePermission({
+  docId,
+  userId,
+  permission,
+}: {
+  docId: string;
+  userId: string;
+  permission: DocumentSharePermission;
+}): Promise<DocumentShareLinkRecord | null> {
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  if (!ownershipResult.isOwner) {
+    return null;
   }
 
+  const normalizedPermission = normalizeSharePermission(permission);
   const nextShareToken = crypto.randomUUID();
-  const upsertedRows = await db<DocumentShareLinkRow[]>`
-    INSERT INTO document_share_links (
-      doc_id,
-      share_token,
-      is_active,
-      created_by_user_id
-    )
-    VALUES (
-      ${docId},
-      ${nextShareToken},
-      TRUE,
-      ${userId}
-    )
-    ON CONFLICT (doc_id) DO UPDATE
-      SET
-        share_token = EXCLUDED.share_token,
-        is_active = TRUE,
-        created_by_user_id = EXCLUDED.created_by_user_id,
-        updated_at = NOW()
-    RETURNING
-      doc_id,
-      share_token,
-      is_active,
-      created_by_user_id,
-      created_at,
-      updated_at
-  `;
 
-  const row = upsertedRows[0];
-  if (!row) {
-    throw new Error("Failed to create a document share link.");
+  try {
+    const rows = await db<DocumentShareLinkRow[]>`
+      INSERT INTO document_share_links (
+        doc_id,
+        share_token,
+        is_active,
+        permission,
+        created_by_user_id
+      )
+      VALUES (
+        ${docId},
+        ${nextShareToken},
+        TRUE,
+        ${normalizedPermission},
+        ${userId}
+      )
+      ON CONFLICT (doc_id) DO UPDATE
+        SET
+          is_active = TRUE,
+          permission = EXCLUDED.permission,
+          created_by_user_id = EXCLUDED.created_by_user_id,
+          updated_at = NOW()
+      RETURNING
+        doc_id,
+        share_token,
+        is_active,
+        permission,
+        created_by_user_id,
+        created_at,
+        updated_at
+    `;
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error("Failed to update document share permissions.");
+    }
+
+    return mapShareLinkRow(row);
+  } catch (error) {
+    if (isMissingColumnError(error)) {
+      throw new Error(
+        "Document share permissions are not initialized. Run the share-permissions migration.",
+      );
+    }
+    throw error;
   }
-
-  return mapShareLinkRow(row);
 }
