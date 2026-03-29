@@ -1659,6 +1659,38 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         if (resumeData?.run.status === "running") {
           setIsHydratingSession(false);
           setIsResumingRun(true);
+          let streamPreviewText = "";
+          let lastPreviewSyncTime = 0;
+
+          const syncStreamPreview = (force = false) => {
+            if (!streamPreviewText) {
+              return;
+            }
+
+            const now = Date.now();
+            if (!force && now - lastPreviewSyncTime < 120) {
+              return;
+            }
+
+            lastPreviewSyncTime = now;
+            runtime.thread.reset([
+              ...history,
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "text",
+                    text: streamPreviewText,
+                  },
+                ],
+                metadata: {
+                  custom: {
+                    threadId: normalizedThreadId,
+                  },
+                },
+              },
+            ]);
+          };
 
           // Subscribe to SSE stream for remaining events
           const params = new URLSearchParams();
@@ -1683,6 +1715,14 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
               for await (const streamEvent of parseChatStream(
                 streamResponse.body,
               )) {
+                if (streamEvent.type === "message.delta") {
+                  streamPreviewText += streamEvent.delta;
+                  syncStreamPreview();
+                } else if (streamEvent.type === "message.complete") {
+                  streamPreviewText = streamEvent.message;
+                  syncStreamPreview(true);
+                }
+
                 const usageEvent = parseAssistantContextUsageEvent(streamEvent);
                 if (usageEvent) {
                   setContextUsageForThread(normalizedThreadId, usageEvent);

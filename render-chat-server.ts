@@ -27,7 +27,15 @@ import {
   getChatRunEvents,
   getLatestChatRunForThread,
 } from "@/lib/chat/runs-repository";
-import { getSpreadsheetAssistantThreadMessages } from "@/lib/chat/graph";
+import {
+  forkThreadAtMessage,
+  getSpreadsheetAssistantRecentSessions,
+  getSpreadsheetAssistantThreadMessages,
+} from "@/lib/chat/graph";
+import {
+  deleteAssistantSession,
+  upsertAssistantSession,
+} from "@/lib/chat/sessions-repository";
 
 type AuthIdentity = {
   userId: string;
@@ -127,12 +135,33 @@ const buildCorsHeaders = (origin: string | null) => {
 
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   } as const;
+};
+
+const resolveRequestOrigin = (req: IncomingMessage): string | null => {
+  const originHeader =
+    typeof req.headers.origin === "string" ? req.headers.origin.trim() : "";
+  if (originHeader) {
+    return originHeader;
+  }
+
+  const refererHeader =
+    typeof req.headers.referer === "string" ? req.headers.referer.trim() : "";
+  if (!refererHeader) {
+    return null;
+  }
+
+  try {
+    const refererOrigin = new URL(refererHeader).origin.trim();
+    return refererOrigin.length > 0 ? refererOrigin : null;
+  } catch {
+    return null;
+  }
 };
 
 const setCorsHeaders = (res: ServerResponse, origin: string | null) => {
@@ -159,7 +188,7 @@ const sendJson = (
   payload: unknown,
 ) => {
   setRuntimeHeader(res);
-  const origin = req.headers.origin ?? null;
+  const origin = resolveRequestOrigin(req);
   const hasCors = setCorsHeaders(res, origin);
   if (origin && !hasCors) {
     res.statusCode = 403;
@@ -443,7 +472,7 @@ const getSessionTokenFromCookies = (
 
 const startSse = (req: IncomingMessage, res: ServerResponse) => {
   setRuntimeHeader(res);
-  const origin = req.headers.origin ?? null;
+  const origin = resolveRequestOrigin(req);
   const hasCors = setCorsHeaders(res, origin);
   if (origin && !hasCors) {
     sendJson(req, res, 403, { error: "Origin is not allowed." });
@@ -772,7 +801,7 @@ const handleResumeRequest = async (
   }
 
   // Streaming response - replay events and continue streaming if still running
-  const origin = req.headers.origin ?? null;
+  const origin = resolveRequestOrigin(req);
   setCorsHeaders(res, origin);
   setRuntimeHeader(res);
   res.setHeader("Content-Type", "text/event-stream");
@@ -831,6 +860,7 @@ const handleHistoryRequest = async (
   req: IncomingMessage,
   res: ServerResponse,
 ) => {
+  const method = (req.method ?? "GET").toUpperCase();
   const bearerToken = getBearerToken(req.headers.authorization);
   const sessionToken =
     bearerToken ?? getSessionTokenFromCookies(req.headers.cookie);
@@ -851,23 +881,159 @@ const handleHistoryRequest = async (
   }
 
   const requestUrl = getRequestUrl(req);
-  const threadId = requestUrl.searchParams.get("threadId")?.trim();
-  if (!threadId) {
-    sendJson(req, res, 400, {
-      error: "threadId is required.",
+
+  if (method === "GET") {
+    const listMode =
+      requestUrl.searchParams.get("list")?.trim().toLowerCase() ?? "";
+
+    if (listMode === "sessions") {
+      const limitParam = Number.parseInt(
+        requestUrl.searchParams.get("limit")?.trim() ?? "",
+        10,
+      );
+      const limit =
+        Number.isFinite(limitParam) && limitParam > 0
+          ? Math.min(limitParam, 50)
+          : 10;
+      const docId = requestUrl.searchParams.get("docId")?.trim() || undefined;
+      const currentThreadId =
+        requestUrl.searchParams.get("currentThreadId")?.trim() || undefined;
+
+      const sessions = await getSpreadsheetAssistantRecentSessions({
+        userId: identity.userId,
+        limit,
+        ...(docId ? { docId } : {}),
+      });
+
+      if (sessions.length === 0 && currentThreadId) {
+        try {
+          await upsertAssistantSession({
+            threadId: currentThreadId,
+            userId: identity.userId,
+            ...(docId ? { docId } : {}),
+          });
+        } catch {
+          // Ignore fallback touch failures; still return a minimal session entry.
+        }
+
+        sendJson(req, res, 200, {
+          sessions: [
+            {
+              threadId: currentThreadId,
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+        });
+        return;
+      }
+
+      sendJson(req, res, 200, { sessions });
+      return;
+    }
+
+    const threadId = requestUrl.searchParams.get("threadId")?.trim();
+    if (!threadId) {
+      sendJson(req, res, 400, {
+        error: "threadId is required.",
+      });
+      return;
+    }
+
+    const messages = await getSpreadsheetAssistantThreadMessages({
+      threadId,
+      userId: identity.userId,
+    });
+
+    sendJson(req, res, 200, {
+      threadId,
+      messages,
     });
     return;
   }
 
-  const messages = await getSpreadsheetAssistantThreadMessages({
-    threadId,
-    userId: identity.userId,
-  });
+  if (method === "DELETE") {
+    const listMode =
+      requestUrl.searchParams.get("list")?.trim().toLowerCase() ?? "";
+    if (listMode !== "sessions") {
+      sendJson(req, res, 400, { error: "Unsupported delete operation." });
+      return;
+    }
 
-  sendJson(req, res, 200, {
-    threadId,
-    messages,
-  });
+    const threadId = requestUrl.searchParams.get("threadId")?.trim();
+    if (!threadId) {
+      sendJson(req, res, 400, { error: "threadId is required." });
+      return;
+    }
+
+    const deleted = await deleteAssistantSession({
+      threadId,
+      userId: identity.userId,
+    });
+
+    sendJson(req, res, 200, { deleted, threadId });
+    return;
+  }
+
+  if (method === "POST") {
+    const action = requestUrl.searchParams.get("action")?.trim().toLowerCase();
+    if (action !== "fork") {
+      sendJson(req, res, 400, {
+        error: "Unsupported action. Use action=fork.",
+      });
+      return;
+    }
+
+    type ForkConversationBody = {
+      sourceThreadId?: unknown;
+      atMessageIndex?: unknown;
+      docId?: unknown;
+    };
+
+    let body: ForkConversationBody;
+    try {
+      body = await parseJsonBody<ForkConversationBody>(req);
+    } catch (error) {
+      sendJson(req, res, 400, {
+        error:
+          error instanceof Error ? error.message : "Invalid JSON request body.",
+      });
+      return;
+    }
+
+    const sourceThreadId =
+      typeof body.sourceThreadId === "string" ? body.sourceThreadId.trim() : "";
+    const atMessageIndex =
+      typeof body.atMessageIndex === "number" ? body.atMessageIndex : -1;
+    const docId = typeof body.docId === "string" ? body.docId.trim() : undefined;
+
+    if (!sourceThreadId) {
+      sendJson(req, res, 400, { error: "sourceThreadId is required." });
+      return;
+    }
+
+    if (atMessageIndex < 0) {
+      sendJson(req, res, 400, {
+        error: "atMessageIndex must be a non-negative number.",
+      });
+      return;
+    }
+
+    const result = await forkThreadAtMessage({
+      sourceThreadId,
+      userId: identity.userId,
+      atMessageIndex,
+      ...(docId ? { docId } : {}),
+    });
+
+    sendJson(req, res, 200, {
+      success: true,
+      newThreadId: result.newThreadId,
+      title: result.title,
+    });
+    return;
+  }
+
+  sendJson(req, res, 405, { error: "Method not allowed." });
 };
 
 const server = createServer(async (req, res) => {
@@ -878,7 +1044,7 @@ const server = createServer(async (req, res) => {
 
     if (method === "OPTIONS") {
       setRuntimeHeader(res);
-      const origin = req.headers.origin ?? null;
+      const origin = resolveRequestOrigin(req);
       const hasCors = setCorsHeaders(res, origin);
       if (origin && !hasCors) {
         res.statusCode = 403;
@@ -910,7 +1076,10 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (method === "GET" && pathname === CHAT_HISTORY_PATH) {
+    if (
+      (method === "GET" || method === "DELETE" || method === "POST") &&
+      pathname === CHAT_HISTORY_PATH
+    ) {
       await handleHistoryRequest(req, res);
       return;
     }

@@ -1937,7 +1937,7 @@ export function SpreadsheetOnlyWorkspace({
   currency,
 }: SpreadsheetOnlyWorkspaceProps) {
   return (
-    <main className="flex min-h-[100svh] w-full flex-col overflow-x-hidden sm:min-h-dvh">
+    <main className="flex h-[100svh] w-full flex-col overflow-hidden sm:h-dvh">
       <SpreadsheetProvider>
         <div className="min-h-0 flex-1 flex flex-col">
           <SpreadsheetPane
@@ -2068,7 +2068,7 @@ export function NewWorkspace({
 
   return (
     <AssistantRuntimeProvider runtime={assistantRuntime.runtime}>
-      <main className="flex min-h-[100svh] w-full flex-col overflow-x-hidden px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:min-h-dvh sm:px-5 sm:pt-5 sm:pb-5">
+      <main className="flex h-[100svh] w-full flex-col overflow-hidden px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-dvh sm:px-5 sm:pt-5 sm:pb-5">
         <div className="mb-4">
           <SiteHeader
             initialUser={{
