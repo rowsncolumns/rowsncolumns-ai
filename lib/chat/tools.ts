@@ -5667,10 +5667,63 @@ const handleSpreadsheetGetAuditSnapshot = async (
           .map((c) => {
             const chart = c as EmbeddedChart;
             const spec = chart.spec as Record<string, unknown> | undefined;
+
+            // Convert domains to A1 notation
+            const domainA1s: string[] = [];
+            const domains = spec?.domains as
+              | Array<{ sources?: Array<{ sheetId?: number }> }>
+              | undefined;
+            if (domains && Array.isArray(domains)) {
+              for (const domain of domains) {
+                if (domain.sources && Array.isArray(domain.sources)) {
+                  for (const source of domain.sources) {
+                    const { sheetId: sourceSheetId, ...range } = source as {
+                      sheetId?: number;
+                    };
+                    const sourceSheetName = spreadsheet.sheets.find(
+                      (s) => s.sheetId === sourceSheetId,
+                    )?.title;
+                    const a1 = selectionToAddress(
+                      { range: range as GridRange },
+                      sourceSheetName,
+                    );
+                    if (a1) domainA1s.push(a1);
+                  }
+                }
+              }
+            }
+
+            // Convert series to A1 notation
+            const seriesA1s: string[] = [];
+            const series = spec?.series as
+              | Array<{ sources?: Array<{ sheetId?: number }> }>
+              | undefined;
+            if (series && Array.isArray(series)) {
+              for (const s of series) {
+                if (s.sources && Array.isArray(s.sources)) {
+                  for (const source of s.sources) {
+                    const { sheetId: sourceSheetId, ...range } = source as {
+                      sheetId?: number;
+                    };
+                    const sourceSheetName = spreadsheet.sheets.find(
+                      (sh) => sh.sheetId === sourceSheetId,
+                    )?.title;
+                    const a1 = selectionToAddress(
+                      { range: range as GridRange },
+                      sourceSheetName,
+                    );
+                    if (a1) seriesA1s.push(a1);
+                  }
+                }
+              }
+            }
+
             return {
               chartId: chart.chartId,
               type: spec?.chartType || "unknown",
               position: chart.position,
+              ...(domainA1s.length > 0 ? { domains: domainA1s } : {}),
+              ...(seriesA1s.length > 0 ? { series: seriesA1s } : {}),
             };
           });
 

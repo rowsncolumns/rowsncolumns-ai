@@ -3620,13 +3620,85 @@ export function SheetsInstructions({
   const chartSummaries = React.useMemo<ChartSummary[]>(() => {
     if (!charts) return [];
     return charts.map((chart) => {
-      const { dataRange } = chart.spec;
+      const isValidChartSourceRange = (
+        source: unknown,
+      ): source is {
+        sheetId?: number;
+        startRowIndex: number;
+        endRowIndex: number;
+        startColumnIndex: number;
+        endColumnIndex: number;
+      } => {
+        if (!source || typeof source !== "object") return false;
+        const candidate = source as Record<string, unknown>;
+        return (
+          typeof candidate.startRowIndex === "number" &&
+          typeof candidate.endRowIndex === "number" &&
+          typeof candidate.startColumnIndex === "number" &&
+          typeof candidate.endColumnIndex === "number"
+        );
+      };
+
+      const spec = chart.spec as typeof chart.spec & {
+        domains?: Array<{ sources?: unknown[] }>;
+        series?: Array<{ sources?: unknown[] }>;
+      };
+      const { dataRange, domains, series } = spec;
       let dataRangeA1: string | null = null;
       if (dataRange) {
         const sheetName = getSheetName?.(chart.position.sheetId);
         dataRangeA1 =
           selectionToAddress({ range: dataRange }, sheetName) ?? null;
       }
+
+      // Convert domains to A1 notation
+      const domainA1s: string[] = [];
+      if (domains && Array.isArray(domains)) {
+        for (const domain of domains) {
+          if (domain.sources && Array.isArray(domain.sources)) {
+            for (const source of domain.sources) {
+              if (!isValidChartSourceRange(source)) continue;
+              const { sheetId } = source;
+              const range = {
+                startRowIndex: source.startRowIndex,
+                endRowIndex: source.endRowIndex,
+                startColumnIndex: source.startColumnIndex,
+                endColumnIndex: source.endColumnIndex,
+              };
+              const sheetName = getSheetName?.(
+                typeof sheetId === "number" ? sheetId : chart.position.sheetId,
+              );
+              const a1 = selectionToAddress({ range }, sheetName);
+              if (a1) domainA1s.push(a1);
+            }
+          }
+        }
+      }
+
+      // Convert series to A1 notation
+      const seriesA1s: string[] = [];
+      if (series && Array.isArray(series)) {
+        for (const s of series) {
+          if (s.sources && Array.isArray(s.sources)) {
+            for (const source of s.sources) {
+              if (!isValidChartSourceRange(source)) continue;
+              const { sheetId } = source;
+              const range = {
+                startRowIndex: source.startRowIndex,
+                endRowIndex: source.endRowIndex,
+                startColumnIndex: source.startColumnIndex,
+                endColumnIndex: source.endColumnIndex,
+              };
+              const sheetName = getSheetName?.(
+                typeof sheetId === "number" ? sheetId : chart.position.sheetId,
+              );
+              const a1 = selectionToAddress({ range }, sheetName);
+              if (a1) seriesA1s.push(a1);
+            }
+          }
+        }
+      }
+
       return {
         chartId: chart.chartId,
         sheetId: chart.position.sheetId,
@@ -3634,6 +3706,8 @@ export function SheetsInstructions({
         subtitle: chart.spec.subtitle ?? null,
         chartType: chart.spec.chartType,
         dataRange: dataRangeA1,
+        ...(domainA1s.length > 0 ? { domains: domainA1s } : {}),
+        ...(seriesA1s.length > 0 ? { series: seriesA1s } : {}),
       };
     });
   }, [charts, getSheetName]);

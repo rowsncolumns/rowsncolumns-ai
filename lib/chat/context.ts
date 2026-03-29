@@ -16,6 +16,8 @@ export type ChartSummary = {
   subtitle?: string | null;
   chartType?: string;
   dataRange?: string | null;
+  domains?: string[];
+  series?: string[];
 };
 
 export type NamedRangeSummary = {
