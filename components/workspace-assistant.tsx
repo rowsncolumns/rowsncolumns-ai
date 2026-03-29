@@ -1262,7 +1262,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const selectedModeRef = React.useRef<AssistantMode>(selectedMode);
   const reasoningEnabledRef = React.useRef(reasoningEnabled);
   const docIdRef = React.useRef(docId);
-  const activeRunIdRef = React.useRef<string | null>(null);
   const pendingLocalSessionIdRef = React.useRef<string | null | undefined>(
     undefined,
   );
@@ -1493,7 +1492,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
 
         let currentRunId: string | null = null;
-        activeRunIdRef.current = null;
 
         try {
           markThreadStarted();
@@ -1536,7 +1534,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             threadId,
             (runId) => {
               currentRunId = runId;
-              activeRunIdRef.current = runId;
             },
             handleContextUsageEvent,
           );
@@ -1576,10 +1573,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           yield buildTerminalAssistantMessage(
             normalizeAssistantClientError(error),
           );
-        } finally {
-          if (!currentRunId || activeRunIdRef.current === currentRunId) {
-            activeRunIdRef.current = null;
-          }
         }
       },
     }),
@@ -4826,11 +4819,9 @@ function AssistantComposer({
       return;
     }
 
-    const currentRunId = activeRunIdRef.current;
-    if (threadId || currentRunId) {
+    if (threadId) {
       void requestAssistantStopRun({
-        ...(threadId ? { threadId } : {}),
-        ...(currentRunId ? { runId: currentRunId } : {}),
+        threadId,
       }).catch((error) => {
         console.warn("[assistant] Failed to request run stop", error);
       });
