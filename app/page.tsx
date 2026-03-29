@@ -8,8 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AuthModalTrigger } from "@/components/auth-modal-trigger";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { siteNavigation } from "@/components/site-navigation";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
@@ -75,25 +75,95 @@ const workflowSteps = [
   },
 ];
 
-const stories = [
+const proofMethodSteps = [
   {
-    quote:
-      "We went from hours of cleanup before every board meeting to a repeatable ten-minute workflow with full traceability.",
-    name: "A. Patel",
-    role: "Finance Systems Lead",
+    label: "Baseline run",
+    detail:
+      "Analyst executes the same workflow manually in the source workbook.",
   },
   {
-    quote:
-      "The audit layer is the difference. It feels powerful enough for operators and controlled enough for managers.",
-    name: "J. Morgan",
-    role: "Head of RevOps",
+    label: "Agent run",
+    detail:
+      "RowsnColumns AI executes with review checkpoints and audit trail enabled.",
+  },
+  {
+    label: "Validation",
+    detail:
+      "Formula integrity, overwrite safety, and final workbook readiness are checked before handoff.",
+  },
+  {
+    label: "Timing window",
+    detail:
+      "Elapsed time is measured from accepted prompt to review-ready workbook.",
   },
 ];
 
+const proofMetricDefinitions = [
+  {
+    metric: "6.2x",
+    detail:
+      "Median manual turnaround time divided by median agent turnaround time.",
+  },
+  {
+    metric: "99.1%",
+    detail:
+      "Benchmark runs that completed with an attached audit trail and no blocking validation failures.",
+  },
+  {
+    metric: "< 3m",
+    detail:
+      "Median elapsed time from accepted prompt to review-ready workbook.",
+  },
+];
+
+const proofEvidenceControls = [
+  "All runs are executed with workbook validation enabled.",
+  "Formula and overwrite checks must pass before a run is marked complete.",
+  "Each run records cell-level changes for reviewer inspection.",
+];
+
+const collaborationCapabilities = [
+  "Share a document link with teammates in one click.",
+  "See edits sync live as collaborators update the workbook.",
+  "Keep ownership controls so only authorized users can manage sharing.",
+];
+
+const collaborationGuardrails = [
+  "Share links are generated per document and can be managed by the owner.",
+  "Workbook updates stream through a real-time shared state connection.",
+  "Changes remain inside the same workbook context for faster handoff.",
+];
+
+const homeTitle = "AI Spreadsheet Workflows for Finance and Operations";
+const homeDescription =
+  "RowsnColumns AI helps finance and operations teams plan, edit, verify, and ship spreadsheet workflows with full audit trails.";
+
 export const metadata: Metadata = {
-  title: "AI Spreadsheet Workflows for Finance and Operations",
-  description:
-    "RowsnColumns AI helps finance and operations teams plan, edit, verify, and ship spreadsheet workflows with full audit trails.",
+  title: homeTitle,
+  description: homeDescription,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: homeTitle,
+    description: homeDescription,
+    url: "/",
+    type: "website",
+    images: [
+      {
+        url: "/demo-img.jpg",
+        width: 2200,
+        height: 1400,
+        alt: "RowsnColumns AI workflow preview inside a spreadsheet",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: homeTitle,
+    description: homeDescription,
+    images: ["/demo-img.jpg"],
+  },
 };
 
 function WorkflowPreviewCard() {
@@ -343,6 +413,104 @@ export default async function Home() {
         </div>
       </section>
 
+      <section
+        id="collaboration"
+        className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12"
+      >
+        <div className="mx-auto max-w-7xl">
+          <Card className="overflow-hidden border-black/10 bg-[linear-gradient(135deg,#111827_0%,#1f2937_55%,#2f1f1a_100%)] text-white shadow-[0_30px_80px_rgba(17,24,39,0.24)]">
+            <div className="grid gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[1.05fr_0.95fr] lg:p-10">
+              <div>
+                <Badge className="border-0 bg-white/10 text-white">
+                  Collaboration
+                </Badge>
+                <h2 className="display-font mt-4 text-2xl font-semibold tracking-[-0.04em] sm:mt-5 sm:text-4xl md:text-5xl">
+                  Share with your team and collaborate in real time.
+                </h2>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-white/74 sm:mt-4 sm:text-lg sm:leading-8">
+                  Start in your own workspace, send a share link, and keep
+                  everyone working from the same live workbook instead of
+                  passing files back and forth.
+                </p>
+
+                <div className="mt-6 space-y-3 sm:mt-7 sm:space-y-4">
+                  {collaborationCapabilities.map((item) => (
+                    <div
+                      key={item}
+                      className="rounded-xl border border-white/10 bg-white/6 px-4 py-3"
+                    >
+                      <p className="text-sm leading-6 text-white/82 sm:text-base">
+                        {item}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:gap-5">
+                <div className="rounded-[18px] border border-white/10 bg-white/6 p-4 sm:p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ffd7c8]">
+                    Live Session
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {[
+                      ["Vinay", "Owner", "Reviewing forecast assumptions"],
+                      ["Aisha", "Finance", "Updating ARR bridge inputs"],
+                      ["Ravi", "Ops", "Checking handoff notes"],
+                    ].map(([name, role, status]) => (
+                      <div
+                        key={name}
+                        className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-[#1f2937]/70 px-3 py-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            {name}
+                          </p>
+                          <p className="text-xs uppercase tracking-[0.12em] text-white/58">
+                            {role}
+                          </p>
+                        </div>
+                        <p className="max-w-[180px] text-right text-xs leading-5 text-white/72">
+                          {status}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,109,52,0.24),rgba(255,109,52,0.1))] p-4 sm:p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#ffd7c8]">
+                    Collaboration Guardrails
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {collaborationGuardrails.map((item) => (
+                      <p
+                        key={item}
+                        className="rounded-lg border border-white/12 bg-[#1f2937]/45 px-3 py-2 text-xs leading-5 text-white/82"
+                      >
+                        {item}
+                      </p>
+                    ))}
+                  </div>
+                  <div className="mt-4">
+                    <AuthModalTrigger
+                      triggerText="Start collaborative workspace"
+                      mobileTriggerText="Start collaboration"
+                      authenticatedTriggerText="Open collaborative workspace"
+                      mobileAuthenticatedTriggerText="Open workspace"
+                      initialIsAuthenticated={initialIsAuthenticated}
+                      triggerVariant="hero"
+                      redirectTo="/doc"
+                      className="h-11 w-full rounded-lg bg-white px-4 text-sm font-semibold text-black shadow-[0_12px_28px_rgba(0,0,0,0.22)] hover:opacity-90"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </section>
+
       <section id="workflows" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto grid max-w-7xl items-stretch gap-5 sm:gap-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
           <Card className="h-full overflow-hidden border-black/5 bg-[linear-gradient(180deg,#121722_0%,#1b2230_100%)] text-white">
@@ -403,6 +571,114 @@ export default async function Home() {
         </div>
       </section>
 
+      <section id="proof" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
+        <div className="mx-auto max-w-7xl">
+          <Card className="relative overflow-hidden border-black/10 bg-[linear-gradient(140deg,#111827_0%,#1f2937_45%,#2d1f1a_100%)] text-white shadow-[0_36px_90px_rgba(17,24,39,0.26)]">
+            <div className="pointer-events-none absolute -left-16 top-1/4 h-44 w-44 rounded-full bg-[rgba(255,109,52,0.18)] blur-3xl" />
+            <div className="pointer-events-none absolute -right-12 top-0 h-52 w-52 rounded-full bg-[rgba(143,216,184,0.12)] blur-3xl" />
+            <CardContent className="relative grid gap-7 p-5 sm:gap-8 sm:p-8 lg:p-10">
+              <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-end">
+                <div>
+                  <Badge className="border-0 bg-white/10 text-white">
+                    Benchmark Protocol
+                  </Badge>
+                  <h2 className="display-font mt-4 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl md:text-5xl">
+                    Benchmark method behind the performance claims.
+                  </h2>
+                  <p className="mt-4 max-w-2xl text-base leading-7 text-white/76 sm:text-lg sm:leading-8">
+                    Every metric is produced from a repeatable runbook: the same
+                    workflow is measured manually, then executed with
+                    RowsnColumns AI under validation and audit controls.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {proofMetricDefinitions.map((item) => (
+                    <div
+                      key={item.metric}
+                      className="rounded-2xl border border-white/12 bg-white/6 px-4 py-4 sm:px-5"
+                    >
+                      <p className="display-font text-3xl text-[#ffd7c8] sm:text-4xl">
+                        {item.metric}
+                      </p>
+                      <p className="mt-1.5 text-xs leading-5 text-white/72 sm:text-sm sm:leading-6">
+                        {item.detail}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-5 sm:gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="rounded-[20px] border border-white/10 bg-white/6 p-4 sm:p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <Badge className="border-0 bg-white/10 text-white">
+                      Method Snapshot
+                    </Badge>
+                    <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#ffb394] sm:text-xs">
+                      04 stages
+                    </span>
+                  </div>
+                  <h3 className="display-font mt-3 text-xl sm:text-2xl">
+                    How each benchmark run is evaluated
+                  </h3>
+                  <div className="mt-5 space-y-3 sm:space-y-4">
+                    {proofMethodSteps.map((item, index) => (
+                      <div
+                        key={item.label}
+                        className="rounded-xl border border-white/10 bg-[#1f2937]/70 px-3 py-3 sm:px-4 sm:py-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#ffb394]/45 bg-[#ff6d34]/24 font-mono text-[11px] text-[#ffd7c8] sm:h-8 sm:w-8 sm:text-xs">
+                            0{index + 1}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-white sm:text-base">
+                              {item.label}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-white/72 sm:text-sm sm:leading-6">
+                              {item.detail}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-5 sm:gap-6">
+                  <div className="rounded-[20px] border border-white/10 bg-white/6 p-4 sm:p-6">
+                    <Badge className="border-0 bg-white/10 text-white">
+                      Evidence Controls
+                    </Badge>
+                    <div className="mt-4 space-y-3">
+                      {proofEvidenceControls.map((item) => (
+                        <div
+                          key={item}
+                          className="rounded-xl border border-white/10 bg-[#1f2937]/70 p-4"
+                        >
+                          <p className="text-sm leading-6 text-white/78">
+                            {item}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[20px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,109,52,0.24),rgba(255,109,52,0.1))] p-4 sm:p-6">
+                    <p className="text-sm leading-6 text-white/82 sm:text-base sm:leading-7">
+                      Benchmarks are run on recurring finance and operations
+                      workflows in controlled pilot workspaces. Results vary by
+                      workbook complexity, source quality, and review policy.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
       <section id="security" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <Card className="overflow-hidden bg-[linear-gradient(135deg,#131822_0%,#1b2230_100%)] text-white">
@@ -415,40 +691,44 @@ export default async function Home() {
                   Enterprise controls without enterprise drag.
                 </h2>
                 <p className="mt-3 max-w-xl text-base leading-7 text-white/72 sm:mt-5 sm:text-lg sm:leading-8">
-                  Keep sensitive spreadsheet work inside governed workflows with
-                  clear approvals, auditable changes, and private workspace
-                  memory.
+                  Keep sensitive spreadsheet work inside authenticated workflows
+                  with auditable changes, owner-managed sharing, and documented
+                  security controls.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Badge className="border-0 bg-white/10 text-white">
-                    SOC 2-ready workflows
+                    Encrypted in transit
                   </Badge>
                   <Badge className="border-0 bg-white/10 text-white">
-                    Role-based approvals
+                    Owner-controlled sharing
                   </Badge>
                   <Badge className="border-0 bg-white/10 text-white">
-                    Zero-retention options
+                    Configurable retention policies
                   </Badge>
                 </div>
+                <p className="mt-4 text-xs leading-6 text-white/60 sm:text-sm">
+                  Designed to support SOC 2 control mapping; certification and
+                  scope depend on your organizational controls and deployment.
+                </p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
                   [
-                    "Approval gates",
-                    "Require human confirmation before any critical write or export event.",
+                    "Authenticated access",
+                    "Signed-in users access documents through owner permission checks and share-token validation.",
                   ],
                   [
                     "Complete traceability",
                     "Track prompts, cell edits, formulas, and published artifacts across each run.",
                   ],
                   [
-                    "Private knowledge",
-                    "Keep reusable playbooks attached to the workspace they belong to.",
+                    "Workspace boundaries",
+                    "Keep reusable playbooks and workbook operations scoped to the workspace they belong to.",
                   ],
                   [
-                    "Controlled rollout",
-                    "Ship workflows gradually with team-level permissions and review states.",
+                    "Retention governance",
+                    "Apply retention and deletion rules based on legal, operational, and customer requirements.",
                   ],
                 ].map(([title, copy]) => (
                   <div
@@ -497,32 +777,22 @@ export default async function Home() {
                   <p>Shared templates and audit trails</p>
                   <p>Admin controls and approval gates</p>
                 </div>
-                <Button className="mt-5 w-full sm:mt-6">Start Pilot</Button>
+                <Button
+                  className="mt-5 w-full cursor-not-allowed opacity-90 sm:mt-6"
+                  type="button"
+                  disabled
+                  aria-label="Pilot pricing enrollment coming soon"
+                  title="Pilot enrollment coming soon"
+                >
+                  Pilot enrollment coming soon
+                </Button>
               </div>
             </div>
           </Card>
         </div>
       </section>
 
-      <footer className="px-4 pb-8 pt-4 sm:px-8 sm:pb-10 lg:px-12">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 rounded-[14px] border border-[var(--card-border)] bg-[var(--card-bg)] px-4 py-4 text-xs text-[var(--muted-foreground)] sm:gap-4 sm:rounded-[18px] sm:px-6 sm:py-5 sm:text-sm md:flex-row md:items-center md:justify-between">
-          <p>
-            RowsnColumns AI. Built for spreadsheet-native teams that need speed
-            with control.
-          </p>
-          <div className="flex flex-wrap gap-3 sm:gap-4">
-            {siteNavigation.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                className="hover:text-[var(--foreground)]"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

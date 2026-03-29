@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --experimental-https",
     "dev:http": "next dev",
-    "build": "next build --webpack && npm run postbuild",
+    "build": "next build --webpack",
     "postbuild": "npm run mcp:build-widget && cp -r fonts .next/server/fonts || true",
     "start": "next start",
     "chat:render": "tsx render-chat-server-entry.ts",

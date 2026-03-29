@@ -12,7 +12,6 @@ import {
   THEME_COOKIE,
 } from "@/lib/theme-preference";
 import { PostHogProvider } from "@/lib/analytics/posthog-client";
-import { PostHogIdentify } from "@/components/posthog-identify";
 import "./globals.css";
 
 const fontBody = Plus_Jakarta_Sans({
@@ -32,6 +31,7 @@ const fontMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://rowsncolumns.ai"),
   title: {
     default: "RowsnColumns AI",
     template: "%s | RowsnColumns AI",
@@ -39,6 +39,32 @@ export const metadata: Metadata = {
   description:
     "RowsnColumns AI turns spreadsheet work into auditable, production-grade workflows for finance and operations teams.",
   applicationName: "RowsnColumns AI",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: "RowsnColumns AI",
+    title: "RowsnColumns AI",
+    description:
+      "RowsnColumns AI turns spreadsheet work into auditable, production-grade workflows for finance and operations teams.",
+    images: [
+      {
+        url: "/demo-img.jpg",
+        width: 2200,
+        height: 1400,
+        alt: "RowsnColumns AI workflow preview inside a spreadsheet",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "RowsnColumns AI",
+    description:
+      "RowsnColumns AI turns spreadsheet work into auditable, production-grade workflows for finance and operations teams.",
+    images: ["/demo-img.jpg"],
+  },
   manifest: "/site.webmanifest",
   icons: {
     apple: [
@@ -81,7 +107,6 @@ export default async function RootLayout({
         }`}
       >
         <PostHogProvider>
-          <PostHogIdentify />
           {children}
         </PostHogProvider>
       </body>

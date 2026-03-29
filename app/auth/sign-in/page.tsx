@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { siteNavigation } from "@/components/site-navigation";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -81,10 +81,16 @@ export default async function SignInPage({
             </div>
 
             <div className="mt-6">
-              <SignInSubmitButton provider="google" callbackPath={callbackURL} />
+              <SignInSubmitButton
+                provider="google"
+                callbackPath={callbackURL}
+              />
             </div>
             <div className="mt-3">
-              <SignInSubmitButton provider="github" callbackPath={callbackURL} />
+              <SignInSubmitButton
+                provider="github"
+                callbackPath={callbackURL}
+              />
             </div>
 
             {error ? (
@@ -96,25 +102,7 @@ export default async function SignInPage({
         </div>
       </section>
 
-      <footer className="px-5 pb-10 pt-4 sm:px-8 lg:px-12">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 rounded-[18px] border border-(--card-border) bg-(--card-bg) px-6 py-5 text-sm text-(--muted-foreground) md:flex-row md:items-center md:justify-between">
-          <p>
-            RowsnColumns AI. Built for spreadsheet-native teams that need speed
-            with control.
-          </p>
-          <div className="flex flex-wrap gap-4">
-            {siteNavigation.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                className="hover:text-foreground"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

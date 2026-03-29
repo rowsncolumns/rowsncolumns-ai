@@ -1,20 +1,51 @@
 "use client";
 
-import posthog from "posthog-js";
-import { PostHogProvider as PHProvider } from "posthog-js/react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
-// PostHog is initialized in instrumentation-client.ts
-// This provider just wraps children with the React context
+type PostHogClient = {
+  capture: (eventName: string, properties?: Record<string, unknown>) => void;
+  identify: (userId: string, properties?: Record<string, unknown>) => void;
+  reset: () => void;
+};
+
+let postHogPromise: Promise<PostHogClient> | null = null;
+
+const loadPostHog = (): Promise<PostHogClient> => {
+  if (!postHogPromise) {
+    postHogPromise = import("posthog-js").then(
+      (module) => module.default as unknown as PostHogClient,
+    );
+  }
+  return postHogPromise;
+};
+
+// PostHog is initialized in instrumentation-client.ts.
+// Keep provider as a no-op so analytics does not inflate first-load JS.
 
 export const PostHogProvider = ({ children }: { children: ReactNode }) => {
-  return <PHProvider client={posthog}>{children}</PHProvider>;
+  return <>{children}</>;
 };
 
 // --- Client-side tracking hooks ---
 
 export const usePostHog = () => {
-  return posthog;
+  const [client, setClient] = useState<PostHogClient | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void loadPostHog().then((instance) => {
+      if (mounted) {
+        setClient(instance);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return client;
 };
 
 // --- Convenience tracking functions ---
@@ -23,17 +54,21 @@ export const trackEvent = (
   eventName: string,
   properties?: Record<string, unknown>,
 ) => {
-  posthog.capture(eventName, properties);
+  void loadPostHog().then((posthog) => {
+    posthog.capture(eventName, properties);
+  });
 };
 
 export const trackPageView = (
   pageName: string,
   properties?: Record<string, unknown>,
 ) => {
-  posthog.capture("$pageview", {
-    $current_url: typeof window !== "undefined" ? window.location.href : "",
-    page_name: pageName,
-    ...properties,
+  void loadPostHog().then((posthog) => {
+    posthog.capture("$pageview", {
+      $current_url: typeof window !== "undefined" ? window.location.href : "",
+      page_name: pageName,
+      ...properties,
+    });
   });
 };
 
@@ -41,11 +76,15 @@ export const identifyUser = (
   userId: string,
   properties?: Record<string, unknown>,
 ) => {
-  posthog.identify(userId, properties);
+  void loadPostHog().then((posthog) => {
+    posthog.identify(userId, properties);
+  });
 };
 
 export const resetUser = () => {
-  posthog.reset();
+  void loadPostHog().then((posthog) => {
+    posthog.reset();
+  });
 };
 
 // --- Spreadsheet-specific tracking ---
@@ -60,7 +99,9 @@ export const trackSpreadsheetAction = (
     [key: string]: unknown;
   },
 ) => {
-  posthog.capture(`spreadsheet_${action}`, properties);
+  void loadPostHog().then((posthog) => {
+    posthog.capture(`spreadsheet_${action}`, properties);
+  });
 };
 
 export const trackChatInteraction = (
@@ -72,5 +113,7 @@ export const trackChatInteraction = (
     [key: string]: unknown;
   },
 ) => {
-  posthog.capture(`chat_${action}`, properties);
+  void loadPostHog().then((posthog) => {
+    posthog.capture(`chat_${action}`, properties);
+  });
 };

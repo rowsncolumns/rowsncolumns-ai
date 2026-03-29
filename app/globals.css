@@ -212,8 +212,8 @@ body.rnc-dark .rnc-site-header-logo {
   }
 }
 
-@media (min-width: 768px) {
-  .rnc-menu-toggle.md\:hidden {
+@media (min-width: 1024px) {
+  .rnc-menu-toggle {
     display: none;
   }
 }

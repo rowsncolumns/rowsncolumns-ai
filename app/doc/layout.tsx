@@ -1,5 +1,6 @@
 import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
 import type { Metadata } from "next";
+import { PostHogIdentify } from "@/components/posthog-identify";
 
 import { NewBodyClass } from "./body-class";
 
@@ -20,6 +21,7 @@ export default function NewLayout({
 }>) {
   return (
     <div className="flex min-h-full max-h-full flex-1 flex-col">
+      <PostHogIdentify />
       <NewBodyClass />
       {children}
     </div>

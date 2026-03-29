@@ -58,8 +58,7 @@ export function AuthModalTrigger({
   const { data: sessionData, isPending: isSessionPending } =
     authClient.useSession();
   const isAuthenticated =
-    Boolean(sessionData?.user) ||
-    (isSessionPending && initialIsAuthenticated);
+    Boolean(sessionData?.user) || (isSessionPending && initialIsAuthenticated);
 
   const resolvedTriggerText =
     isAuthenticated && authenticatedTriggerText
@@ -68,7 +67,7 @@ export function AuthModalTrigger({
   const resolvedMobileTriggerText =
     isAuthenticated && mobileAuthenticatedTriggerText
       ? mobileAuthenticatedTriggerText
-      : mobileTriggerText ?? resolvedTriggerText;
+      : (mobileTriggerText ?? resolvedTriggerText);
   const [open, setOpen] = useState(false);
   const [loadingProvider, setLoadingProvider] = useState<SocialProvider | null>(
     null,
@@ -217,7 +216,9 @@ export function AuthModalTrigger({
         </button>
       )}
 
-      {typeof document !== "undefined" ? createPortal(modal, document.body) : null}
+      {typeof document !== "undefined"
+        ? createPortal(modal, document.body)
+        : null}
     </>
   );
 }
