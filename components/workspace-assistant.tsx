@@ -5796,7 +5796,10 @@ function WorkspaceAssistantPanel({
                     panelImageDrop={panelImageDrop}
                     onPanelImageDropHandled={handlePanelImageDropHandled}
                   />
-                  <ThreadPrimitive.If empty>
+                  {isThreadEmpty &&
+                  !isHydratingSession &&
+                  !isRestoringSessionFromPicker &&
+                  !isResumingRun ? (
                     <div className="gap-2 flex flex-wrap flex-row min-w-0 items-center justify-center">
                       <TooltipProvider delayDuration={200}>
                         {prompts.map((prompt) => (
@@ -5827,7 +5830,7 @@ function WorkspaceAssistantPanel({
                         ))}
                       </TooltipProvider>
                     </div>
-                  </ThreadPrimitive.If>
+                  ) : null}
                 </div>
               </div>
               {(isHydratingSession || isRestoringSessionFromPicker) && (
