@@ -14,6 +14,7 @@ export const siteNavigation: NavigationItem[] = [
 export const authenticatedSiteNavigation: NavigationItem[] = [
   { label: "My Sheets", href: "/sheets" },
   { label: "Settings", href: "/account/settings" },
+  { label: "Contact", href: "/contact" },
 ];
 
 export const legalNavigation = [
