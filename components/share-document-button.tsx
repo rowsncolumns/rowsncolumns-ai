@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, Copy, Link2, Loader2, X } from "lucide-react";
+import { Check, Copy, Link2, Loader2, Share2, X } from "lucide-react";
 import { ToolbarIconButton } from "@rowsncolumns/spreadsheet";
 import { createPortal } from "react-dom";
 
@@ -26,8 +26,13 @@ export function ShareDocumentButton({
   const [shareUrl, setShareUrl] = React.useState("");
   const [error, setError] = React.useState("");
   const [copied, setCopied] = React.useState(false);
+  const [canNativeShare, setCanNativeShare] = React.useState(false);
 
   const copiedTimeoutRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    setCanNativeShare(typeof navigator !== "undefined" && "share" in navigator);
+  }, []);
 
   React.useEffect(() => {
     return () => {
@@ -107,6 +112,32 @@ export function ShareDocumentButton({
       setError("Could not copy link. Please copy it manually.");
     }
   }, [markCopied, shareUrl]);
+
+  const handleNativeShare = React.useCallback(async () => {
+    if (
+      !shareUrl ||
+      typeof navigator === "undefined" ||
+      !("share" in navigator)
+    ) {
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: "Share document",
+        text: "Open this document:",
+        url: shareUrl,
+      });
+    } catch (errorValue) {
+      if (
+        errorValue instanceof DOMException &&
+        errorValue.name === "AbortError"
+      ) {
+        return;
+      }
+      setError("Could not open native share. Please copy the link instead.");
+    }
+  }, [shareUrl]);
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -192,22 +223,25 @@ export function ShareDocumentButton({
                           type="button"
                           size="sm"
                           variant="secondary"
-                          onClick={() => void createShareLink()}
-                          disabled={isLoading}
+                          onClick={() => setIsOpen(false)}
                           className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
                         >
-                          Regenerate
+                          Done
                         </Button>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setIsOpen(false)}
-                            className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
-                          >
-                            Done
-                          </Button>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {canNativeShare ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void handleNativeShare()}
+                              disabled={!shareUrl || isLoading}
+                              className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
+                            >
+                              <Share2 className="h-3.5 w-3.5" />
+                              Share link
+                            </Button>
+                          ) : null}
                           <Button
                             type="button"
                             size="sm"
