@@ -175,7 +175,10 @@ const CellDataSchema = z
     ),
   })
   .strict()
-  .describe("A single cell's data with optional value, formula, and citation");
+  .describe(
+    "A single cell's data with optional value, formula, citation, and cellStyles. " +
+      'Example: {"value":"Header","cellStyles":{"textFormat":{"bold":true}}}',
+  );
 
 export type CellData = z.infer<typeof CellDataSchema>;
 
@@ -190,7 +193,8 @@ export const SpreadsheetChangeBatchSchema = z.object({
       z.string().describe("JSON string representation of 2D cell array"),
     ])
     .describe(
-      "2D array of CellData objects. Each cell can have 'value' (string/number/boolean), 'formula' (string starting with =), and optional 'citation'/'cellStyles'",
+      "2D array of CellData objects. Each cell can have 'value' (string/number/boolean), 'formula' (string starting with =), and optional 'citation'/'cellStyles'. " +
+        'Example cell with style: {"value":"Revenue","cellStyles":{"numberFormat":{"type":"CURRENCY","pattern":"$#,##0.00"}}}',
     ),
   ...ToolExplanationSchemaShape,
 });

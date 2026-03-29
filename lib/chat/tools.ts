@@ -490,6 +490,13 @@ Example 6 — Write values with formatting in the same changeBatch:
   cells: [
     [{"value": "Header", "cellStyles": {"textFormat": {"bold": true}}}, {"value": "Amount", "cellStyles": {"textFormat": {"bold": true}}}],
     [{"value": "Revenue"}, {"value": 1200000, "cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0.00"}}}]
+  ]
+
+Example 7 — Formula + citation + cellStyles in one payload:
+  range: "A1:C2"
+  cells: [
+    [{"value": "Item", "cellStyles": {"textFormat": {"bold": true}}}, {"value": "Qty", "cellStyles": {"textFormat": {"bold": true}}}, {"value": "Total", "cellStyles": {"textFormat": {"bold": true}}}],
+    [{"value": "Apples", "citation": "https://example.com/report?excerpt=Apples"}, {"value": 10}, {"formula": "=B2*2", "cellStyles": {"backgroundColor": "#FFF7E6"}}]
   ]`,
   schema: SpreadsheetChangeBatchSchema,
 });
