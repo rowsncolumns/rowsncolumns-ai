@@ -2109,7 +2109,7 @@ export function NewWorkspace({
                     Sheet
                   </TabsTrigger>
                 </TabsList>
-                <div className="relative mt-2 min-h-0 flex-1">
+                <div className="relative mt-2 min-h-0 flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]">
                   <TabsContent
                     value="chat"
                     forceMount
