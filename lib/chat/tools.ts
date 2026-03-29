@@ -429,7 +429,7 @@ CRITICAL RULES:
 8. Prefer formulas over hardcoded derived values when references are available.
 9. For sequences (numbers/dates/months), write 1-2 seed cells with changeBatch, then extend with spreadsheet_applyFill.
 10. Citations: use the 'citation' field with a 'value' or 'formula' (URL with optional 'excerpt' query param).
-11. To display a formula as plain text, write it in 'value' with a leading apostrophe (example: {"value": "'=SUM(4,4)"}).
+11. To keep a value as plain text when it starts with '=', '+', or '-', write it in 'value' with a leading apostrophe (examples: {"value": "'=SUM(4,4)"}, {"value": "'+15551234567"}, {"value": "'-SKU-001"}).
 
 EXAMPLES:
 
