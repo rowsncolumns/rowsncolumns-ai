@@ -16,12 +16,12 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <main className="relative ">
+    <main className="relative overflow-hidden">
       <div className="absolute inset-x-0 top-0 -z-10 h-[38rem] bg-[radial-gradient(circle_at_top,rgba(255,109,52,0.22),transparent_42%)]" />
 
       <section className="px-5 pb-12 pt-5 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
-          <Card className="hero-grid  bg-[var(--card-bg)]">
+          <Card className="hero-grid overflow-hidden bg-[var(--card-bg)]">
             <div className="p-4 sm:p-6">
               <SiteHeader />
             </div>
@@ -73,11 +73,10 @@ export default function PrivacyPage() {
                   3. Purposes of Processing
                 </h2>
                 <p className="mt-2">
-                  We process data to provide and secure the service,
-                  authenticate users, execute spreadsheet workflows, maintain
-                  auditability, prevent abuse, support billing and service
-                  operations, and improve reliability. We do not sell personal
-                  data.
+                  We process data to provide and secure the service, authenticate
+                  users, execute spreadsheet workflows, maintain auditability,
+                  prevent abuse, support billing and service operations, and
+                  improve reliability. We do not sell personal data.
                 </p>
               </section>
 
@@ -88,8 +87,8 @@ export default function PrivacyPage() {
                 <p className="mt-2">
                   Depending on jurisdiction, our lawful bases may include
                   performance of a contract, legitimate interests (for security
-                  and service operations), compliance with legal obligations,
-                  and consent where required.
+                  and service operations), compliance with legal obligations, and
+                  consent where required.
                 </p>
               </section>
 
@@ -138,9 +137,8 @@ export default function PrivacyPage() {
                   8. International Data Transfers
                 </h2>
                 <p className="mt-2">
-                  If data is transferred across borders, we use appropriate
-                  legal and contractual mechanisms required by applicable
-                  privacy laws.
+                  If data is transferred across borders, we use appropriate legal
+                  and contractual mechanisms required by applicable privacy laws.
                 </p>
               </section>
 
@@ -174,8 +172,8 @@ export default function PrivacyPage() {
                 </h2>
                 <p className="mt-2">
                   We may revise this Policy from time to time. Material updates
-                  will be reflected by the &quot;Last updated&quot; date and,
-                  where required, additional notice.
+                  will be reflected by the &quot;Last updated&quot; date and, where required,
+                  additional notice.
                 </p>
               </section>
 

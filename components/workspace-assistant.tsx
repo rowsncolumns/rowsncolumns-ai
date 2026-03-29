@@ -2437,7 +2437,7 @@ function ReasoningBlock({
           }`}
         />
       </Collapsible.Trigger>
-      <Collapsible.Content className=" data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
+      <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
         {children}
       </Collapsible.Content>
     </Collapsible.Root>
@@ -2465,7 +2465,7 @@ function AssistantTextPart() {
   return (
     <Card className="rnc-assistant-bubble-ai w-fit max-w-[92%] border-black/10 bg-[#fff7f1]">
       <CardContent className="py-2 px-3">
-        <div className="prose text-sm text-foreground ">
+        <div className="prose text-sm text-foreground overflow-hidden">
           <MarkdownText />
         </div>
       </CardContent>
@@ -2996,7 +2996,7 @@ function ToolCallDisplay({
           )}
         </div>
       </Collapsible.Trigger>
-      <Collapsible.Content className=" data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
+      <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
         {explanation && (
           <div className="mt-1.5 rounded-md border border-(--panel-border) bg-(--assistant-suggestion-bg) px-2 py-1.5">
             <p className="text-xs leading-relaxed text-foreground">
@@ -3366,7 +3366,7 @@ function AssistantMessageBody() {
         {role === "assistant" && showTypingIndicatorBeforeText && (
           <Card className="rnc-assistant-bubble-ai w-fit border-black/10 bg-[#fff7f1]">
             <CardContent className="py-2 px-3">
-              <div className="prose text-sm text-foreground ">
+              <div className="prose text-sm text-foreground overflow-hidden">
                 <TypingIndicator />
               </div>
             </CardContent>
@@ -3963,7 +3963,7 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
                   }
                 }}
               >
-                <div className="mx-auto flex h-full max-h-[900px] w-full max-w-6xl flex-col  rounded-2xl border border-(--card-border) bg-(--card-bg-solid) shadow-xl">
+                <div className="mx-auto flex h-full max-h-[900px] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-(--card-border) bg-(--card-bg-solid) shadow-xl">
                   <div className="flex items-start justify-between border-b border-(--card-border) px-5 py-4">
                     <div>
                       <h3 className="text-xl font-semibold">Skills</h3>
@@ -4148,7 +4148,7 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
                         </span>
                       </div>
 
-                      <div className="min-h-0 flex-1  p-4">
+                      <div className="min-h-0 flex-1 overflow-hidden p-4">
                         <Card className="mx-auto flex h-full w-full max-w-3xl flex-col border-(--card-border) bg-(--card-bg-solid) shadow-none">
                           <CardContent className="flex min-h-0 flex-1 flex-col p-0">
                             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -5014,7 +5014,7 @@ function AssistantComposer({
       onDragLeave={handleComposerDragLeave}
       onDrop={handleComposerDrop}
       className={cn(
-        "rnc-assistant-composer  rounded-2xl border border-black/10 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]",
+        "rnc-assistant-composer overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]",
         isDragActive &&
           "border-(--accent) ring-2 ring-(--accent)/30 ring-offset-0",
       )}
@@ -5115,7 +5115,7 @@ function AssistantComposer({
                       )}
                       %
                     </span>
-                    <div className="absolute inset-x-1 bottom-1 h-1  rounded-full bg-white/30">
+                    <div className="absolute inset-x-1 bottom-1 h-1 overflow-hidden rounded-full bg-white/30">
                       <div
                         className="h-full rounded-full bg-white transition-[width] duration-150 ease-out"
                         style={{
@@ -5728,7 +5728,7 @@ function WorkspaceAssistantPanel({
       onDragLeave={handlePanelDragLeave}
       onDrop={handlePanelDrop}
       className={cn(
-        "rnc-assistant-panel relative flex h-full min-h-128 flex-col  rounded-lg border-(--card-border) bg-(--assistant-panel-bg) transition-colors",
+        "rnc-assistant-panel relative flex h-full min-h-128 flex-col overflow-hidden rounded-lg border-(--card-border) bg-(--assistant-panel-bg) transition-colors",
         isPanelImageDragActive &&
           "border-(--accent) ring-2 ring-(--accent)/35 ring-offset-0",
       )}
@@ -5897,7 +5897,7 @@ function WorkspaceAssistantPanel({
                                 )}
                               >
                                 <span
-                                  className="block  overflow-hidden"
+                                  className="block overflow-hidden"
                                   style={{
                                     display: "-webkit-box",
                                     WebkitLineClamp: 3,

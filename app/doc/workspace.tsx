@@ -1937,7 +1937,7 @@ export function SpreadsheetOnlyWorkspace({
   currency,
 }: SpreadsheetOnlyWorkspaceProps) {
   return (
-    <main className="flex min-h-[100svh] w-full flex-col  sm:min-h-dvh">
+    <main className="flex min-h-[100svh] w-full flex-col overflow-x-hidden sm:min-h-dvh">
       <SpreadsheetProvider>
         <div className="min-h-0 flex-1 flex flex-col">
           <SpreadsheetPane
@@ -2068,7 +2068,7 @@ export function NewWorkspace({
 
   return (
     <AssistantRuntimeProvider runtime={assistantRuntime.runtime}>
-      <main className="flex min-h-[100svh] w-full flex-col px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:min-h-dvh sm:px-5 sm:pt-5 sm:pb-5">
+      <main className="flex min-h-[100svh] w-full flex-col overflow-x-hidden px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:min-h-dvh sm:px-5 sm:pt-5 sm:pb-5">
         <div className="mb-4">
           <SiteHeader
             initialUser={{
@@ -2093,7 +2093,7 @@ export function NewWorkspace({
                 onValueChange={(value) =>
                   setMobileTab(value === "sheet" ? "sheet" : "chat")
                 }
-                className="flex min-h-0 flex-1 flex-col "
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
               >
                 <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-(--panel-border) bg-(--assistant-chip-bg) p-1">
                   <TabsTrigger
@@ -2109,7 +2109,7 @@ export function NewWorkspace({
                     Sheet
                   </TabsTrigger>
                 </TabsList>
-                <div className="relative mt-2 min-h-0 flex-1">
+                <div className="relative mt-2 min-h-0 flex-1 overflow-hidden">
                   <TabsContent
                     value="chat"
                     forceMount
@@ -2119,7 +2119,7 @@ export function NewWorkspace({
                         : "z-0 flex pointer-events-none select-none opacity-0"
                     }`}
                   >
-                    <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                       {assistantPane}
                     </div>
                   </TabsContent>
@@ -2132,7 +2132,7 @@ export function NewWorkspace({
                         : "z-0 flex pointer-events-none select-none opacity-0"
                     }`}
                   >
-                    <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                       {spreadsheetPane}
                     </div>
                   </TabsContent>

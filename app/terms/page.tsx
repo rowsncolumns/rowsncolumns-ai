@@ -16,12 +16,12 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <main className="relative ">
+    <main className="relative overflow-hidden">
       <div className="absolute inset-x-0 top-0 -z-10 h-[38rem] bg-[radial-gradient(circle_at_top,rgba(255,109,52,0.22),transparent_42%)]" />
 
       <section className="px-5 pb-12 pt-5 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
-          <Card className="hero-grid  bg-[var(--card-bg)]">
+          <Card className="hero-grid overflow-hidden bg-[var(--card-bg)]">
             <div className="p-4 sm:p-6">
               <SiteHeader />
             </div>
@@ -83,8 +83,8 @@ export default function TermsPage() {
                 <p className="mt-2">
                   You retain responsibility for the legality, integrity, and
                   accuracy of data submitted to the service. You are also
-                  responsible for reviewing outputs before operational,
-                  financial, legal, or regulatory use.
+                  responsible for reviewing outputs before operational, financial,
+                  legal, or regulatory use.
                 </p>
               </section>
 
@@ -95,8 +95,8 @@ export default function TermsPage() {
                 <p className="mt-2">
                   You may not use the service to violate laws, infringe rights,
                   bypass security controls, process data without authorization,
-                  reverse engineer protected components, abuse APIs, or
-                  interfere with platform stability.
+                  reverse engineer protected components, abuse APIs, or interfere
+                  with platform stability.
                 </p>
               </section>
 
@@ -140,10 +140,10 @@ export default function TermsPage() {
                   9. Disclaimers
                 </h2>
                 <p className="mt-2">
-                  The service is provided on an &quot;as is&quot; and &quot;as
-                  available&quot; basis. To the maximum extent permitted by law,
-                  we disclaim all implied warranties, including merchantability,
-                  fitness for a particular purpose, and non-infringement.
+                  The service is provided on an &quot;as is&quot; and &quot;as available&quot;
+                  basis. To the maximum extent permitted by law, we disclaim all
+                  implied warranties, including merchantability, fitness for a
+                  particular purpose, and non-infringement.
                 </p>
               </section>
 
@@ -177,11 +177,10 @@ export default function TermsPage() {
                   12. Governing Law and Disputes
                 </h2>
                 <p className="mt-2">
-                  These Terms are governed by applicable law set in your
-                  customer agreement or order form. If none is specified,
-                  disputes will be resolved in a mutually agreed competent
-                  venue, subject to mandatory consumer or local legal
-                  protections.
+                  These Terms are governed by applicable law set in your customer
+                  agreement or order form. If none is specified, disputes will be
+                  resolved in a mutually agreed competent venue, subject to
+                  mandatory consumer or local legal protections.
                 </p>
               </section>
 
