@@ -5139,18 +5139,18 @@ function AssistantComposer({
       />
       <div className="px-4 pt-4">
         <ComposerPrimitive.Input
-          rows={3}
+          asChild
           onKeyDown={handleQueueOnEnter}
           submitMode="none"
           onPaste={handleComposerInputPaste}
           addAttachmentOnPaste={false}
-          placeholder="Type to start sending a message"
-          className={cn(
-            "min-h-10 sm:min-h-14 max-h-48 w-full resize-none border-0 bg-transparent px-0 py-0 leading-6 text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0",
-            isTouchInput ? "text-base" : "text-sm",
-          )}
-          style={isTouchInput ? { fontSize: "16px" } : undefined}
-        />
+        >
+          <Textarea
+            rows={2}
+            placeholder="Type to start sending a message"
+            className="h-16 w-full resize-none border-0 bg-transparent px-0 py-0 leading-6 text-[16px] sm:text-sm text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
+          />
+        </ComposerPrimitive.Input>
       </div>
       <div
         ref={composerFooterRef}

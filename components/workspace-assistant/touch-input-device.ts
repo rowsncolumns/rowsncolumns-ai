@@ -17,9 +17,8 @@ const isTouchInputDevice = () => {
 };
 
 export const useIsTouchInputDevice = () => {
-  const [isTouch, setIsTouch] = React.useState<boolean>(() =>
-    isTouchInputDevice(),
-  );
+  // Keep initial render deterministic between SSR and hydration.
+  const [isTouch, setIsTouch] = React.useState<boolean>(false);
 
   React.useEffect(() => {
     if (
