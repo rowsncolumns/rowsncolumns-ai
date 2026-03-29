@@ -5150,7 +5150,7 @@ function AssistantComposer({
           addAttachmentOnPaste={false}
         >
           <Textarea
-            rows={2}
+            rows={3}
             placeholder="Type to start sending a message"
             className="h-16 w-full resize-none border-0 bg-transparent px-0 py-0 leading-6 text-[16px] sm:text-sm text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
           />
