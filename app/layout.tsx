@@ -51,9 +51,9 @@ export const metadata: Metadata = {
       "RowsnColumns AI turns spreadsheet work into auditable, production-grade workflows for finance and operations teams.",
     images: [
       {
-        url: "/demo-img.jpg",
-        width: 2200,
-        height: 1400,
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
         alt: "RowsnColumns AI workflow preview inside a spreadsheet",
       },
     ],
@@ -63,7 +63,7 @@ export const metadata: Metadata = {
     title: "RowsnColumns AI",
     description:
       "RowsnColumns AI turns spreadsheet work into auditable, production-grade workflows for finance and operations teams.",
-    images: ["/demo-img.jpg"],
+    images: ["/og-image.jpg"],
   },
   manifest: "/site.webmanifest",
   icons: {
