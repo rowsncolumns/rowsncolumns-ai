@@ -1,9 +1,20 @@
 import { legalNavigation, siteNavigation } from "@/components/site-navigation";
+import { cn } from "@/lib/utils";
 
-export function SiteFooter() {
+type SiteFooterProps = {
+  fullWidth?: boolean;
+};
+
+export function SiteFooter({ fullWidth = false }: SiteFooterProps) {
   return (
-    <footer className="px-5 pb-10 pt-4 sm:px-8 lg:px-12">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 rounded-[18px] border border-(--card-border) bg-(--card-bg) px-6 py-5 text-sm text-(--muted-foreground) md:flex-row md:items-center md:justify-between">
+    <footer
+      className={cn("px-5 pb-10 pt-4 sm:px-8 lg:px-12", fullWidth && "px-4")}
+    >
+      <div
+        className={`flex flex-col gap-4 rounded-[18px] border border-(--card-border) bg-(--card-bg) px-6 py-5 text-sm text-(--muted-foreground) md:flex-row md:items-center md:justify-between ${
+          fullWidth ? "w-full" : "mx-auto max-w-7xl"
+        }`}
+      >
         <p>
           RowsnColumns AI. Built for spreadsheet-native teams that need speed
           with control.

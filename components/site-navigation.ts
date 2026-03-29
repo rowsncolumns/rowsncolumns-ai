@@ -1,9 +1,20 @@
-export const siteNavigation = [
+export type NavigationItem = {
+  label: string;
+  href: string;
+};
+
+export const siteNavigation: NavigationItem[] = [
+  { label: "Sheets", href: "/sheets" },
   { label: "Platform", href: "/#platform" },
   { label: "Collaboration", href: "/#collaboration" },
   { label: "Workflows", href: "/#workflows" },
   { label: "Security", href: "/#security" },
   { label: "Pricing", href: "/#pricing" },
+];
+
+export const authenticatedSiteNavigation: NavigationItem[] = [
+  { label: "My Sheets", href: "/sheets" },
+  { label: "Settings", href: "/account/settings" },
 ];
 
 export const legalNavigation = [

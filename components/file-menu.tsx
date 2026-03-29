@@ -57,7 +57,7 @@ export function FileMenu({
       }
 
       if (typeof window !== "undefined") {
-        window.location.assign(`/doc/${newDocId}`);
+        window.location.assign(`/sheets/${newDocId}`);
       }
     });
   }, [isCreatingNewSpreadsheet, onCreateNew, startCreatingNewSpreadsheet]);

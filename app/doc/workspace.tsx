@@ -1,6 +1,7 @@
 "use client";
 
 import { functionDescriptions, functions } from "@rowsncolumns/functions";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { exportToCSV, exportToExcel } from "@rowsncolumns/toolkit";
 import type {
@@ -111,7 +112,14 @@ import {
   IconButton,
   Separator as UiSeparator,
 } from "@rowsncolumns/ui";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Group,
   Panel,
@@ -156,7 +164,8 @@ import { useShareDBSpreadsheet } from "@rowsncolumns/sharedb";
 import ShareDBClient from "sharedb/lib/client";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { selectionFromActiveCell } from "@rowsncolumns/grid";
-import { Loader2, MessageSquare } from "lucide-react";
+import { ChevronRight, Loader2, MessageSquare } from "lucide-react";
+import { toast } from "sonner";
 
 const getShareDbUrl = () => {
   const configured = process.env.NEXT_PUBLIC_SHAREDB_URL?.trim();
@@ -344,6 +353,18 @@ const pickSeededPrompts = (
 const ASSISTANT_PANEL_MIN_WIDTH = "25%";
 const ASSISTANT_PANEL_DEFAULT_WIDTH = "50%";
 const MOBILE_LAYOUT_MEDIA_QUERY = "(max-width: 767px)";
+const APP_TITLE_SUFFIX = "RowsnColumns AI";
+
+const toShortDocumentId = (documentId: string): string =>
+  documentId.slice(0, 8);
+
+const getFallbackDocumentTitle = (documentId: string): string =>
+  `Document ${toShortDocumentId(documentId)}`;
+
+type UpdateDocumentTitleResponse = {
+  title?: string;
+  error?: string;
+};
 
 const useMediaQueryMatch = (query: string, initialValue = false) => {
   const [matches, setMatches] = useState(initialValue);
@@ -950,7 +971,7 @@ function SpreadsheetPane({
           onImportCSV={handleImportCSV}
           onExportExcel={handleExportExcel}
           onExportCSV={handleExportCSV}
-          onCreateNew={(newDocId) => router.push(`/doc/${newDocId}`)}
+          onCreateNew={(newDocId) => router.push(`/sheets/${newDocId}`)}
         />
         <ToolbarSeparator />
         <ShareDocumentButton
@@ -1678,6 +1699,7 @@ function SpreadsheetPane({
 type NewWorkspaceProps = {
   defaultLayout: WorkspacePanelLayout;
   documentId: string;
+  initialDocumentTitle: string;
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
@@ -1731,6 +1753,180 @@ function CollapsedAssistantButton({
   );
 }
 
+type DocumentTitleInlineEditorProps = {
+  documentId: string;
+  initialTitle: string;
+  canEdit: boolean;
+};
+
+function DocumentTitleInlineEditor({
+  documentId,
+  initialTitle,
+  canEdit,
+}: DocumentTitleInlineEditorProps) {
+  const fallbackTitle = useMemo(
+    () => getFallbackDocumentTitle(documentId),
+    [documentId],
+  );
+  const [title, setTitle] = useState(initialTitle.trim() || fallbackTitle);
+  const [draftTitle, setDraftTitle] = useState(
+    initialTitle.trim() || fallbackTitle,
+  );
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const skipBlurSaveRef = useRef(false);
+
+  useEffect(() => {
+    const normalizedInitialTitle = initialTitle.trim() || fallbackTitle;
+    setTitle(normalizedInitialTitle);
+    setDraftTitle(normalizedInitialTitle);
+  }, [initialTitle, fallbackTitle]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.title = `${title} | ${APP_TITLE_SUFFIX}`;
+  }, [title]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [isEditing]);
+
+  const startEditing = () => {
+    if (!canEdit || isSaving) {
+      return;
+    }
+    setDraftTitle(title);
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    skipBlurSaveRef.current = true;
+    setDraftTitle(title);
+    setIsEditing(false);
+  };
+
+  const saveTitle = useCallback(async () => {
+    if (!canEdit || isSaving) {
+      return;
+    }
+
+    const normalizedTitle = draftTitle.trim() || fallbackTitle;
+    if (normalizedTitle === title) {
+      setDraftTitle(normalizedTitle);
+      setIsEditing(false);
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const response = await fetch("/api/documents/title", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          documentId,
+          title: normalizedTitle,
+        }),
+      });
+
+      const payload = (await response
+        .json()
+        .catch(() => null)) as UpdateDocumentTitleResponse | null;
+      if (!response.ok) {
+        const message = payload?.error || "Failed to update document title.";
+        throw new Error(message);
+      }
+
+      const savedTitle = payload?.title?.trim() || normalizedTitle;
+      setTitle(savedTitle);
+      setDraftTitle(savedTitle);
+      setIsEditing(false);
+      toast.success("Sheet title updated.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to update document title.";
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [canEdit, documentId, draftTitle, fallbackTitle, isSaving, title]);
+
+  return (
+    <div className="mb-2 px-1 sm:px-2">
+      <div className="flex h-11 items-center gap-1.5">
+        <Link
+          href="/sheets"
+          className="shrink-0 text-xs text-(--muted-foreground) hover:text-foreground"
+        >
+          My Sheets
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-(--muted-foreground)" />
+        {isSaving ? (
+          <Loader2
+            className="h-4 w-4 shrink-0 animate-spin text-(--muted-foreground)"
+            aria-hidden="true"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          {isEditing ? (
+            <input
+              ref={inputRef}
+              value={draftTitle}
+              onChange={(event) => setDraftTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void saveTitle();
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelEditing();
+                }
+              }}
+              onBlur={() => {
+                if (skipBlurSaveRef.current) {
+                  skipBlurSaveRef.current = false;
+                  return;
+                }
+                void saveTitle();
+              }}
+              maxLength={160}
+              disabled={isSaving}
+              className="h-9 w-full rounded-lg border border-(--panel-border) bg-(--card-bg) px-3 text-lg font-semibold text-foreground outline-none transition focus:border-orange-400 sm:text-xl"
+              aria-label="Document title"
+            />
+          ) : canEdit ? (
+            <button
+              type="button"
+              onClick={startEditing}
+              className="h-9 w-full cursor-text rounded-lg border border-transparent px-3 text-left text-lg font-semibold tracking-[-0.01em] text-foreground transition hover:border-(--panel-border) hover:text-orange-500 sm:text-xl"
+              aria-label="Edit document title"
+            >
+              <span className="block truncate">{title}</span>
+            </button>
+          ) : (
+            <h1 className="flex h-9 items-center truncate px-3 text-lg font-semibold tracking-[-0.01em] text-foreground sm:text-xl">
+              {title}
+            </h1>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SpreadsheetOnlyWorkspace({
   documentId,
   currentUser,
@@ -1760,6 +1956,7 @@ export function SpreadsheetOnlyWorkspace({
 export function NewWorkspace({
   defaultLayout,
   documentId,
+  initialDocumentTitle,
   currentUser,
   initialThemeMode,
   canManageShare,
@@ -1881,6 +2078,11 @@ export function NewWorkspace({
             }}
           />
         </div>
+        <DocumentTitleInlineEditor
+          documentId={documentId}
+          initialTitle={initialDocumentTitle}
+          canEdit={canManageShare}
+        />
 
         <SpreadsheetProvider>
           <div className="flex min-h-0 flex-1 flex-col">

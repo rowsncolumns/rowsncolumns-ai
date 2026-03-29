@@ -25,7 +25,9 @@
     "db:migrate:credits": "tsx scripts/create-credit-tables.ts",
     "db:migrate:sharedb": "tsx scripts/create-sharedb-postgres-tables.ts",
     "db:migrate:documents": "tsx scripts/create-document-ownership-table.ts",
-    "db:migrate:document-shares": "tsx scripts/create-document-share-links-table.ts"
+    "db:migrate:document-shares": "tsx scripts/create-document-share-links-table.ts",
+    "db:migrate:document-metadata": "tsx scripts/create-document-metadata-table.ts",
+    "db:migrate:document-access-grants": "tsx scripts/create-document-access-grants-table.ts"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.12.10",
@@ -74,6 +76,7 @@
     "sharedb": "^5.2.2",
     "sharedb-postgres": "^5.0.1",
     "sharp": "^0.34.5",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "vaul": "^1.1.2",
     "ws": "^8.19.0",

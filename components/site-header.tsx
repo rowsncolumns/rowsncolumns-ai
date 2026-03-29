@@ -2,6 +2,7 @@
 
 import { Menu, Moon, Sun, X } from "lucide-react";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AccountDropdown } from "@/components/account-dropdown";
@@ -18,7 +19,10 @@ import {
   getThemeModeFromBodyClass,
   toggleThemeMode,
 } from "@/lib/theme-preference";
-import { siteNavigation } from "@/components/site-navigation";
+import {
+  authenticatedSiteNavigation,
+  siteNavigation,
+} from "@/components/site-navigation";
 
 type SiteHeaderUser = {
   id?: string;
@@ -30,6 +34,27 @@ type SiteHeaderUser = {
 type SiteHeaderProps = {
   homeHref?: string;
   initialUser?: SiteHeaderUser;
+};
+
+const isNavigationItemActive = (pathname: string, href: string): boolean => {
+  if (!href.startsWith("/")) {
+    return false;
+  }
+
+  const pathOnly = href.split("#")[0] || "/";
+  if (pathOnly === "/") {
+    return pathname === "/";
+  }
+  if (pathOnly === "/sheets") {
+    return pathname === "/sheets" || pathname.startsWith("/sheets/");
+  }
+  if (pathOnly === "/account/settings") {
+    return (
+      pathname === "/account/settings" ||
+      pathname.startsWith("/account/settings/")
+    );
+  }
+  return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`);
 };
 
 function ThemeToggleButton() {
@@ -72,8 +97,10 @@ function ThemeToggleButton() {
 
 export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
   const { data: sessionData } = authClient.useSession();
+  const pathname = usePathname() ?? "/";
   const user = sessionData?.user ?? initialUser;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const navigationItems = user ? authenticatedSiteNavigation : siteNavigation;
 
   return (
     <>
@@ -99,15 +126,23 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
             <nav className="rnc-site-header-nav hidden items-center gap-1 rounded-xl p-1 lg:flex!">
-              {siteNavigation.map((item) => (
-                <a
-                  key={item.label}
-                  href={item.href}
-                  className="rnc-site-header-link rounded-lg px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] transition"
-                >
-                  {item.label}
-                </a>
-              ))}
+              {navigationItems.map((item) => {
+                const isActive = isNavigationItemActive(pathname, item.href);
+                return (
+                  <a
+                    key={item.label}
+                    href={item.href}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`rnc-site-header-link rounded-lg px-4 py-2 text-sm font-medium transition ${
+                      isActive
+                        ? "bg-[var(--nav-hover)] text-[var(--foreground)]"
+                        : "text-[var(--muted-foreground)]"
+                    }`}
+                  >
+                    {item.label}
+                  </a>
+                );
+              })}
             </nav>
 
             <ThemeToggleButton />
@@ -158,16 +193,22 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
           </DrawerHeader>
 
           <nav className="flex flex-col px-3 py-3">
-            {siteNavigation.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                className="rnc-mobile-drawer-link"
-                onClick={() => setIsDrawerOpen(false)}
-              >
-                {item.label}
-              </a>
-            ))}
+            {navigationItems.map((item) => {
+              const isActive = isNavigationItemActive(pathname, item.href);
+              return (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`rnc-mobile-drawer-link ${
+                    isActive ? "bg-[var(--nav-hover)] text-[var(--foreground)]" : ""
+                  }`}
+                  onClick={() => setIsDrawerOpen(false)}
+                >
+                  {item.label}
+                </a>
+              );
+            })}
           </nav>
         </DrawerContent>
       </Drawer>

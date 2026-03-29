@@ -12,6 +12,8 @@ import {
   THEME_COOKIE,
 } from "@/lib/theme-preference";
 import { PostHogProvider } from "@/lib/analytics/posthog-client";
+import { SonnerToaster } from "@/components/sonner-toaster";
+import "sonner/dist/styles.css";
 import "./globals.css";
 
 const fontBody = Plus_Jakarta_Sans({
@@ -150,6 +152,7 @@ export default async function RootLayout({
         />
         <PostHogProvider>
           {children}
+          <SonnerToaster />
         </PostHogProvider>
       </body>
     </html>

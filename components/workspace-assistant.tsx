@@ -255,6 +255,58 @@ const ASSISTANT_MAX_COMPOSER_IMAGES = 5;
 const ASSISTANT_CONTEXT_USAGE_STORAGE_KEY =
   "rnc.ai.workspace-assistant.context-usage-v1";
 
+const getPersistedModel = (): string => {
+  if (typeof window === "undefined") {
+    return DEFAULT_MODEL;
+  }
+
+  try {
+    const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY)?.trim();
+    if (storedModel && MODEL_OPTION_VALUES.has(storedModel)) {
+      return storedModel;
+    }
+  } catch {
+    // Ignore localStorage read failures
+  }
+
+  return DEFAULT_MODEL;
+};
+
+const getPersistedMode = (): AssistantMode => {
+  if (typeof window === "undefined") {
+    return DEFAULT_MODE;
+  }
+
+  try {
+    const storedMode = window.localStorage.getItem(MODE_STORAGE_KEY)?.trim();
+    if (storedMode && MODE_OPTION_VALUES.has(storedMode as AssistantMode)) {
+      return storedMode as AssistantMode;
+    }
+  } catch {
+    // Ignore localStorage read failures
+  }
+
+  return DEFAULT_MODE;
+};
+
+const getPersistedReasoningEnabled = (): boolean => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    const storedReasoningEnabled = window.localStorage
+      .getItem(REASONING_STORAGE_KEY)
+      ?.trim()
+      .toLowerCase();
+    return storedReasoningEnabled === "true" || storedReasoningEnabled === "1";
+  } catch {
+    // Ignore localStorage read failures
+  }
+
+  return false;
+};
+
 type ChatImageInput = {
   url: string;
   filename?: string;
@@ -1249,12 +1301,14 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   } = useThreadIdFromUrl();
 
   const [selectedModel, setSelectedModel] =
-    React.useState<string>(DEFAULT_MODEL);
+    React.useState<string>(getPersistedModel);
   const [selectedMode, setSelectedMode] =
-    React.useState<AssistantMode>(DEFAULT_MODE);
+    React.useState<AssistantMode>(getPersistedMode);
   const [isModelPickerOpen, setIsModelPickerOpen] = React.useState(false);
   const [isModePickerOpen, setIsModePickerOpen] = React.useState(false);
-  const [reasoningEnabled, setReasoningEnabled] = React.useState(false);
+  const [reasoningEnabled, setReasoningEnabled] = React.useState(
+    getPersistedReasoningEnabled,
+  );
   const [contextUsageByThread, setContextUsageByThread] =
     React.useState<AssistantContextUsageByThread>({});
   const hasHydratedContextUsageRef = React.useRef(false);
@@ -1272,42 +1326,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   React.useEffect(() => {
     try {
-      const storedModel = window.localStorage
-        .getItem(MODEL_STORAGE_KEY)
-        ?.trim();
-      if (storedModel && MODEL_OPTION_VALUES.has(storedModel)) {
-        setSelectedModel(storedModel);
-        selectedModelRef.current = storedModel;
-      }
-    } catch {
-      // Ignore localStorage read failures
-    }
-  }, []);
-
-  React.useEffect(() => {
-    try {
-      const storedReasoningEnabled = window.localStorage
-        .getItem(REASONING_STORAGE_KEY)
-        ?.trim()
-        .toLowerCase();
-      if (storedReasoningEnabled === "true" || storedReasoningEnabled === "1") {
-        setReasoningEnabled(true);
-        reasoningEnabledRef.current = true;
-      }
-      if (
-        storedReasoningEnabled === "false" ||
-        storedReasoningEnabled === "0"
-      ) {
-        setReasoningEnabled(false);
-        reasoningEnabledRef.current = false;
-      }
-    } catch {
-      // Ignore localStorage read failures
-    }
-  }, []);
-
-  React.useEffect(() => {
-    try {
       const persisted = parsePersistedContextUsageByThread(
         window.localStorage.getItem(ASSISTANT_CONTEXT_USAGE_STORAGE_KEY),
       );
@@ -1319,19 +1337,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
       // Ignore localStorage read failures
     } finally {
       hasHydratedContextUsageRef.current = true;
-    }
-  }, []);
-
-  React.useEffect(() => {
-    try {
-      const storedMode = window.localStorage.getItem(MODE_STORAGE_KEY)?.trim();
-      if (storedMode && MODE_OPTION_VALUES.has(storedMode as AssistantMode)) {
-        const nextMode = storedMode as AssistantMode;
-        setSelectedMode(nextMode);
-        selectedModeRef.current = nextMode;
-      }
-    } catch {
-      // Ignore localStorage read failures
     }
   }, []);
 

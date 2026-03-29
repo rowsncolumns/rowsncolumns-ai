@@ -304,7 +304,7 @@ export default async function Home() {
                       mobileAuthenticatedTriggerText="New sheet"
                       initialIsAuthenticated={initialIsAuthenticated}
                       triggerVariant="hero"
-                      redirectTo="/doc"
+                      redirectTo="/sheets/new"
                       className="h-11 shrink-0 px-4 text-sm whitespace-nowrap sm:h-12 sm:px-6 sm:text-base"
                     />
                     <div className="relative inline-flex w-fit shrink-0">
@@ -497,7 +497,7 @@ export default async function Home() {
                       mobileAuthenticatedTriggerText="Open workspace"
                       initialIsAuthenticated={initialIsAuthenticated}
                       triggerVariant="hero"
-                      redirectTo="/doc"
+                      redirectTo="/sheets/new"
                       className="h-11 w-full rounded-lg bg-white px-4 text-sm font-semibold text-black shadow-[0_12px_28px_rgba(0,0,0,0.22)] hover:opacity-90"
                     />
                   </div>

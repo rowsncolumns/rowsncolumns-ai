@@ -2,20 +2,24 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
-import { getOrCreateDocumentShareLink } from "@/lib/documents/repository";
+import { updateDocumentTitle } from "@/lib/documents/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const createShareLinkSchema = z.object({
+const updateDocumentTitleSchema = z.object({
   documentId: z
     .string()
     .trim()
     .min(1, "documentId is required.")
     .max(200, "documentId is too long."),
+  title: z
+    .string()
+    .max(500, "title is too long.")
+    .default(""),
 });
 
-export async function POST(request: Request) {
+export async function PATCH(request: Request) {
   try {
     const { data: session } = await auth.getSession();
     const userId = session?.user?.id;
@@ -24,35 +28,33 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => null);
-    const parsed = createShareLinkSchema.safeParse(body);
+    const parsed = updateDocumentTitleSchema.safeParse(body);
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message ?? "Invalid request.";
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    const shareLink = await getOrCreateDocumentShareLink({
+    const titleRecord = await updateDocumentTitle({
       docId: parsed.data.documentId,
       userId,
+      title: parsed.data.title,
     });
 
-    if (!shareLink) {
+    if (!titleRecord) {
       return NextResponse.json(
-        { error: "Only the document owner can share this document." },
+        { error: "Only the document owner can rename this document." },
         { status: 403 },
       );
     }
 
-    const origin = new URL(request.url).origin;
-    const shareUrl = `${origin}/sheets/${encodeURIComponent(shareLink.docId)}?share=${encodeURIComponent(shareLink.shareToken)}`;
-
     return NextResponse.json({
-      shareUrl,
-      shareToken: shareLink.shareToken,
-      isActive: shareLink.isActive,
+      documentId: titleRecord.docId,
+      title: titleRecord.title,
+      updatedAt: titleRecord.updatedAt,
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Failed to create share link.";
+      error instanceof Error ? error.message : "Failed to update document.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

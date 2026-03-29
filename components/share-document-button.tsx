@@ -4,6 +4,7 @@ import * as React from "react";
 import { Check, Copy, Link2, Loader2, Share2, X } from "lucide-react";
 import { ToolbarIconButton } from "@rowsncolumns/spreadsheet";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 
@@ -24,7 +25,6 @@ export function ShareDocumentButton({
   const [isOpen, setIsOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [shareUrl, setShareUrl] = React.useState("");
-  const [error, setError] = React.useState("");
   const [copied, setCopied] = React.useState(false);
   const [canNativeShare, setCanNativeShare] = React.useState(false);
 
@@ -56,7 +56,6 @@ export function ShareDocumentButton({
     if (!canManageShare) return;
 
     setIsLoading(true);
-    setError("");
     setCopied(false);
 
     try {
@@ -81,11 +80,11 @@ export function ShareDocumentButton({
 
       setShareUrl(payload.shareUrl);
     } catch (errorValue) {
-      setError(
+      const message =
         errorValue instanceof Error
           ? errorValue.message
-          : "Failed to create share link.",
-      );
+          : "Failed to create share link.";
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -108,8 +107,9 @@ export function ShareDocumentButton({
     try {
       await navigator.clipboard.writeText(shareUrl);
       markCopied();
+      toast.success("Share link copied.");
     } catch {
-      setError("Could not copy link. Please copy it manually.");
+      toast.error("Could not copy link. Please copy it manually.");
     }
   }, [markCopied, shareUrl]);
 
@@ -135,7 +135,7 @@ export function ShareDocumentButton({
       ) {
         return;
       }
-      setError("Could not open native share. Please copy the link instead.");
+      toast.error("Could not open native share. Please copy the link instead.");
     }
   }, [shareUrl]);
 
@@ -264,11 +264,6 @@ export function ShareDocumentButton({
                         </div>
                       </div>
                     </div>
-                  )}
-                  {error && (
-                    <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-700">
-                      {error}
-                    </p>
                   )}
                 </div>
               </div>

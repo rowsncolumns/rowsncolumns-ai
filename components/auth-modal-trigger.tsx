@@ -51,7 +51,7 @@ export function AuthModalTrigger({
   mobileAuthenticatedTriggerText,
   initialIsAuthenticated = false,
   triggerVariant = "ghost",
-  redirectTo = "/doc",
+  redirectTo = "/sheets/new",
   className = "",
   showIconOnMobile = false,
 }: AuthModalTriggerProps) {
