@@ -5464,7 +5464,7 @@ function WorkspaceAssistantPanel({
     stacked: boolean;
   }>({
     compact: forceCompactHeader,
-    stacked: forceCompactHeader,
+    stacked: false,
   });
   const isThreadEmpty = useThread((thread) => thread.messages.length === 0);
   const isThreadRunning = useThread((thread) => thread.isRunning);
@@ -5556,7 +5556,7 @@ function WorkspaceAssistantPanel({
     if (forceCompactHeader) {
       setAssistantHeaderLayout({
         compact: true,
-        stacked: true,
+        stacked: false,
       });
       return;
     }
@@ -5755,7 +5755,7 @@ function WorkspaceAssistantPanel({
                     : "whitespace-nowrap text-lg sm:text-2xl",
                 )}
               >
-                Spreadsheet Agent
+                Sheet AI
               </h2>
               {onClose &&
                 !forceCompactHeader &&
@@ -5772,10 +5772,10 @@ function WorkspaceAssistantPanel({
           </div>
           <div
             className={cn(
-              "flex shrink-0 flex-wrap items-center gap-2",
+              "flex shrink-0 items-center gap-2",
               assistantHeaderLayout.stacked
                 ? "w-full justify-start"
-                : "justify-end",
+                : "justify-end flex-nowrap",
             )}
           >
             <SkillsManagerButton iconOnly={assistantHeaderLayout.compact} />
@@ -5811,7 +5811,7 @@ function WorkspaceAssistantPanel({
               )}
           </div>
         </div>
-        <p className="mt-2 text-sm leading-6 text-(--muted-foreground)">
+        <p className="mt-1 text-sm leading-6 text-(--muted-foreground)">
           {ASSISTANT_TAGLINE}
         </p>
       </div>
