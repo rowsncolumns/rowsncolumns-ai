@@ -5728,7 +5728,7 @@ function WorkspaceAssistantPanel({
       onDragLeave={handlePanelDragLeave}
       onDrop={handlePanelDrop}
       className={cn(
-        "rnc-assistant-panel relative flex h-full min-h-128 flex-col overflow-hidden rounded-lg border-(--card-border) bg-(--assistant-panel-bg) transition-colors",
+        "rnc-assistant-panel relative flex h-full flex-col overflow-hidden rounded-lg border-(--card-border) bg-(--assistant-panel-bg) transition-colors",
         isPanelImageDragActive &&
           "border-(--accent) ring-2 ring-(--accent)/35 ring-offset-0",
       )}
