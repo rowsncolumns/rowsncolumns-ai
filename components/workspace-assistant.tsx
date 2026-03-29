@@ -1302,14 +1302,14 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   } = useThreadIdFromUrl();
 
   const [selectedModel, setSelectedModel] =
-    React.useState<string>(getPersistedModel);
+    React.useState<string>(DEFAULT_MODEL);
   const [selectedMode, setSelectedMode] =
-    React.useState<AssistantMode>(getPersistedMode);
+    React.useState<AssistantMode>(DEFAULT_MODE);
   const [isModelPickerOpen, setIsModelPickerOpen] = React.useState(false);
   const [isModePickerOpen, setIsModePickerOpen] = React.useState(false);
-  const [reasoningEnabled, setReasoningEnabled] = React.useState(
-    getPersistedReasoningEnabled,
-  );
+  const [reasoningEnabled, setReasoningEnabled] = React.useState(false);
+  const [hasHydratedClientPreferences, setHasHydratedClientPreferences] =
+    React.useState(false);
   const [contextUsageByThread, setContextUsageByThread] =
     React.useState<AssistantContextUsageByThread>({});
   const hasHydratedContextUsageRef = React.useRef(false);
@@ -1324,6 +1324,13 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   React.useEffect(() => {
     docIdRef.current = docId;
   }, [docId]);
+
+  React.useEffect(() => {
+    setSelectedModel(getPersistedModel());
+    setSelectedMode(getPersistedMode());
+    setReasoningEnabled(getPersistedReasoningEnabled());
+    setHasHydratedClientPreferences(true);
+  }, []);
 
   React.useEffect(() => {
     try {
@@ -1354,14 +1361,22 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   }, [reasoningEnabled]);
 
   React.useEffect(() => {
+    if (!hasHydratedClientPreferences) {
+      return;
+    }
+
     try {
       window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
     } catch {
       // Ignore localStorage write failures
     }
-  }, [selectedModel]);
+  }, [hasHydratedClientPreferences, selectedModel]);
 
   React.useEffect(() => {
+    if (!hasHydratedClientPreferences) {
+      return;
+    }
+
     try {
       window.localStorage.setItem(
         REASONING_STORAGE_KEY,
@@ -1370,15 +1385,19 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     } catch {
       // Ignore localStorage write failures
     }
-  }, [reasoningEnabled]);
+  }, [hasHydratedClientPreferences, reasoningEnabled]);
 
   React.useEffect(() => {
+    if (!hasHydratedClientPreferences) {
+      return;
+    }
+
     try {
       window.localStorage.setItem(MODE_STORAGE_KEY, selectedMode);
     } catch {
       // Ignore localStorage write failures
     }
-  }, [selectedMode]);
+  }, [hasHydratedClientPreferences, selectedMode]);
 
   React.useEffect(() => {
     if (!hasHydratedContextUsageRef.current) {

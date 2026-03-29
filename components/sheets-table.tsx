@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -72,6 +72,15 @@ const formatDate = (value: string, formatter: Intl.DateTimeFormat): string => {
   return formatter.format(parsed);
 };
 
+const formatUtcFallbackDate = (value: string): string => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "—";
+  }
+
+  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+};
+
 export function SheetsTable({
   documents,
   page,
@@ -84,6 +93,7 @@ export function SheetsTable({
   const [deleteTarget, setDeleteTarget] = useState<SheetListItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
   const dateFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
@@ -93,6 +103,10 @@ export function SheetsTable({
       }),
     [],
   );
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const hasPreviousPage = page > 1;
   const hasNextPage = page < totalPages;
@@ -189,7 +203,9 @@ export function SheetsTable({
                           Created
                         </dt>
                         <dd className="text-foreground">
-                          {formatDate(document.createdAt, dateFormatter)}
+                          {hasMounted
+                            ? formatDate(document.createdAt, dateFormatter)
+                            : formatUtcFallbackDate(document.createdAt)}
                         </dd>
                       </div>
                       <div className="space-y-0.5">
@@ -197,7 +213,9 @@ export function SheetsTable({
                           Last Modified
                         </dt>
                         <dd className="text-foreground">
-                          {formatDate(document.lastModifiedAt, dateFormatter)}
+                          {hasMounted
+                            ? formatDate(document.lastModifiedAt, dateFormatter)
+                            : formatUtcFallbackDate(document.lastModifiedAt)}
                         </dd>
                       </div>
                     </dl>
@@ -281,10 +299,14 @@ export function SheetsTable({
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-foreground">
-                        {formatDate(document.createdAt, dateFormatter)}
+                        {hasMounted
+                          ? formatDate(document.createdAt, dateFormatter)
+                          : formatUtcFallbackDate(document.createdAt)}
                       </td>
                       <td className="px-4 py-3 text-sm text-foreground">
-                        {formatDate(document.lastModifiedAt, dateFormatter)}
+                        {hasMounted
+                          ? formatDate(document.lastModifiedAt, dateFormatter)
+                          : formatUtcFallbackDate(document.lastModifiedAt)}
                       </td>
                       <td className="px-4 py-3">
                         <span
