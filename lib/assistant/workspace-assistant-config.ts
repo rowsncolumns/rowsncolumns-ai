@@ -171,3 +171,12 @@ export const getChatStopUrl = () => {
 
   return "/api/chat/stop";
 };
+
+export const getChatHistoryUrl = () => {
+  if (CHAT_EXTERNAL_API_ENABLED) {
+    const base = CHAT_EXTERNAL_API_BASE_URL.replace(/\/+$/, "");
+    return `${base}/chat/history`;
+  }
+
+  return CHAT_HISTORY_API_ENDPOINT;
+};

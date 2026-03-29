@@ -155,10 +155,10 @@ import {
 } from "@/lib/assistant/context-usage-state";
 import {
   CHAT_EXTERNAL_API_ENABLED,
-  CHAT_HISTORY_API_ENDPOINT,
   DEFAULT_MODE,
   DEFAULT_MODEL,
   FORK_BUTTON_ENABLED,
+  getChatHistoryUrl,
   getChatRequestUrl,
   getChatResumeUrl,
   getChatStopUrl,
@@ -1260,10 +1260,11 @@ const fetchPersistedThreadHistory = async (
   signal: AbortSignal,
 ) => {
   const response = await fetch(
-    `${CHAT_HISTORY_API_ENDPOINT}?threadId=${encodeURIComponent(threadId)}`,
+    `${getChatHistoryUrl()}?threadId=${encodeURIComponent(threadId)}`,
     {
       method: "GET",
       cache: "no-store",
+      credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
       signal,
     },
   );
@@ -1813,9 +1814,10 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
       isForkingRef.current = true;
       try {
-        const response = await fetch(`/api/chat/history?action=fork`, {
+        const response = await fetch(`${getChatHistoryUrl()}?action=fork`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
           body: JSON.stringify({
             sourceThreadId: threadId,
             atMessageIndex,

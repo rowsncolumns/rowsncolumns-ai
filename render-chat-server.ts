@@ -27,6 +27,7 @@ import {
   getChatRunEvents,
   getLatestChatRunForThread,
 } from "@/lib/chat/runs-repository";
+import { getSpreadsheetAssistantThreadMessages } from "@/lib/chat/graph";
 
 type AuthIdentity = {
   userId: string;
@@ -42,6 +43,8 @@ type JwtPayloadLike = {
 const CHAT_PATH = process.env.CHAT_RENDER_PATH?.trim() || "/chat";
 const CHAT_RESUME_PATH = process.env.CHAT_RESUME_PATH?.trim() || "/chat/resume";
 const CHAT_STOP_PATH = process.env.CHAT_STOP_PATH?.trim() || "/chat/stop";
+const CHAT_HISTORY_PATH =
+  process.env.CHAT_HISTORY_PATH?.trim() || "/chat/history";
 const HEALTH_PATH = process.env.CHAT_RENDER_HEALTH_PATH?.trim() || "/health";
 const CHAT_RUNTIME_HEADER_NAME = "X-Chat-Runtime";
 const CHAT_RUNTIME_HEADER_VALUE =
@@ -124,7 +127,7 @@ const buildCorsHeaders = (origin: string | null) => {
 
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
@@ -824,6 +827,49 @@ const handleResumeRequest = async (
   }
 };
 
+const handleHistoryRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+) => {
+  const bearerToken = getBearerToken(req.headers.authorization);
+  const sessionToken =
+    bearerToken ?? getSessionTokenFromCookies(req.headers.cookie);
+
+  if (!sessionToken) {
+    sendJson(req, res, 401, {
+      error: "Unauthorized. Bearer token or session cookie is required.",
+    });
+    return;
+  }
+
+  const identity = await verifyAuthToken(sessionToken);
+  if (!identity) {
+    sendJson(req, res, 401, {
+      error: "Unauthorized. Invalid or expired token.",
+    });
+    return;
+  }
+
+  const requestUrl = getRequestUrl(req);
+  const threadId = requestUrl.searchParams.get("threadId")?.trim();
+  if (!threadId) {
+    sendJson(req, res, 400, {
+      error: "threadId is required.",
+    });
+    return;
+  }
+
+  const messages = await getSpreadsheetAssistantThreadMessages({
+    threadId,
+    userId: identity.userId,
+  });
+
+  sendJson(req, res, 200, {
+    threadId,
+    messages,
+  });
+};
+
 const server = createServer(async (req, res) => {
   try {
     const requestUrl = getRequestUrl(req);
@@ -864,6 +910,11 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (method === "GET" && pathname === CHAT_HISTORY_PATH) {
+      await handleHistoryRequest(req, res);
+      return;
+    }
+
     sendJson(req, res, 404, { error: "Not found." });
   } catch (error) {
     console.error("[render-chat-server] Unhandled request error:", error);
@@ -878,6 +929,6 @@ const host = process.env.HOST?.trim() || "0.0.0.0";
 
 server.listen(port, host, () => {
   console.log(
-    `[render-chat-server] listening on http://${host}:${port} (chat path: ${CHAT_PATH})`,
+    `[render-chat-server] listening on http://${host}:${port} (chat path: ${CHAT_PATH}, history path: ${CHAT_HISTORY_PATH})`,
   );
 });

@@ -18,7 +18,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CHAT_HISTORY_API_ENDPOINT } from "@/lib/assistant/workspace-assistant-config";
+import {
+  CHAT_EXTERNAL_API_ENABLED,
+  getChatHistoryUrl,
+} from "@/lib/assistant/workspace-assistant-config";
 import { cn } from "@/lib/utils";
 
 import { useIsTouchInputDevice } from "./touch-input-device";
@@ -121,9 +124,10 @@ const fetchRecentAssistantSessions = async (input: {
     params.set("currentThreadId", input.currentThreadId.trim());
   }
 
-  const response = await fetch(`${CHAT_HISTORY_API_ENDPOINT}?${params}`, {
+  const response = await fetch(`${getChatHistoryUrl()}?${params}`, {
     method: "GET",
     cache: "no-store",
+    credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
     signal: input.signal,
   });
   if (!response.ok) {
@@ -144,9 +148,10 @@ const deleteAssistantSessionByThreadId = async (input: { threadId: string }) => 
   params.set("list", "sessions");
   params.set("threadId", normalizedThreadId);
 
-  const response = await fetch(`${CHAT_HISTORY_API_ENDPOINT}?${params}`, {
+  const response = await fetch(`${getChatHistoryUrl()}?${params}`, {
     method: "DELETE",
     cache: "no-store",
+    credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
   });
 
   if (!response.ok) {
