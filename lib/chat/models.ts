@@ -170,9 +170,6 @@ const CellDataSchema = z
           "- External URLs: https://example.com/source?excerpt=[EXCERPT]\n\n" +
           "The 'excerpt' parameter enables scroll-to-text: clicking the citation scrolls to and highlights that text.",
       ),
-    cellStyles: CellFormatSchema.optional().describe(
-      'Formatting properties. Example: {"textFormat": {"bold": true}, "backgroundColor": "#FF0000"}',
-    ),
   })
   .strict()
   .describe("A single cell's data with optional value, formula, and citation");
@@ -190,7 +187,7 @@ export const SpreadsheetChangeBatchSchema = z.object({
       z.string().describe("JSON string representation of 2D cell array"),
     ])
     .describe(
-      "2D array of CellData objects. Each cell can have 'value' (string/number/boolean), 'formula' (string starting with =), and optional 'citation'/'cellStyles'",
+      "2D array of CellData objects. Each cell can have 'value' (string/number/boolean), 'formula' (string starting with =), and optional 'citation'",
     ),
   ...ToolExplanationSchemaShape,
 });

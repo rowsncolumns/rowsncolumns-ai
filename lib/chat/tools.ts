@@ -156,15 +156,17 @@ const parseCells = (input: unknown): CellData[][] => {
         rowCells.push({});
       } else if (typeof cell === "object" && !Array.isArray(cell)) {
         // Strictly validate allowed properties
-        const { value, formula, citation, cellStyles, ...rest } =
-          cell as Record<string, unknown>;
+        const { value, formula, citation, ...rest } = cell as Record<
+          string,
+          unknown
+        >;
         const extraKeys = Object.keys(rest);
 
         if (extraKeys.length > 0) {
           throw new Error(
             `Cell at row ${rowIdx}, col ${colIdx} has unexpected properties: ${extraKeys.join(
               ", ",
-            )}. Allowed keys: value, formula, citation, cellStyles.`,
+            )}. Allowed keys: value, formula, citation.`,
           );
         }
 
@@ -204,19 +206,6 @@ const parseCells = (input: unknown): CellData[][] => {
           );
         }
 
-        if (
-          cellStyles !== undefined &&
-          (cellStyles === null ||
-            typeof cellStyles !== "object" ||
-            Array.isArray(cellStyles))
-        ) {
-          throw new Error(
-            `Cell at row ${rowIdx}, col ${colIdx} has invalid cellStyles type: ${typeof cellStyles}`,
-          );
-        }
-
-        const normalizedCellStyles = convertShorthandStyles(cellStyles);
-
         rowCells.push({
           value:
             value === undefined
@@ -224,7 +213,6 @@ const parseCells = (input: unknown): CellData[][] => {
               : (value as string | number | boolean | null),
           formula: normalizedFormula,
           citation: citation as string | undefined,
-          cellStyles: normalizedCellStyles,
         });
       } else {
         throw new Error(
@@ -357,11 +345,6 @@ const handleSpreadsheetChangeBatch = async (
         // Convert input cells to values array
         const values = cellsToValues(cells);
 
-        // Extract per-cell formatting when provided
-        const formatting: (CellFormat | null | undefined)[][] = cells.map(
-          (row) => row.map((cell) => cell.cellStyles as CellFormat | undefined),
-        );
-
         // Extract citations if present
         const { citationStrings, citationObjects } = cellsToCitations(cells, {
           sheetId,
@@ -375,7 +358,7 @@ const handleSpreadsheetChangeBatch = async (
           sheetId,
           selection.range,
           values,
-          formatting,
+          undefined, // formatting
           citationStrings,
         );
 
@@ -438,7 +421,7 @@ WHEN TO USE THIS TOOL:
 CRITICAL RULES:
 1. Range uses A1 notation (e.g., 'A1:C3', 'B2:D5').
 2. 'cells' must be a 2D array: list of rows. Dimensions MUST match the range.
-3. Each cell object can have 'value', 'formula', 'citation', and/or 'cellStyles' (or be empty {}).
+3. Each cell object can have 'value', 'formula', and/or 'citation' (or be empty {}).
 4. Use empty objects {} for blank cells you want to skip.
 5. Only the target range is modified — never affects data outside.
 6. Write input values before formulas that reference them.
@@ -485,12 +468,7 @@ Example 5 — Write values with citations to track data sources:
     [{"value": "Growth Rate"}, {"value": 0.15, "citation": "https://example.com/analysis.pdf?excerpt=15%25%20year-over-year%20growth"}]
   ]
 
-Example 6 — Write values with formatting in the same changeBatch:
-  range: "A1:B2"
-  cells: [
-    [{"value": "Header", "cellStyles": {"textFormat": {"bold": true}}}, {"value": "Amount", "cellStyles": {"textFormat": {"bold": true}}}],
-    [{"value": "Revenue"}, {"value": 1200000, "cellStyles": {"numberFormat": {"type": "CURRENCY", "pattern": "$#,##0.00"}}}]
-  ]`,
+`,
   schema: SpreadsheetChangeBatchSchema,
 });
 
