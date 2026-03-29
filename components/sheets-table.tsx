@@ -151,7 +151,7 @@ export function SheetsTable({
 
   return (
     <>
-      <div className="overflow-hidden rounded-2xl border border-(--card-border) bg-(--card-bg-solid)">
+      <div className="rounded-2xl border border-(--card-border) bg-(--card-bg-solid)">
         <div className="rnc-sheets-mobile-layout">
           {documents.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-(--muted-foreground)">

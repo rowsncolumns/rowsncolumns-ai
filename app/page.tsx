@@ -169,7 +169,7 @@ export const metadata: Metadata = {
 
 function WorkflowPreviewCard() {
   return (
-    <Card className="float-slow relative overflow-hidden border-black/10 bg-[#14161d] text-white shadow-[0_36px_90px_rgba(17,24,39,0.24)]">
+    <Card className="float-slow relative  border-black/10 bg-[#14161d] text-white shadow-[0_36px_90px_rgba(17,24,39,0.24)]">
       <div className="absolute inset-x-0 top-0 h-px bg-white/20" />
       <CardContent className="grid gap-4 p-4 sm:gap-5 sm:p-5 md:p-6">
         <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:rounded-2xl sm:px-4">
@@ -269,12 +269,12 @@ export default async function Home() {
   const initialIsAuthenticated = Boolean(initialUser);
 
   return (
-    <main className="relative overflow-hidden">
+    <main className="relative ">
       <div className="absolute inset-x-0 top-0 -z-10 h-[38rem] bg-[radial-gradient(circle_at_top,rgba(255,109,52,0.22),transparent_42%)]" />
 
       <section className="px-5 pb-12 pt-5 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
-          <Card className="hero-grid overflow-hidden bg-[var(--card-bg)]">
+          <Card className="hero-grid  bg-[var(--card-bg)]">
             <div className="p-4 sm:p-6">
               <SiteHeader initialUser={initialUser} />
 
@@ -325,9 +325,9 @@ export default async function Home() {
                 </div>
 
                 <div className="rise-in-delayed">
-                  <Card className="overflow-hidden bg-[var(--card-bg-solid)] shadow-[0_30px_80px_var(--card-shadow)]">
+                  <Card className=" bg-[var(--card-bg-solid)] shadow-[0_30px_80px_var(--card-shadow)]">
                     <CardContent className="p-3 sm:p-4">
-                      <div className="overflow-hidden rounded-2xl border border-(--card-border) bg-(--sheet-bg)">
+                      <div className=" rounded-2xl border border-(--card-border) bg-(--sheet-bg)">
                         <Image
                           src="/demo-img.jpg"
                           alt="RowsnColumns AI spreadsheet workflow preview"
@@ -415,7 +415,7 @@ export default async function Home() {
         className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12"
       >
         <div className="mx-auto max-w-7xl">
-          <Card className="overflow-hidden border-black/10 bg-[linear-gradient(135deg,#111827_0%,#1f2937_55%,#2f1f1a_100%)] text-white shadow-[0_30px_80px_rgba(17,24,39,0.24)]">
+          <Card className=" border-black/10 bg-[linear-gradient(135deg,#111827_0%,#1f2937_55%,#2f1f1a_100%)] text-white shadow-[0_30px_80px_rgba(17,24,39,0.24)]">
             <div className="grid gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[1.05fr_0.95fr] lg:p-10">
               <div>
                 <Badge className="border-0 bg-white/10 text-white">
@@ -510,7 +510,7 @@ export default async function Home() {
 
       <section id="workflows" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto grid max-w-7xl items-stretch gap-5 sm:gap-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
-          <Card className="h-full overflow-hidden border-black/5 bg-[linear-gradient(180deg,#121722_0%,#1b2230_100%)] text-white">
+          <Card className="h-full  border-black/5 bg-[linear-gradient(180deg,#121722_0%,#1b2230_100%)] text-white">
             <CardHeader className="p-5 pb-4 sm:p-8 sm:pb-6 lg:p-10 lg:pb-6">
               <Badge className="w-fit border-0 bg-white/10 text-white">
                 Workflows
@@ -570,7 +570,7 @@ export default async function Home() {
 
       <section id="proof" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
-          <Card className="relative overflow-hidden border-black/10 bg-[linear-gradient(140deg,#111827_0%,#1f2937_45%,#2d1f1a_100%)] text-white shadow-[0_36px_90px_rgba(17,24,39,0.26)]">
+          <Card className="relative  border-black/10 bg-[linear-gradient(140deg,#111827_0%,#1f2937_45%,#2d1f1a_100%)] text-white shadow-[0_36px_90px_rgba(17,24,39,0.26)]">
             <div className="pointer-events-none absolute -left-16 top-1/4 h-44 w-44 rounded-full bg-[rgba(255,109,52,0.18)] blur-3xl" />
             <div className="pointer-events-none absolute -right-12 top-0 h-52 w-52 rounded-full bg-[rgba(143,216,184,0.12)] blur-3xl" />
             <CardContent className="relative grid gap-7 p-5 sm:gap-8 sm:p-8 lg:p-10">
@@ -678,7 +678,7 @@ export default async function Home() {
 
       <section id="security" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
-          <Card className="overflow-hidden bg-[linear-gradient(135deg,#131822_0%,#1b2230_100%)] text-white">
+          <Card className=" bg-[linear-gradient(135deg,#131822_0%,#1b2230_100%)] text-white">
             <div className="grid gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[0.95fr_1.05fr] lg:p-10">
               <div>
                 <Badge className="border-0 bg-white/10 text-white">
@@ -746,7 +746,7 @@ export default async function Home() {
 
       <section id="pricing" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
-          <Card className="overflow-hidden bg-[linear-gradient(135deg,var(--pricing-gradient-start),var(--pricing-gradient-end))]">
+          <Card className=" bg-[linear-gradient(135deg,var(--pricing-gradient-start),var(--pricing-gradient-end))]">
             <div className="grid gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center lg:p-10">
               <div>
                 <Badge>Pricing</Badge>

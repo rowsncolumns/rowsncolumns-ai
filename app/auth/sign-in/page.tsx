@@ -55,12 +55,12 @@ export default async function SignInPage({
   const error = readSingleParam(params.error);
 
   return (
-    <main className="relative flex min-h-dvh flex-col overflow-hidden">
+    <main className="relative flex min-h-dvh flex-col ">
       <div className="absolute inset-x-0 top-0 -z-10 h-[38rem] bg-[radial-gradient(circle_at_top,rgba(255,109,52,0.22),transparent_42%)]" />
 
       <section className="px-5 pt-5 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
-          <Card className="hero-grid overflow-hidden bg-(--card-bg)">
+          <Card className="hero-grid  bg-(--card-bg)">
             <div className="p-4 sm:p-6">
               <SiteHeader />
             </div>

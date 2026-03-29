@@ -134,7 +134,9 @@ const fetchRecentAssistantSessions = async (input: {
   return parseRecentAssistantSessionsPayload(payload);
 };
 
-const deleteAssistantSessionByThreadId = async (input: { threadId: string }) => {
+const deleteAssistantSessionByThreadId = async (input: {
+  threadId: string;
+}) => {
   const normalizedThreadId = input.threadId.trim();
   if (!normalizedThreadId) {
     return false;
@@ -403,7 +405,7 @@ export function SessionPickerButton({
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="z-[180] w-[320px] overflow-hidden rounded-xl border border-[var(--card-border)] bg-[var(--card-bg-solid)] p-0 text-[var(--foreground)] shadow-[0_18px_38px_var(--card-shadow)]"
+        className="z-[180] w-[320px]  rounded-xl border border-[var(--card-border)] bg-[var(--card-bg-solid)] p-0 text-[var(--foreground)] shadow-[0_18px_38px_var(--card-shadow)]"
         onOpenAutoFocus={(event) => {
           if (isTouchInput) {
             event.preventDefault();
@@ -419,7 +421,9 @@ export function SessionPickerButton({
               </div>
             )}
             {!isLoading && loadError && (
-              <div className="px-3 py-4 text-xs text-[#c23f2c]">{loadError}</div>
+              <div className="px-3 py-4 text-xs text-[#c23f2c]">
+                {loadError}
+              </div>
             )}
             {!isLoading && !loadError && sessions.length === 0 && (
               <CommandEmpty>No saved sessions yet.</CommandEmpty>
