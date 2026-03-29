@@ -4509,7 +4509,7 @@ function AssistantComposer({
     };
   }, [abortAllComposerUploads, releasePreviewUrl]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (forceCompactHeader) {
       setIsComposerCompact(true);
       return;
