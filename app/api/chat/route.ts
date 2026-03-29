@@ -5,6 +5,10 @@ import { isAdminUser } from "@/lib/auth/admin";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 import {
+  registerChatRunAbortController,
+  unregisterChatRunAbortController,
+} from "@/lib/chat/run-abort-registry";
+import {
   type ChatAbortReason,
   DEFAULT_CHAT_MODE,
   type ChatProvider,
@@ -106,6 +110,7 @@ export async function POST(request: Request) {
 
     const chatServerTimeoutMs = parseChatServerTimeoutMs();
     const runAbortController = new AbortController();
+    let activeRunId: string | null = null;
 
     // Track client disconnection - we'll stop writing but let the run complete
     let clientDisconnected = false;
@@ -157,6 +162,15 @@ export async function POST(request: Request) {
             isAdmin,
             persistEvents: true,
             abortSignal: runAbortController.signal,
+            onRunCreated: (runId) => {
+              activeRunId = runId;
+              registerChatRunAbortController({
+                runId,
+                userId,
+                threadId: runRequest.threadId,
+                controller: runAbortController,
+              });
+            },
             emitEvent: (event) => {
               // Only write to stream if client is still connected
               if (!clientDisconnected) {
@@ -184,6 +198,9 @@ export async function POST(request: Request) {
         } finally {
           clearInterval(heartbeatHandle);
           clearTimeout(timeoutHandle);
+          if (activeRunId) {
+            unregisterChatRunAbortController({ runId: activeRunId });
+          }
           request.signal.removeEventListener("abort", onClientDisconnect);
           controller.close();
         }

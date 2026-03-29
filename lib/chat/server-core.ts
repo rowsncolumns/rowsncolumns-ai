@@ -469,6 +469,7 @@ export const executeChatRunStream = async (input: {
   userId: string;
   isAdmin: boolean;
   abortSignal?: AbortSignal;
+  onRunCreated?: (runId: string) => void | Promise<void>;
   persistEvents?: boolean;
   emitEvent: (
     event:
@@ -486,6 +487,15 @@ export const executeChatRunStream = async (input: {
   const runId = crypto.randomUUID();
   let sessionTitle: string | undefined;
   const shouldPersistEvents = input.persistEvents ?? true;
+
+  try {
+    await input.onRunCreated?.(runId);
+  } catch (error) {
+    console.error("[chat] Failed to run onRunCreated callback", {
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   if (shouldPersistEvents) {
     try {

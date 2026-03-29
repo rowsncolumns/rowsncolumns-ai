@@ -161,6 +161,7 @@ import {
   FORK_BUTTON_ENABLED,
   getChatRequestUrl,
   getChatResumeUrl,
+  getChatStopUrl,
   INSUFFICIENT_CREDITS_ERROR_CODE,
   MODE_OPTIONS,
   MODE_OPTION_VALUES,
@@ -427,6 +428,23 @@ const requestAssistantChat = async (input: {
   });
 
   return response;
+};
+
+const requestAssistantStopRun = async (input: {
+  threadId?: string;
+  runId?: string;
+}) => {
+  await fetch(getChatStopUrl(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      ...(input.runId ? { runId: input.runId } : {}),
+    }),
+    credentials: CHAT_EXTERNAL_API_ENABLED ? "include" : "same-origin",
+  });
 };
 
 const useThreadIdFromUrl = () => {
@@ -1244,6 +1262,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const selectedModeRef = React.useRef<AssistantMode>(selectedMode);
   const reasoningEnabledRef = React.useRef(reasoningEnabled);
   const docIdRef = React.useRef(docId);
+  const activeRunIdRef = React.useRef<string | null>(null);
   const pendingLocalSessionIdRef = React.useRef<string | null | undefined>(
     undefined,
   );
@@ -1474,6 +1493,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
 
         let currentRunId: string | null = null;
+        activeRunIdRef.current = null;
 
         try {
           markThreadStarted();
@@ -1516,6 +1536,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
             threadId,
             (runId) => {
               currentRunId = runId;
+              activeRunIdRef.current = runId;
             },
             handleContextUsageEvent,
           );
@@ -1555,6 +1576,10 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
           yield buildTerminalAssistantMessage(
             normalizeAssistantClientError(error),
           );
+        } finally {
+          if (!currentRunId || activeRunIdRef.current === currentRunId) {
+            activeRunIdRef.current = null;
+          }
         }
       },
     }),
@@ -4396,6 +4421,7 @@ function AssistantComposer({
   setReasoningEnabled,
   reasoningEnabledRef,
   contextUsage,
+  threadId,
   forceCompactHeader = false,
   hasCredits,
   panelImageDrop,
@@ -4800,8 +4826,18 @@ function AssistantComposer({
       return;
     }
 
+    const currentRunId = activeRunIdRef.current;
+    if (threadId || currentRunId) {
+      void requestAssistantStopRun({
+        ...(threadId ? { threadId } : {}),
+        ...(currentRunId ? { runId: currentRunId } : {}),
+      }).catch((error) => {
+        console.warn("[assistant] Failed to request run stop", error);
+      });
+    }
+
     threadRuntime.cancelRun();
-  }, [isThreadRunning, threadRuntime]);
+  }, [isThreadRunning, threadId, threadRuntime]);
 
   const handleQueueOnEnter = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -5763,6 +5799,7 @@ function WorkspaceAssistantPanel({
                     setReasoningEnabled={setReasoningEnabled}
                     reasoningEnabledRef={reasoningEnabledRef}
                     contextUsage={contextUsage}
+                    threadId={threadId}
                     forceCompactHeader={forceCompactHeader}
                     hasCredits={hasCredits}
                     panelImageDrop={panelImageDrop}

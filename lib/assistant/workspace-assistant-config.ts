@@ -162,3 +162,12 @@ export const getChatResumeUrl = () => {
 
   return "/api/chat/resume";
 };
+
+export const getChatStopUrl = () => {
+  if (CHAT_EXTERNAL_API_ENABLED) {
+    const base = CHAT_EXTERNAL_API_BASE_URL.replace(/\/+$/, "");
+    return `${base}/chat/stop`;
+  }
+
+  return "/api/chat/stop";
+};
