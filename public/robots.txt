@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /auth/
+Disallow: /doc/
+Disallow: /mcp/
+
+Sitemap: https://rowsncolumns.ai/sitemap.xml
+Host: rowsncolumns.ai

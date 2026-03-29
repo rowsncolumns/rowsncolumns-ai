@@ -1,0 +1,23 @@
+# RowsnColumns AI
+
+RowsnColumns AI helps finance and operations teams run auditable, production-grade spreadsheet workflows.
+
+Canonical site: https://rowsncolumns.ai
+
+## Key Public Pages
+- https://rowsncolumns.ai/
+- https://rowsncolumns.ai/contact
+- https://rowsncolumns.ai/privacy
+- https://rowsncolumns.ai/terms
+
+## Product Context
+- The primary product experience is spreadsheet-centric and interactive.
+- Public marketing pages describe capabilities and positioning.
+
+## Crawl Guidance
+- Prefer canonical URLs on `https://rowsncolumns.ai`.
+- Avoid crawling app-internal and authenticated surfaces:
+  - `/api/`
+  - `/auth/`
+  - `/doc/`
+  - `/mcp/`

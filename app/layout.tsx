@@ -88,6 +88,44 @@ export const metadata: Metadata = {
   },
 };
 
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://rowsncolumns.ai/#organization",
+      name: "RowsnColumns AI",
+      url: "https://rowsncolumns.ai",
+      logo: "https://rowsncolumns.ai/favicon-32x32.png",
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://rowsncolumns.ai/#website",
+      url: "https://rowsncolumns.ai",
+      name: "RowsnColumns AI",
+      description:
+        "RowsnColumns AI turns spreadsheet work into auditable, production-grade workflows for finance and operations teams.",
+      publisher: {
+        "@id": "https://rowsncolumns.ai/#organization",
+      },
+      inLanguage: "en",
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://rowsncolumns.ai/#software",
+      name: "RowsnColumns AI",
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      url: "https://rowsncolumns.ai",
+      description:
+        "AI-powered spreadsheet workflows for finance and operations with auditable changes and production-ready outputs.",
+      publisher: {
+        "@id": "https://rowsncolumns.ai/#organization",
+      },
+    },
+  ],
+};
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -106,6 +144,10 @@ export default async function RootLayout({
           themeMode === "dark" ? DARK_THEME_CLASS : ""
         }`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         <PostHogProvider>
           {children}
         </PostHogProvider>
