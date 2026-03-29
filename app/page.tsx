@@ -12,7 +12,6 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import Image from "next/image";
 
 const metrics = [
@@ -265,11 +264,7 @@ export default async function Home() {
         image: session.user.image,
       }
     : undefined;
-  const cookieStore = await cookies();
-  const hasAuthSessionCookie = cookieStore
-    .getAll()
-    .some((cookie) => cookie.name.endsWith(".session_token"));
-  const initialIsAuthenticated = Boolean(initialUser || hasAuthSessionCookie);
+  const initialIsAuthenticated = Boolean(initialUser);
 
   return (
     <main className="relative overflow-hidden">
