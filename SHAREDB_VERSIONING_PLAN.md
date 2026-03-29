@@ -1,14 +1,17 @@
 # ShareDB Versioning + Agent Attribution Plan
 
 ## Goal
-Add reliable operation history for agent writes so every agent change is:
+Add reliable operation history for ShareDB writes so every document change (user, agent, backend) is:
 
 1. Attributed (`who/what/when`)
 2. Versioned (`from version`, `to version`)
 3. Revertible (safe undo path)
 
 ## Scope
-- Track all **agent-initiated document writes**.
+- Track all **mutating document writes** across:
+  - agent tool execution
+  - user collaborative editing
+  - backend/system operations
 - Keep existing ShareDB behavior for collaborative editing.
 - Add app-level history for audit + undo.
 
@@ -44,6 +47,9 @@ Create `agent_operation_history` in Postgres with:
 - `revert_sharedb_version_from`
 - `revert_sharedb_version_to`
 
+Note:
+- Keep table name for backward compatibility, but store all sources (`agent`/`user`/`backend`) as first-class activity rows.
+
 Indexes:
 - `(doc_id, created_at desc)`
 - pending rows (`reverted_at is null`)
@@ -52,12 +58,19 @@ Indexes:
 Ensure all mutating operations go through wrappers:
 - `persistPatchTuples(...)`
 - `submitShareDBOp(...)`
+- `trackedSubmitOp(...)` (single low-level submit primitive)
 
 Wrapper responsibilities:
 - Capture `versionFrom` before submit
 - Submit op
 - Capture `versionTo` after submit
-- Persist history row (for source=`agent`)
+- Persist history row (for all sources: `agent`/`user`/`backend`)
+- Require attribution context on every call (source + actor)
+
+Enforcement:
+- No direct `doc.submitOp(...)` calls outside `trackedSubmitOp(...)`.
+- Add CI guard (grep/lint rule) that fails on direct `submitOp` usage in app code.
+- Migrate existing direct call sites first (for example, `lib/chat/tools.ts` and `lib/chat/utils.ts` direct paths).
 
 ## 3) Attribution Context
 Introduce request/run-scoped attribution context:
@@ -71,9 +84,14 @@ Introduce request/run-scoped attribution context:
 - `toolName`
 
 Fallback defaults:
-- `source=agent`
-- `actorType=assistant`
-- `actorId=spreadsheet-assistant`
+- `source=backend`
+- `actorType=system`
+- `actorId=sharedb-system`
+
+Required caller behavior:
+- Agent paths must set `source=agent`, `actorType=assistant`, and concrete assistant identity.
+- User editing paths must set `source=user`, `actorType=user`, and concrete user identity.
+- Backend jobs/maintenance must set `source=backend`, `actorType=system`, and concrete job identity.
 
 ## 4) Undo Strategy
 Support two undo entry points:
@@ -101,7 +119,7 @@ Important:
 
 ## 6) API/CLI Surface
 Add internal interfaces:
-- `listAgentOperations(docId, limit)`
+- `listDocumentActivities(docId, limit, filters)`
 - `undoLatestAgentOperation(docId)`
 - `undoAgentOperationById(docId, operationId)`
 - `undoActivityOperationById(docId, operationId)` (supports `write` and `rollback`)
@@ -165,51 +183,100 @@ Spreadsheet-specific strategy:
 - Derive touched selectors from patch tuples/json0 paths.
 - Normalize to deterministic selectors so query filters are stable.
 
-## 9) Optional Performance Layer: Postgres MilestoneDB
-Add a ShareDB `milestoneDb` adapter backed by Postgres to accelerate historical snapshot reconstruction.
+## 9) Optional Hybrid Persistence Layer (Redis Streams + Postgres + S3)
+Use the same hot/cold architecture pattern as y/hub while keeping ShareDB as the collaboration engine.
 
-Purpose:
-- Speed up `fetchSnapshot` for older versions/timestamps by reducing the number of ops replayed.
-- Keep this independent from agent-operation audit/undo data.
+### 9.1 Architecture Mapping
+- Hot real-time layer:
+  - ShareDB handles live collaboration + versioning.
+  - Every tracked write also appends an activity envelope to a Redis stream (`activity:{collection}:{doc_id}`).
+- Worker layer:
+  - Background worker consumes Redis stream entries in order.
+  - Compacts/merges activity payloads and snapshots by version window.
+  - Persists large blobs to S3.
+  - Persists queryable metadata + blob references to Postgres.
+- Cold durable layer:
+  - Postgres stores metadata/indexes for activity listing/filtering.
+  - S3 stores large operation payload blobs and optional snapshot blobs.
 
-Table proposal (`milestones`):
-- `collection`
-- `doc_id`
-- `version`
-- `snapshot` (`jsonb`)
-- `mtime` (`timestamptz` from snapshot metadata)
-- `created_at`
+### 9.2 Storage Strategy
+- Keep `agent_operation_history` as the primary metadata/audit table.
+- Add payload storage mode fields:
+  - `payload_storage` (`inline` | `s3`)
+  - `payload_s3_key` (nullable)
+  - `payload_bytes` (size for cost/monitoring)
+- For large payloads, store only metadata + inverse summary in Postgres; full forward/inverse payload goes to S3.
+- Optional snapshot table (or `milestones`) remains for faster historical reconstruction.
 
-Indexes:
-- unique `(collection, doc_id, version)`
-- `(collection, doc_id, mtime)`
+### 9.3 Worker Metadata Tables
+- `sharedb_activity_worker_cursor`
+  - `stream_key`
+  - `last_id`
+  - `updated_at`
+- `sharedb_activity_chunk` (optional compaction index)
+  - `collection`
+  - `doc_id`
+  - `from_version`
+  - `to_version`
+  - `from_time`
+  - `to_time`
+  - `s3_key`
+  - `created_at`
 
-Adapter methods to implement:
-- `saveMilestoneSnapshot(collection, snapshot, callback)`
-- `getMilestoneSnapshot(collection, id, version, callback)`
-- `getMilestoneSnapshotAtOrBeforeTime(collection, id, timestamp, callback)`
-- `getMilestoneSnapshotAtOrAfterTime(collection, id, timestamp, callback)`
+### 9.4 Query and Rollback Semantics
+- `GET /activity` and `GET /changeset` read metadata from Postgres first; hydrate heavy payload from S3 only when needed.
+- Rollback path always requires inverse payload availability:
+  - inline for small operations
+  - S3 retrieval for large operations
+- Redis stream is a transient queue/cache, not source of truth.
 
-Integration:
-- Pass `milestoneDb` into ShareDB backend constructor.
-- Control save frequency with `commit` middleware (`request.saveMilestoneSnapshot`) by collection/doc type.
+### 9.5 Cleanup and Retention
+- Redis:
+  - trim acknowledged stream entries after worker checkpoint.
+- Postgres:
+  - retain metadata long-term; optionally move old detailed payload columns to null when payload is in S3.
+- S3:
+  - lifecycle policy for stale blobs when corresponding metadata is deleted/archived.
 
-Notes:
-- This is a performance optimization; it is not required for attribution or undo correctness.
-- Start with conservative intervals (for example 500-1000 versions), then tune from production metrics.
+### 9.6 MilestoneDB Compatibility
+- ShareDB `milestoneDb` remains compatible as an optional acceleration path.
+- Milestone snapshots can be stored in Postgres or S3-backed references depending on size.
+
+### 9.7 Postgres Growth Controls (Default v1 Policy)
+- Metadata-first storage in Postgres:
+  - keep indexed/query fields in `agent_operation_history`
+  - store only compact inverse summary inline for rollback preview/listing
+- Payload offload threshold:
+  - if serialized forward+inverse payload > `16 KB`, store full payload in S3
+  - persist `payload_storage='s3'`, `payload_s3_key`, and `payload_bytes` in Postgres
+- Partitioning:
+  - monthly range partitioning on `created_at` for activity tables
+- Retention:
+  - hot window (full inline payload allowed): `30 days`
+  - warm window: metadata + S3 pointer only (`31-180 days`)
+  - cold/archive window: metadata-only or archive/delete per compliance policy
+- Index policy (lean):
+  - required: `(doc_id, created_at desc)`
+  - required: partial index for pending/revertible activities (`reverted_at is null`)
+  - optional: `(doc_id, activity_type, created_at desc)` if query profile needs it
+  - do not index large payload columns
+- Optional compaction:
+  - batch older micro-activities into chunk manifests while preserving attribution boundaries and rollback safety.
 
 ## 10) Rollout Plan
 1. DB migration
-2. Repository + wrappers
-3. Hook write paths
+2. Repository + wrappers (`trackedSubmitOp` as single submit primitive)
+3. Migrate all direct `doc.submitOp` call sites to tracked wrappers
 4. Add undo services (latest + by operation id)
 5. Add activity/changeset/rollback/restore APIs
 6. Add rollback-as-activity persistence (including rollback-of-rollback support)
 7. Implement History toolbar button + activity panel (read-only v1)
 8. Add content-level attribution index
-9. Add tests
-10. (Optional) Add Postgres MilestoneDB
-11. Enable UI/admin controls
+9. Add enforcement (CI rule: block direct `doc.submitOp`)
+10. Add tests
+11. (Optional) Add hybrid persistence worker (Redis stream -> Postgres metadata + S3 blobs)
+12. Add partitioning/retention jobs for activity tables and S3 lifecycle policies
+13. Enable UI/admin controls
 
 ## 11) Testing Plan
 - Unit:
@@ -217,6 +284,7 @@ Notes:
   - patch tuple undo transformation
   - selector extraction from patch paths/ranges
 - Integration:
+  - all sources (`agent`/`user`/`backend`) write activity rows with attribution
   - write -> history row created
   - undo -> doc updated + row marked reverted
   - invalid undo cases (wrong doc, already reverted)
@@ -227,18 +295,25 @@ Notes:
   - history panel pagination (`cursor`) appends correctly without duplicates
   - history panel loading/empty/error states render correctly
   - restoreTo and restoreRange correctness
+- Static/Policy:
+  - CI fails if direct `doc.submitOp(...)` is used outside approved wrapper module(s)
 - Concurrency:
   - concurrent writes + latest undo behavior
 - Milestones (optional):
-  - milestone save/retrieve by version
-  - milestone save/retrieve by timestamp
-  - fallback correctness when milestone missing
+  - worker consumes Redis streams in order and checkpoints cursor correctly
+  - payload offloading to S3 and re-hydration correctness for rollback/changeset
+  - threshold policy validation (`<=16KB` inline, `>16KB` offloaded)
+  - retention transitions (`hot -> warm -> cold`) preserve activity listing and rollback guarantees
+  - retention cleanup does not break activity listing or undo capability
+  - milestone save/retrieve by version/timestamp and fallback correctness when missing
 
 ## 12) Risks
 - Undoing old operations after heavy downstream edits can conflict.
 - Some json0 operations may not be safely invertible without richer metadata.
 - Overly aggressive milestone frequency increases storage and write amplification.
 - Content selector extraction can be lossy if operation semantics are ambiguous.
+- Hybrid persistence adds eventual-consistency windows between Redis and cold storage.
+- S3/object-store outages can block hydration of large historical payloads.
 
 Mitigation:
 - prefer latest-first undo in phase 1
@@ -246,6 +321,8 @@ Mitigation:
 - use measured milestone intervals and retention policies
 - store both raw operation payload and normalized selector metadata
 - add stronger rebase strategy in phase 2
+- keep rollback-critical inverse summaries in Postgres even when full payload is offloaded
+- add worker lag/error monitoring and replay-safe idempotent persistence
 
 ## 13) Phase 2 Improvements
 - Batch operations by assistant run/tool invocation.

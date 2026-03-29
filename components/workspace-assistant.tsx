@@ -2204,7 +2204,7 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Read row/column metadata",
     failed: "Failed to read row/column metadata",
   },
-  spreadsheet_setRowColDimensions: {
+  spreadsheet_setRowColMetadata: {
     running: "Setting row/column dimensions",
     success: "Set row/column dimensions",
     failed: "Failed to set row/column dimensions",
@@ -3185,7 +3185,7 @@ const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_setIterativeMode",
   "spreadsheet_readDocument",
   "spreadsheet_getRowColMetadata",
-  "spreadsheet_setRowColDimensions",
+  "spreadsheet_setRowColMetadata",
   "spreadsheet_applyFill",
   // Consolidated tools
   "spreadsheet_note",

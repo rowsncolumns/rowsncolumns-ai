@@ -1879,7 +1879,7 @@ function DocumentTitleInlineEditor({
             aria-hidden="true"
           />
         ) : null}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0">
           {isEditing ? (
             <input
               ref={inputRef}
@@ -1905,7 +1905,8 @@ function DocumentTitleInlineEditor({
               }}
               maxLength={160}
               disabled={isSaving}
-              className="h-9 w-full rounded-lg border border-(--panel-border) bg-(--card-bg) px-3 text-lg font-semibold text-foreground outline-none transition focus:border-orange-400 sm:text-xl"
+              style={{ fieldSizing: "content" }}
+              className="h-9 min-w-20 max-w-full rounded-lg border border-(--panel-border) bg-(--card-bg) px-3 text-lg font-semibold text-foreground outline-none transition focus:border-orange-400 sm:text-xl"
               aria-label="Document title"
             />
           ) : canEdit ? (
