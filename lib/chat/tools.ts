@@ -427,17 +427,12 @@ export const spreadsheetChangeBatchTool = tool(handleSpreadsheetChangeBatch, {
 OVERVIEW:
 This tool writes a 2D grid of cell data into a sheet at a specified range using A1 notation. It only edits the cells covered by the provided cells array — no other part of the sheet is changed. The sheet automatically expands if needed.
 
-ROUTING GUIDANCE:
-- If values/formulas and formatting are being updated together, prefer THIS tool and include per-cell 'cellStyles' in the same payload.
-- Use 'spreadsheet_formatRange' for formatting-only operations or broad styling passes without value/formula changes.
-
 WHEN TO USE THIS TOOL:
 - Writing tabular data into a spreadsheet
 - Filling in or updating a block of cells
 - Creating or overwriting tables with headers + rows
 - Inserting form/template values into a known range
 - Updating cells with formulas or static values
-- Updating values and styles together in one request via 'cellStyles'
 - Updating a single cell or a multi-cell region
 
 CRITICAL RULES:
@@ -452,7 +447,6 @@ CRITICAL RULES:
 9. For sequences (numbers/dates/months), write 1-2 seed cells with changeBatch, then extend with spreadsheet_applyFill.
 10. Citations: use the 'citation' field with a 'value' or 'formula' (URL with optional 'excerpt' query param).
 11. To display a formula as plain text, write it in 'value' with a leading apostrophe (example: {"value": "'=SUM(4,4)"}).
-12. If you are already writing values/formulas and need formatting, include 'cellStyles' in this tool call instead of making a separate formatting call.
 
 EXAMPLES:
 
@@ -923,10 +917,6 @@ const handleSpreadsheetFormatRange = async (
 export const spreadsheetFormatRangeTool = tool(handleSpreadsheetFormatRange, {
   name: "spreadsheet_formatRange",
   description: `Apply visual formatting to a rectangular region of a spreadsheet.
-
-ROUTING GUIDANCE:
-- Use this tool for formatting-only operations.
-- If you are writing values/formulas at the same time, prefer 'spreadsheet_changeBatch' and set per-cell 'cellStyles' there.
 
 CELL STRUCTURE (CRITICAL):
 Each cell MUST use the "cellStyles" wrapper. This is required:
