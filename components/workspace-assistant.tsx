@@ -4518,15 +4518,13 @@ function AssistantComposer({
 
     const footer = composerFooterRef.current;
     if (!footer) {
-      setIsComposerCompact(isThreadRunning);
+      setIsComposerCompact(false);
       return;
     }
 
     const updateComposerCompactState = () => {
       const { width } = footer.getBoundingClientRect();
-      setIsComposerCompact(
-        isThreadRunning || width < ASSISTANT_COMPOSER_COMPACT_WIDTH,
-      );
+      setIsComposerCompact(width < ASSISTANT_COMPOSER_COMPACT_WIDTH);
     };
 
     updateComposerCompactState();
@@ -4546,7 +4544,7 @@ function AssistantComposer({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [forceCompactHeader, isThreadRunning]);
+  }, [forceCompactHeader]);
 
   const getReadyComposerImageParts = React.useCallback(() => {
     return composerImagesRef.current
@@ -5238,50 +5236,6 @@ function AssistantComposer({
               </Command>
             </PopoverContent>
           </Popover>
-          <Popover open={isModePickerOpen} onOpenChange={setIsModePickerOpen}>
-            <PopoverTrigger asChild>
-              <IconButton
-                tooltip={`Mode: ${selectedModeLabel}`}
-                type="button"
-                variant="secondary"
-                size="sm"
-                role="combobox"
-                aria-expanded={isModePickerOpen}
-                aria-label={`Select mode. Current mode: ${selectedModeLabel}`}
-                title={`Mode: ${selectedModeLabel}`}
-                className="rnc-assistant-chip h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-[#faf6f0] px-0 text-foreground shadow-none hover:bg-[#f6ede2]"
-              >
-                <FileText className="h-3.5 w-3.5" />
-              </IconButton>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-0">
-              <Command>
-                <CommandList>
-                  <CommandEmpty>No mode found.</CommandEmpty>
-                  <CommandGroup>
-                    {MODE_OPTIONS.map((option) => (
-                      <CommandItem
-                        key={option.value}
-                        value={`${option.label} ${option.value}`}
-                        onSelect={() => handleSelectMode(option.value)}
-                        className="text-xs"
-                      >
-                        <Check
-                          className={cn(
-                            "h-3.5 w-3.5 shrink-0",
-                            selectedMode === option.value
-                              ? "opacity-100"
-                              : "opacity-0",
-                          )}
-                        />
-                        <span className="truncate">{option.label}</span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
           <ContextUsageTooltipTrigger
             contextUsage={contextUsage}
             warningCopy={CONTEXT_USAGE_WARNING_COPY}
@@ -5359,6 +5313,72 @@ function AssistantComposer({
           </Popover>
         </div>
         <div className="flex items-center gap-2">
+          <Popover open={isModePickerOpen} onOpenChange={setIsModePickerOpen}>
+            <PopoverTrigger asChild>
+              {isComposerCompact ? (
+                <IconButton
+                  tooltip={`Mode: ${selectedModeLabel}`}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  role="combobox"
+                  aria-expanded={isModePickerOpen}
+                  aria-label={`Select mode. Current mode: ${selectedModeLabel}`}
+                  title={`Mode: ${selectedModeLabel}`}
+                  className="rnc-assistant-chip h-8 w-8 items-center justify-center rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-0 text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                </IconButton>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  role="combobox"
+                  aria-expanded={isModePickerOpen}
+                  aria-label={`Select mode. Current mode: ${selectedModeLabel}`}
+                  title={`Mode: ${selectedModeLabel}`}
+                  className="rnc-assistant-chip h-8 max-w-32 shrink-0 items-center justify-between gap-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover) sm:min-w-22 sm:max-w-42"
+                >
+                  <span className="truncate">
+                    {selectedMode === "plan"
+                      ? "Plan mode"
+                      : selectedMode === "ask"
+                        ? "Ask mode"
+                        : "Action mode"}
+                  </span>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                </Button>
+              )}
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 p-0">
+              <Command>
+                <CommandList>
+                  <CommandEmpty>No mode found.</CommandEmpty>
+                  <CommandGroup>
+                    {MODE_OPTIONS.map((option) => (
+                      <CommandItem
+                        key={option.value}
+                        value={`${option.label} ${option.value}`}
+                        onSelect={() => handleSelectMode(option.value)}
+                        className="text-xs"
+                      >
+                        <Check
+                          className={cn(
+                            "h-3.5 w-3.5 shrink-0",
+                            selectedMode === option.value
+                              ? "opacity-100"
+                              : "opacity-0",
+                          )}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
           {isThreadRunning && (
             <IconButton
               tooltip="Stop"

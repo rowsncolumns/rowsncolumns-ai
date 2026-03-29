@@ -341,7 +341,7 @@ const pickSeededPrompts = (
   return shuffled.slice(0, count);
 };
 
-const ASSISTANT_PANEL_MIN_WIDTH = "30%";
+const ASSISTANT_PANEL_MIN_WIDTH = "25%";
 const ASSISTANT_PANEL_DEFAULT_WIDTH = "50%";
 const MOBILE_LAYOUT_MEDIA_QUERY = "(max-width: 767px)";
 
@@ -1716,7 +1716,9 @@ function CollapsedAssistantButton({
       className={`assistant-bubble ${
         showAssistantBubbleEntrance ? "animate-bubble-entrance" : ""
       } fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-full bg-linear-to-br from-orange-400 to-orange-500 pl-4 pr-5 text-white transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2`}
-      aria-label={isBusy ? "Open assistant (run in progress)" : "Open assistant"}
+      aria-label={
+        isBusy ? "Open assistant (run in progress)" : "Open assistant"
+      }
     >
       <MessageSquare className="bubble-icon h-5 w-5 transition-transform duration-300" />
       <span className="text-sm font-medium">Ask AI</span>
