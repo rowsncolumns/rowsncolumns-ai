@@ -124,11 +124,13 @@ const proofEvidenceControls = [
 const collaborationCapabilities = [
   "Share a document link with teammates in one click.",
   "See edits sync live as collaborators update the workbook.",
+  "Work alongside the agent while it writes, with humans and AI editing in parallel.",
   "Keep ownership controls so only authorized users can manage sharing.",
 ];
 
 const collaborationGuardrails = [
   "Share links are generated per document and can be managed by the owner.",
+  "Agent and user updates are applied to the same live workbook state.",
   "Workbook updates stream through a real-time shared state connection.",
   "Changes remain inside the same workbook context for faster handoff.",
 ];

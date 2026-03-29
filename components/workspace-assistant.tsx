@@ -4344,6 +4344,7 @@ type WorkspaceAssistantPanelProps = {
 const ASSISTANT_TAGLINE =
   "Plan edits, formulas, and workbook changes without leaving your sheet.";
 const ASSISTANT_HEADER_COMPACT_WIDTH = 560;
+const ASSISTANT_HEADER_STACKED_WIDTH = 400;
 const ASSISTANT_COMPOSER_COMPACT_WIDTH = 480;
 const CONTEXT_USAGE_WARNING_COPY =
   "Create a new chat when context runs low for better AI performance.";
@@ -5433,8 +5434,13 @@ function WorkspaceAssistantPanel({
   onClose,
 }: WorkspaceAssistantPanelProps) {
   const assistantHeaderRef = React.useRef<HTMLDivElement | null>(null);
-  const [isAssistantHeaderCompact, setIsAssistantHeaderCompact] =
-    React.useState(forceCompactHeader);
+  const [assistantHeaderLayout, setAssistantHeaderLayout] = React.useState<{
+    compact: boolean;
+    stacked: boolean;
+  }>({
+    compact: forceCompactHeader,
+    stacked: forceCompactHeader,
+  });
   const isThreadEmpty = useThread((thread) => thread.messages.length === 0);
   const isThreadRunning = useThread((thread) => thread.isRunning);
   const [remainingCredits, setRemainingCredits] = React.useState<number | null>(
@@ -5521,9 +5527,12 @@ function WorkspaceAssistantPanel({
     void loadCredits();
   }, [isThreadRunning, loadCredits]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (forceCompactHeader) {
-      setIsAssistantHeaderCompact(true);
+      setAssistantHeaderLayout({
+        compact: true,
+        stacked: true,
+      });
       return;
     }
 
@@ -5534,7 +5543,10 @@ function WorkspaceAssistantPanel({
 
     const updateHeaderWidthState = () => {
       const { width } = header.getBoundingClientRect();
-      setIsAssistantHeaderCompact(width < ASSISTANT_HEADER_COMPACT_WIDTH);
+      setAssistantHeaderLayout({
+        compact: width < ASSISTANT_HEADER_COMPACT_WIDTH,
+        stacked: width < ASSISTANT_HEADER_STACKED_WIDTH,
+      });
     };
 
     updateHeaderWidthState();
@@ -5700,14 +5712,48 @@ function WorkspaceAssistantPanel({
         ref={assistantHeaderRef}
         className="rnc-assistant-divider border-b border-black/8 px-5 py-4"
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="display-font mt-1 whitespace-nowrap text-lg font-semibold tracking-[-0.03em] sm:text-2xl">
-              Spreadsheet Agent
-            </h2>
+        <div
+          className={cn(
+            "gap-2",
+            assistantHeaderLayout.stacked
+              ? "flex flex-col"
+              : "flex items-start justify-between",
+          )}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <h2
+                className={cn(
+                  "display-font mt-1 font-semibold tracking-[-0.03em]",
+                  assistantHeaderLayout.stacked
+                    ? "whitespace-normal text-xl leading-tight"
+                    : "whitespace-nowrap text-lg sm:text-2xl",
+                )}
+              >
+                Spreadsheet Agent
+              </h2>
+              {onClose &&
+                !forceCompactHeader &&
+                assistantHeaderLayout.stacked && (
+                  <IconButton
+                    tooltip="Minimize Assistant"
+                    size="sm"
+                    onClick={onClose}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </IconButton>
+                )}
+            </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <SkillsManagerButton iconOnly={isAssistantHeaderCompact} />
+          <div
+            className={cn(
+              "flex shrink-0 flex-wrap items-center gap-2",
+              assistantHeaderLayout.stacked
+                ? "w-full justify-start"
+                : "justify-end",
+            )}
+          >
+            <SkillsManagerButton iconOnly={assistantHeaderLayout.compact} />
             {onSelectSession && (
               <SessionPickerButton
                 iconOnly
@@ -5725,19 +5771,22 @@ function WorkspaceAssistantPanel({
               isUnlimitedCredits={isUnlimitedCredits}
               remainingCredits={remainingCredits}
               dailyLimit={INITIAL_CREDITS}
+              hasCredits={hasCredits}
             />
-            {onClose && !forceCompactHeader && (
-              <IconButton
-                tooltip="Minimize Assistant"
-                size="sm"
-                onClick={onClose}
-              >
-                <Minus className="h-4 w-4" />
-              </IconButton>
-            )}
+            {onClose &&
+              !forceCompactHeader &&
+              !assistantHeaderLayout.stacked && (
+                <IconButton
+                  tooltip="Minimize Assistant"
+                  size="sm"
+                  onClick={onClose}
+                >
+                  <Minus className="h-4 w-4" />
+                </IconButton>
+              )}
           </div>
         </div>
-        <p className="mt-1 text-sm leading-6 text-(--muted-foreground)">
+        <p className="mt-2 text-sm leading-6 text-(--muted-foreground)">
           {ASSISTANT_TAGLINE}
         </p>
       </div>

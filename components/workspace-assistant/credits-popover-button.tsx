@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { IconButton } from "@rowsncolumns/ui";
+import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 
 type CreditsPopoverButtonProps = {
@@ -15,6 +15,7 @@ type CreditsPopoverButtonProps = {
   isUnlimitedCredits: boolean;
   remainingCredits: number | null;
   dailyLimit: number;
+  hasCredits: boolean;
 };
 
 const resolveCreditsLabel = (input: {
@@ -39,6 +40,7 @@ export function CreditsPopoverButton({
   isUnlimitedCredits,
   remainingCredits,
   dailyLimit,
+  hasCredits,
 }: CreditsPopoverButtonProps) {
   const creditsLabel = resolveCreditsLabel({
     isCreditsLoading,
@@ -52,7 +54,12 @@ export function CreditsPopoverButton({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          className="rnc-assistant-chip inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-[#faf6f0] text-(--muted-foreground) px-2"
+          className={cn(
+            "rnc-assistant-chip inline-flex h-8 w-8 items-center justify-center rounded-lg px-2",
+            !isCreditsLoading && !hasCredits
+              ? "border border-[#f3b3b3] bg-[#fff1f1] text-[#b42318] hover:bg-[#ffe7e7]"
+              : "border border-black/10 bg-[#faf6f0] text-(--muted-foreground)",
+          )}
           aria-label={creditsLabel}
         >
           {isCreditsLoading ? (
@@ -82,6 +89,11 @@ export function CreditsPopoverButton({
             <p className="text-(--muted-foreground)">
               Daily allocation: {dailyLimit}
             </p>
+            {!hasCredits ? (
+              <p className="pt-1 text-xs font-medium text-[#b42318]">
+                You are out of credits for today.
+              </p>
+            ) : null}
           </div>
         )}
       </PopoverContent>
