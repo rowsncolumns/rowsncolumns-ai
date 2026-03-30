@@ -10,7 +10,7 @@ const buttonVariants = {
   contrast:
     "bg-white text-[#111827] shadow-[0_10px_28px_rgba(0,0,0,0.2)] hover:opacity-90 active:opacity-90",
   secondary:
-    "bg-[var(--card-bg-subtle)] text-[var(--foreground)] ring-1 ring-[var(--card-border)] hover:bg-[var(--nav-hover)] hover:shadow-[0_1px_2px_rgba(15,23,42,0.08)] active:bg-[var(--nav-hover)] active:brightness-95",
+    "rounded-lg border border-[var(--card-border)] bg-[var(--assistant-chip-bg)] font-normal text-[var(--foreground)] shadow-none hover:bg-[var(--assistant-chip-hover)] active:bg-[var(--assistant-chip-hover)] active:brightness-95",
   ghost:
     "bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--nav-hover)] hover:text-[var(--foreground)] active:bg-[var(--nav-hover)] active:opacity-80",
 };

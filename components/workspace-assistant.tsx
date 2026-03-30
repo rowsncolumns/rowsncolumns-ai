@@ -4271,7 +4271,7 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
                           variant="secondary"
                           size="sm"
                           onClick={resetEditor}
-                          className="rnc-assistant-chip h-8 gap-1.5 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
+                          className="h-8 gap-1.5 px-2.5 text-xs"
                         >
                           <ChevronLeft className="h-3.5 w-3.5" />
                           <span>Back to Skills</span>
@@ -4384,16 +4384,17 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
                                   size="sm"
                                   onClick={resetEditor}
                                   disabled={isSavingSkill}
-                                  className="rnc-assistant-chip h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
+                                  className="h-8 rounded-lg px-3 text-xs"
                                 >
                                   Cancel
                                 </Button>
                                 <Button
                                   type="button"
+                                  variant="primary"
                                   size="sm"
                                   onClick={saveSkill}
                                   disabled={isSavingSkill}
-                                  className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"
+                                  className="h-8 rounded-lg px-3 text-xs"
                                 >
                                   {isSavingSkill
                                     ? "Saving..."
@@ -5567,14 +5568,11 @@ function AssistantComposer({
           <Button
             type="button"
             size="sm"
-            variant="default"
+            variant="primary"
             onClick={handleSendOrQueue}
             aria-label={isThreadRunning ? "Queue message" : "Send message"}
             disabled={!canSendFromComposer || !hasCredits}
-            className={cn(
-              "h-9 w-9 rounded-xl bg-(--accent) p-0 text-(--accent-foreground) shadow-[0_8px_20px_rgba(255,109,52,0.22)] hover:bg-(--accent-strong) focus-visible:ring-(--ring)",
-              "disabled:bg-(--assistant-chip-bg) disabled:text-(--muted-foreground) disabled:shadow-none disabled:opacity-100",
-            )}
+            className={cn("h-9 w-9 ")}
           >
             <SendHorizontal
               aria-hidden="true"
