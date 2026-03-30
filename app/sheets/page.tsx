@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 import { NewSheetButton } from "@/components/new-sheet-button";
 import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
@@ -197,12 +197,14 @@ export default async function SheetsPage({
                       query: null,
                     })}
                     className={getButtonClassName({
-                      variant: "ghost",
+                      variant: "secondary",
                       size: "sm",
-                      className: "rounded-lg px-2.5",
+                      className: "h-9 w-9 rounded-lg p-0",
                     })}
+                    aria-label="Clear search"
                   >
-                    Clear
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Clear search</span>
                   </Link>
                 ) : null}
               </form>
