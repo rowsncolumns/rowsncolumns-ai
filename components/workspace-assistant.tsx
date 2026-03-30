@@ -5276,7 +5276,15 @@ function AssistantComposer({
         alt={composerLightboxImage?.alt ?? "Attached image"}
         onClose={() => setComposerLightboxImage(null)}
       />
-      <div className="px-4 pt-4">
+      {!hasCredits && (
+        <div className="px-4 pt-3">
+          <div className="flex items-start gap-2 rounded-lg border border-[#f5c58d] bg-[#fff8ee] px-3 py-2 text-xs text-[#8a4a0a]">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <p className="leading-5">{OUT_OF_CREDITS_MESSAGE}</p>
+          </div>
+        </div>
+      )}
+      <div className={cn("px-4", hasCredits ? "pt-4" : "pt-2")}>
         <ComposerPrimitive.Input
           asChild
           onKeyDown={handleQueueOnEnter}
