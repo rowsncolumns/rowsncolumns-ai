@@ -55,6 +55,7 @@ import {
   uuidString,
 } from "@rowsncolumns/utils";
 import {
+  Brain,
   Bug,
   Check,
   ChevronDown,
@@ -2490,7 +2491,7 @@ function ReasoningBlock({
   return (
     <Collapsible.Root open={isOpen} onOpenChange={setIsOpen}>
       <Collapsible.Trigger className="inline-flex max-w-full items-center gap-2 rounded-md border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-(--assistant-chip-hover)">
-        <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+        <Brain className="h-3.5 w-3.5 text-violet-500" />
         <span>Thinking</span>
         <ChevronDown
           className={`ml-auto h-3.5 w-3.5 shrink-0 text-(--muted-foreground) transition-transform ${
@@ -5435,7 +5436,7 @@ function AssistantComposer({
                 aria-label={`Reasoning ${reasoningEnabled ? "on" : "off"}`}
                 title={reasoningEnabled ? "Reasoning On" : "Reasoning Off"}
               >
-                <Sparkles
+                <Brain
                   className={cn(
                     "h-3.5 w-3.5 transition-colors",
                     reasoningEnabled ? "text-(--accent)" : "",
