@@ -479,6 +479,15 @@ Example 7 — Formula referencing another sheet:
   range: "A1"
   cells: [[{"formula": "='Sales Data'!B2 + 'Sales Data'!C2"}]]
 
+Example 8 — Cross-sheet formulas (common patterns):
+  range: "A1:A4"
+  cells: [
+    [{"formula": "=SUM('Sales Data'!B2:B100)"}],
+    [{"formula": "=VLOOKUP(A1, 'Products'!A:C, 3, FALSE)"}],
+    [{"formula": "='Q1 Results'!D10 * 1.1"}],
+    [{"formula": "=SUMIF('Transactions'!A:A, \"Complete\", 'Transactions'!D:D)"}]
+  ]
+
 `,
   schema: SpreadsheetChangeBatchSchema,
 });
