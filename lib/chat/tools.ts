@@ -41,8 +41,6 @@ import {
   SpreadsheetQueryRangeSchema,
   type SpreadsheetSetIterativeModeInput,
   SpreadsheetSetIterativeModeSchema,
-  type SpreadsheetGetSheetMetadataInput,
-  SpreadsheetGetSheetMetadataSchema,
   type SpreadsheetReadDocumentInput,
   SpreadsheetReadDocumentSchema,
   type SpreadsheetGetRowColMetadataInput,
@@ -498,126 +496,6 @@ Example 8 — Cross-sheet formulas (common patterns):
 /**
  * All available tools for the spreadsheet assistant
  */
-/**
- * Handler for the spreadsheet_getSheetMetadata tool
- */
-const handleSpreadsheetGetSheetMetadata = async (
-  input: SpreadsheetGetSheetMetadataInput,
-): Promise<string> => {
-  const { docId, sheetId: inputSheetId } = input;
-
-  if (!docId) {
-    return JSON.stringify({
-      success: false,
-      error: "docId is required to get sheet metadata",
-    });
-  }
-
-  try {
-    const { doc, close } = await getShareDBDocument(docId);
-
-    try {
-      const data = doc.data as ShareDBSpreadsheetDoc | null;
-
-      if (!data) {
-        return JSON.stringify({
-          success: false,
-          error: "Document has no data",
-        });
-      }
-
-      const spreadsheet = createSpreadsheetInterface(data, false);
-      const sheetId = inputSheetId ?? 1;
-      const sheet = spreadsheet.sheets.find((s) => s.sheetId === sheetId);
-
-      if (!sheet) {
-        return JSON.stringify({
-          success: false,
-          error: `Sheet with ID ${sheetId} not found`,
-        });
-      }
-
-      // Convert merges to A1 notation
-      const mergesA1 = (sheet.merges ?? []).map((merge) => {
-        return selectionToAddress({ range: merge });
-      });
-
-      // Build metadata response (excluding row/column metadata)
-      const metadata = {
-        sheetId: sheet.sheetId,
-        title: sheet.title,
-        hidden: sheet.hidden ?? false,
-        frozenRowCount: sheet.frozenRowCount ?? 0,
-        frozenColumnCount: sheet.frozenColumnCount ?? 0,
-        showGridLines: sheet.showGridLines ?? true,
-        tabColor: sheet.tabColor ?? null,
-        merges: mergesA1,
-        index: sheet.index,
-      };
-
-      console.log("[spreadsheet_getSheetMetadata] Completed:", {
-        docId,
-        sheetId,
-      });
-
-      return JSON.stringify({
-        success: true,
-        ...metadata,
-      });
-    } finally {
-      close();
-    }
-  } catch (error) {
-    console.error("[spreadsheet_getSheetMetadata] Error:", error);
-
-    return JSON.stringify({
-      success: false,
-      error:
-        error instanceof Error ? error.message : "Failed to get sheet metadata",
-    });
-  }
-};
-
-/**
- * The spreadsheet_getSheetMetadata tool for LangChain
- */
-export const spreadsheetGetSheetMetadataTool = tool(
-  handleSpreadsheetGetSheetMetadata,
-  {
-    name: "spreadsheet_getSheetMetadata",
-    description: `Get metadata for a specific sheet (tab) in a spreadsheet.
-
-OVERVIEW:
-Returns sheet properties including title, frozen rows/columns, tab color, merges (in A1 notation), visibility, and grid line settings. Does NOT include row/column metadata (sizes, hidden state).
-
-WHEN TO USE THIS TOOL:
-- To check current sheet settings before making updates
-- To get list of merged cell ranges
-- To verify frozen rows/columns configuration
-- To check if a sheet is hidden
-
-RETURNS:
-- sheetId: The sheet ID
-- title: Sheet name
-- hidden: Whether the sheet is hidden
-- frozenRowCount: Number of frozen rows
-- frozenColumnCount: Number of frozen columns
-- showGridLines: Whether grid lines are visible
-- tabColor: Tab color (hex string or theme reference)
-- merges: Array of merged ranges in A1 notation (e.g., ["A1:C1", "D3:F5"])
-- index: Sheet order/position
-
-EXAMPLES:
-
-Example 1 — Get metadata for sheet 1:
-  docId: "abc123"
-  sheetId: 1
-
-Example 2 — Get metadata for default sheet:
-  docId: "abc123"`,
-    schema: SpreadsheetGetSheetMetadataSchema,
-  },
-);
 
 /**
  * Parse and validate cells input for formatting - handles JSON string and validates 2D array structure
@@ -1623,7 +1501,7 @@ Args:
 const handleSpreadsheetReadDocument = async (
   input: SpreadsheetReadDocumentInput,
 ): Promise<string> => {
-  const { docId, sheetId: inputSheetId, range: rangeStr } = input;
+  const { docId, sheetId: inputSheetId, range: rangeStr, layer = "values" } = input;
 
   if (!docId) {
     return JSON.stringify({
@@ -1636,6 +1514,7 @@ const handleSpreadsheetReadDocument = async (
     docId,
     sheetId: inputSheetId,
     range: rangeStr,
+    layer,
   });
 
   try {
@@ -1687,6 +1566,68 @@ const handleSpreadsheetReadDocument = async (
             (sheet as { name?: string }).name ||
             `Sheet${sheet.sheetId}`,
         }));
+      }
+
+      // Handle metadata-only layer
+      if (layer === "metadata") {
+        const sheetsMetadata = sheetsToRead.map((sheetInfo) => {
+          const sheet = spreadsheet.sheets.find(
+            (s) => s.sheetId === sheetInfo.sheetId,
+          ) as Sheet | undefined;
+          const sheetDataForMeta = spreadsheet.sheetData[sheetInfo.sheetId];
+
+          // Calculate data bounds
+          let rowCount = 0;
+          let columnCount = 0;
+          if (sheetDataForMeta) {
+            for (const rowIndexStr of Object.keys(sheetDataForMeta)) {
+              const rowIndex = parseInt(rowIndexStr, 10);
+              if (isNaN(rowIndex)) continue;
+              const rowData = sheetDataForMeta[rowIndex];
+              if (!rowData?.values) continue;
+              rowCount = Math.max(rowCount, rowIndex);
+              for (const colIndexStr of Object.keys(rowData.values)) {
+                const colIndex = parseInt(colIndexStr, 10);
+                if (isNaN(colIndex)) continue;
+                if (rowData.values[colIndex]) {
+                  columnCount = Math.max(columnCount, colIndex);
+                }
+              }
+            }
+          }
+
+          // Convert merges to A1 notation
+          const mergesA1 = (sheet?.merges ?? []).map((merge) =>
+            selectionToAddress({ range: merge }),
+          );
+
+          return {
+            sheetId: sheetInfo.sheetId,
+            title: sheetInfo.title,
+            index: sheet?.index,
+            hidden: sheet?.hidden ?? false,
+            frozenRowCount: sheet?.frozenRowCount ?? 0,
+            frozenColumnCount: sheet?.frozenColumnCount ?? 0,
+            showGridLines: sheet?.showGridLines ?? true,
+            tabColor: sheet?.tabColor ?? null,
+            merges: mergesA1,
+            rowCount,
+            columnCount,
+          };
+        });
+
+        console.log("[spreadsheet_readDocument] Completed (metadata only):", {
+          docId,
+          sheetCount: sheetsMetadata.length,
+        });
+
+        return JSON.stringify({
+          success: true,
+          metadata: {
+            totalSheets: spreadsheet.sheets.length,
+            sheets: sheetsMetadata,
+          },
+        });
       }
 
       const resultSheets: Array<{
@@ -1912,10 +1853,10 @@ const handleSpreadsheetReadDocument = async (
  */
 export const spreadsheetReadDocumentTool = tool(handleSpreadsheetReadDocument, {
   name: "spreadsheet_readDocument",
-  description: `Read content from a spreadsheet and return values in a workbook format.
+  description: `Read content from a spreadsheet and return values or metadata in a workbook format.
 
 OVERVIEW:
-This tool reads cell data from a spreadsheet and returns it in a structured format. You can read all sheets, a specific sheet by ID or name, or a specific range within a sheet.
+This tool reads cell data or metadata from a spreadsheet. Use the 'layer' parameter to choose what to return.
 
 ROUTING GUIDANCE (OVERVIEW-FIRST TOOL):
 - Use this tool for broad workbook or sheet exploration and structural understanding.
@@ -1923,64 +1864,78 @@ ROUTING GUIDANCE (OVERVIEW-FIRST TOOL):
 - Prefer spreadsheet_readDocument when deciding what ranges to query next, not for repeated scoped reads.
 
 WHEN TO USE THIS TOOL:
-- Getting an overview of the entire spreadsheet structure
-- Reading all data from one or more sheets
+- Getting sheet metadata: frozen rows/cols, merges, tab colors, hidden state (use layer: "metadata")
+- Getting an overview of the entire spreadsheet structure (use layer: "metadata")
+- Reading all data from one or more sheets (use layer: "values")
 - Understanding the layout and content of a workbook
 - Initial exploration of a spreadsheet before making modifications
+- Checking sheet properties before updates (use layer: "metadata")
 
 PARAMETERS:
 - docId: The document ID of the spreadsheet (required)
-- sheetId: Optional sheet ID to read from (1-based). If provided, takes priority over sheetName.
-- sheetName: Optional sheet name to read from. Used if sheetId is not provided.
-- range: Optional A1 notation range (e.g., 'A1:B10'). Only applies when sheetId or sheetName is provided.
+- sheetId: Optional sheet ID to read from (1-based).
+- range: Optional A1 notation range (e.g., 'A1:B10'). Only applies when sheetId is provided and layer is "values".
+- layer: What to return (optional, defaults to "values"):
+  - "values": Returns cell data with basic metadata
+  - "metadata": Returns detailed sheet metadata only (titles, dimensions, frozen rows/cols, merges, tab colors, etc.) without cell data
 
-RETURNS:
-JSON with workbook structure:
+RETURNS FOR layer: "values" (default):
 {
   "success": true,
   "metadata": {
     "totalSheets": 3,
-    "sheets": [
-      {"title": "Sheet1", "sheetId": 1, "rowCount": 14, "columnCount": 4},
-      {"title": "Sheet2", "sheetId": 2, "rowCount": 8, "columnCount": 3}
-    ]
+    "sheets": [{"title": "Sheet1", "sheetId": 1, "rowCount": 14, "columnCount": 4}]
   },
   "workbook": {
-    "sheets": [
-      {
-        "sheetName": "Sheet1",
-        "sheetId": 1,
-        "dimension": "A1:D14",
-        "cells": {
-          "A1": "value" or ["formatted", effective_value] or ["formatted", effective_value, formula]
-        },
-        "styles": {}
-      }
-    ]
+    "sheets": [{
+      "sheetName": "Sheet1",
+      "sheetId": 1,
+      "dimension": "A1:D14",
+      "cells": {"A1": "value" or ["formatted", effective] or ["formatted", effective, formula]},
+      "styles": {}
+    }]
   }
 }
 
-The metadata object always includes ALL sheets in the workbook, even when reading a single sheet, providing full context about the workbook structure.
+RETURNS FOR layer: "metadata":
+{
+  "success": true,
+  "metadata": {
+    "totalSheets": 3,
+    "sheets": [{
+      "sheetId": 1,
+      "title": "Sheet1",
+      "index": 0,
+      "hidden": false,
+      "frozenRowCount": 1,
+      "frozenColumnCount": 0,
+      "showGridLines": true,
+      "tabColor": "#FF0000",
+      "merges": ["A1:C1", "D3:F5"],
+      "rowCount": 14,
+      "columnCount": 4
+    }]
+  }
+}
 
-Cell values are returned in one of three formats:
+Cell values (layer: "values") are returned in one of three formats:
 - Plain value (string/number/boolean) when formatted equals effective
 - [formatted_value, effective_value] when formatting differs (e.g., currency)
 - [formatted_value, effective_value, formula] when cell has a formula
 
-Empty cells are ignored (not included in the cells object).
-
 EXAMPLES:
 
-Example 1 — Read all sheets:
+Example 1 — Get metadata for all sheets (no cell data):
   docId: "abc123"
+  layer: "metadata"
 
-Example 2 — Read specific sheet by ID:
+Example 2 — Read all cell values:
+  docId: "abc123"
+  layer: "values"
+
+Example 3 — Read specific sheet by ID:
   docId: "abc123"
   sheetId: 1
-
-Example 3 — Read specific sheet by name:
-  docId: "abc123"
-  sheetName: "Sales Report"
 
 Example 4 — Read specific range from a sheet:
   docId: "abc123"
@@ -5938,7 +5893,6 @@ export const assistantControlTools = [assistantRequestModeSwitchTool];
  */
 export const spreadsheetTools = [
   spreadsheetChangeBatchTool,
-  spreadsheetGetSheetMetadataTool,
   spreadsheetFormatRangeTool,
   spreadsheetModifyRowsColsTool,
   spreadsheetQueryRangeTool,

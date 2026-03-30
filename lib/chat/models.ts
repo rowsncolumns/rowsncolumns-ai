@@ -459,6 +459,12 @@ export const SpreadsheetReadDocumentSchema = z.object({
     .describe(
       "Optional A1 notation range (e.g., 'A1:B10') within the selected sheet.",
     ),
+  layer: z
+    .enum(["values", "metadata"])
+    .optional()
+    .describe(
+      "What to return: 'values' for cell data with basic metadata (default), 'metadata' for detailed sheet metadata only (titles, dimensions, frozen rows/cols, merges, tab colors, etc.) without cell data.",
+    ),
   ...ToolExplanationSchemaShape,
 });
 
