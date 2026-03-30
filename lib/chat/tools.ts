@@ -943,6 +943,8 @@ FORMATTING STANDARDS:
 - Headers: bold, center-align, bottom border
 - Numbers: right-align, #,##0 format
 - Currency: '$#,##0.00', right-align
+- Percentages: 0.0% (one decimal default)
+- Dates: use date format, not plain numbers
 - Totals: bold with top border (double for accounting style)
 - Data cells: regular weight (non-bold) unless emphasis requested
 

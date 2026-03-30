@@ -79,6 +79,26 @@ const DEEP_AUDIT_RULES_BLOCK = [
   "After presenting findings, offer to fix issues automatically.",
 ].join("\n");
 
+const FINANCIAL_MODEL_COLORS_BLOCK = [
+  "Financial Model Color Conventions:",
+  "When building financial models (LBO, DCF, 3-statement, valuation):",
+  "- Blue text (#0000FF): hardcoded inputs and scenario values",
+  "- Black text (#000000): formulas and calculations",
+  "- Green text (#008000): cross-sheet links within workbook",
+  "- Red text (#FF0000): external file links",
+  "- Yellow background (#FFFF00): key assumptions needing attention",
+].join("\n");
+
+const INVESTMENT_BANKING_RULES_BLOCK = [
+  "Investment Banking Layout Standards:",
+  "- Total calculations must sum cells directly above (no horizontal ranges).",
+  "- Hide gridlines; use horizontal borders above totals.",
+  "- Section headers: left-justified, black/dark blue fill (#000080), white text (#FFFFFF), merged across columns.",
+  "- Column labels: right-aligned.",
+  "- Row labels: left-justified; indent submetrics with leading spaces.",
+  "- Maintain consistent column widths within sections.",
+].join("\n");
+
 export const normalizeInstructionText = (value: string | undefined | null) => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
@@ -121,6 +141,8 @@ export const buildSkillsInstruction = (skills: AssistantSkillInstruction[]) => {
   return [
     "Branding and style consistency rules are always in effect.",
     BRANDING_RULE_BLOCK,
+    FINANCIAL_MODEL_COLORS_BLOCK,
+    INVESTMENT_BANKING_RULES_BLOCK,
     DATA_VALIDATION_RULES_BLOCK,
     CONDITIONAL_FORMAT_RULES_BLOCK,
     DEEP_AUDIT_RULES_BLOCK,
