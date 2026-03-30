@@ -8,6 +8,9 @@
   --accent: #ff6d34;
   --accent-strong: #f4571b;
   --accent-foreground: #2b140b;
+  --button-primary-bg: #8E2F6A;
+  --button-primary-bg-hover: #622049;
+  --button-primary-foreground: #ffffff;
   --badge: rgba(255, 109, 52, 0.14);
   --badge-foreground: #9a3c11;
   --ring: rgba(255, 109, 52, 0.52);
@@ -60,6 +63,9 @@ body.rnc-dark {
   --accent: #ff8d5e;
   --accent-strong: #ff6d34;
   --accent-foreground: #2b140b;
+  --button-primary-bg: #ea6739;
+  --button-primary-bg-hover: #d9582c;
+  --button-primary-foreground: #ffffff;
   --badge: rgba(255, 141, 94, 0.2);
   --badge-foreground: #ffd7c6;
   --ring: rgba(255, 141, 94, 0.45);

@@ -4,9 +4,9 @@ import { cn } from "@/lib/utils";
 
 const buttonVariants = {
   primary:
-    "bg-[var(--accent)] !text-[var(--accent-foreground)] shadow-[0_18px_40px_rgba(255,109,52,0.22)] hover:bg-[var(--accent-strong)] active:bg-[var(--accent-strong)] active:brightness-95",
+    "bg-[var(--button-primary-bg)] !text-[var(--button-primary-foreground)] shadow-[0_18px_40px_rgba(255,109,52,0.22)] hover:bg-[var(--button-primary-bg-hover)] active:bg-[var(--button-primary-bg-hover)] active:brightness-95",
   default:
-    "bg-[var(--accent)] !text-[var(--accent-foreground)] shadow-[0_18px_40px_rgba(255,109,52,0.22)] hover:bg-[var(--accent-strong)] active:bg-[var(--accent-strong)] active:brightness-95",
+    "bg-[var(--button-primary-bg)] !text-[var(--button-primary-foreground)] shadow-[0_18px_40px_rgba(255,109,52,0.22)] hover:bg-[var(--button-primary-bg-hover)] active:bg-[var(--button-primary-bg-hover)] active:brightness-95",
   contrast:
     "bg-white text-[#111827] shadow-[0_10px_28px_rgba(0,0,0,0.2)] hover:opacity-90 active:opacity-90",
   secondary:
