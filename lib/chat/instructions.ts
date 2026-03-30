@@ -91,11 +91,12 @@ const FINANCIAL_MODEL_COLORS_BLOCK = [
 
 const INVESTMENT_BANKING_RULES_BLOCK = [
   "Investment Banking Layout Standards:",
+  "If the spreadsheet is related to investment banking (LBO, DCF, 3-statement, valuation model, or similar):",
   "- Total calculations must sum cells directly above (no horizontal ranges).",
-  "- Hide gridlines; use horizontal borders above totals.",
-  "- Section headers: left-justified, black/dark blue fill (#000080), white text (#FFFFFF), merged across columns.",
+  "- Hide gridlines (showGridLines: false); use horizontal borders above totals.",
+  "- Section headers: left-justified, dark blue fill (#000080), white text (#FFFFFF), merged across columns (use spreadsheet_sheet merges).",
   "- Column labels: right-aligned.",
-  "- Row labels: left-justified; indent submetrics with leading spaces.",
+  "- Row labels: left-justified; indent submetrics with leading spaces in cell values.",
   "- Maintain consistent column widths within sections.",
 ].join("\n");
 
