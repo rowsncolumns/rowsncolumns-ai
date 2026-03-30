@@ -94,8 +94,8 @@ export default async function TermsPage() {
                 <p className="mt-2">
                   You retain responsibility for the legality, integrity, and
                   accuracy of data submitted to the service. You are also
-                  responsible for reviewing outputs before operational, financial,
-                  legal, or regulatory use.
+                  responsible for reviewing outputs before operational,
+                  financial, legal, or regulatory use.
                 </p>
               </section>
 
@@ -106,8 +106,8 @@ export default async function TermsPage() {
                 <p className="mt-2">
                   You may not use the service to violate laws, infringe rights,
                   bypass security controls, process data without authorization,
-                  reverse engineer protected components, abuse APIs, or interfere
-                  with platform stability.
+                  reverse engineer protected components, abuse APIs, or
+                  interfere with platform stability.
                 </p>
               </section>
 
@@ -151,10 +151,10 @@ export default async function TermsPage() {
                   9. Disclaimers
                 </h2>
                 <p className="mt-2">
-                  The service is provided on an &quot;as is&quot; and &quot;as available&quot;
-                  basis. To the maximum extent permitted by law, we disclaim all
-                  implied warranties, including merchantability, fitness for a
-                  particular purpose, and non-infringement.
+                  The service is provided on an &quot;as is&quot; and &quot;as
+                  available&quot; basis. To the maximum extent permitted by law,
+                  we disclaim all implied warranties, including merchantability,
+                  fitness for a particular purpose, and non-infringement.
                 </p>
               </section>
 
@@ -188,10 +188,11 @@ export default async function TermsPage() {
                   12. Governing Law and Disputes
                 </h2>
                 <p className="mt-2">
-                  These Terms are governed by applicable law set in your customer
-                  agreement or order form. If none is specified, disputes will be
-                  resolved in a mutually agreed competent venue, subject to
-                  mandatory consumer or local legal protections.
+                  These Terms are governed by applicable law set in your
+                  customer agreement or order form. If none is specified,
+                  disputes will be resolved in a mutually agreed competent
+                  venue, subject to mandatory consumer or local legal
+                  protections.
                 </p>
               </section>
 

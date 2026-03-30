@@ -29,7 +29,11 @@
     "db:migrate:document-metadata": "tsx scripts/create-document-metadata-table.ts",
     "db:migrate:document-access-grants": "tsx scripts/create-document-access-grants-table.ts",
     "db:migrate:document-share-permissions": "tsx scripts/add-share-permission-to-document-share-links.ts",
-    "db:migrate:document-favorites": "tsx scripts/create-document-favorites-table.ts"
+    "db:migrate:document-favorites": "tsx scripts/create-document-favorites-table.ts",
+    "db:migrate:billing": "tsx scripts/create-billing-tables.ts",
+    "test:credits:buckets": "tsx scripts/test-credits-buckets.ts",
+    "stripe:provision:billing-catalog": "tsx scripts/provision-stripe-billing-catalog.ts",
+    "stripe:migrate:pro-35": "tsx scripts/migrate-pro-subscriptions-to-35.ts"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.12.10",
@@ -79,6 +83,7 @@
     "sharedb-postgres": "^5.0.1",
     "sharp": "^0.34.5",
     "sonner": "^2.0.7",
+    "stripe": "^21.0.1",
     "tailwind-merge": "^3.5.0",
     "vaul": "^1.1.2",
     "ws": "^8.19.0",

@@ -11,7 +11,7 @@ function readSingleParam(value: string | string[] | undefined): string | null {
 
 function normalizeRedirectPath(value: string | null): string {
   if (value && value.startsWith("/") && !value.startsWith("//")) return value;
-  return "/sheets/new";
+  return "/sheets";
 }
 
 function buildSignInErrorRedirect({

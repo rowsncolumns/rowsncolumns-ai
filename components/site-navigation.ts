@@ -8,12 +8,14 @@ export const siteNavigation: NavigationItem[] = [
   { label: "Collaboration", href: "/#collaboration" },
   { label: "Workflows", href: "/#workflows" },
   { label: "Security", href: "/#security" },
-  { label: "Pricing", href: "/#pricing" },
+  { label: "Pricing", href: "/pricing" },
 ];
 
 export const authenticatedSiteNavigation: NavigationItem[] = [
   { label: "My Sheets", href: "/sheets" },
+  { label: "Pricing", href: "/pricing" },
   { label: "Settings", href: "/account/settings" },
+  { label: "Billing", href: "/account/billing" },
   { label: "Contact", href: "/contact" },
 ];
 

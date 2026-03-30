@@ -1,7 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ChevronDown, LogOut, Settings } from "lucide-react";
+import {
+  ChevronDown,
+  CreditCard,
+  LogOut,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -97,6 +103,18 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
           <a href="/account/settings" className="cursor-pointer">
             <Settings className="h-4 w-4" />
             Settings
+          </a>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <a href="/pricing" className="cursor-pointer">
+            <Sparkles className="h-4 w-4" />
+            Pricing
+          </a>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <a href="/account/billing" className="cursor-pointer">
+            <CreditCard className="h-4 w-4" />
+            Billing
           </a>
         </DropdownMenuItem>
 

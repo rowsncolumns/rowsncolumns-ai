@@ -204,7 +204,7 @@ function WorkflowPreviewCard() {
               ].map((step, index) => (
                 <div
                   key={step}
-                  className="glow-line flex items-center gap-2 rounded-lg border border-white/8 bg-white/[0.04] px-2 py-2 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-3"
+                  className="flex items-center gap-2 rounded-lg border border-white/8 bg-white/[0.04] px-2 py-2 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-3"
                 >
                   <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/10 font-mono text-[10px] text-[#ffb394] sm:h-8 sm:w-8 sm:rounded-lg sm:text-xs">
                     0{index + 1}
@@ -303,8 +303,8 @@ export default async function Home() {
                       authenticatedTriggerText="New spreadsheet"
                       mobileAuthenticatedTriggerText="New sheet"
                       initialIsAuthenticated={initialIsAuthenticated}
-                      triggerVariant="hero"
-                      redirectTo="/sheets/new"
+                      triggerVariant="primary"
+                      redirectTo="/sheets"
                       className="h-11 shrink-0 px-4 text-sm whitespace-nowrap sm:h-12 sm:px-6 sm:text-base"
                     />
                     <div className="relative inline-flex w-fit shrink-0">
@@ -496,9 +496,9 @@ export default async function Home() {
                       authenticatedTriggerText="Open collaborative workspace"
                       mobileAuthenticatedTriggerText="Open workspace"
                       initialIsAuthenticated={initialIsAuthenticated}
-                      triggerVariant="hero"
-                      redirectTo="/sheets/new"
-                      className="h-11 w-full rounded-lg bg-white px-4 text-sm font-semibold text-black shadow-[0_12px_28px_rgba(0,0,0,0.22)] hover:opacity-90"
+                      triggerVariant="contrast"
+                      redirectTo="/sheets"
+                      className="h-11 w-full rounded-lg px-4 text-sm"
                     />
                   </div>
                 </div>
@@ -700,6 +700,9 @@ export default async function Home() {
                     Owner-controlled sharing
                   </Badge>
                   <Badge className="border-0 bg-white/10 text-white">
+                    On-prem deployments
+                  </Badge>
+                  <Badge className="border-0 bg-white/10 text-white">
                     Configurable retention policies
                   </Badge>
                 </div>
@@ -727,6 +730,10 @@ export default async function Home() {
                     "Retention governance",
                     "Apply retention and deletion rules based on legal, operational, and customer requirements.",
                   ],
+                  [
+                    "Deployment options",
+                    "Run in managed cloud or on-prem deployments based on your security and compliance requirements.",
+                  ],
                 ].map(([title, copy]) => (
                   <div
                     key={title}
@@ -738,51 +745,6 @@ export default async function Home() {
                     </p>
                   </div>
                 ))}
-              </div>
-            </div>
-          </Card>
-        </div>
-      </section>
-
-      <section id="pricing" className="px-4 py-12 sm:px-8 sm:py-8 lg:px-12">
-        <div className="mx-auto max-w-7xl">
-          <Card className="overflow-hidden bg-[linear-gradient(135deg,var(--pricing-gradient-start),var(--pricing-gradient-end))]">
-            <div className="grid gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center lg:p-10">
-              <div>
-                <Badge>Pricing</Badge>
-                <h2 className="display-font mt-4 text-2xl font-semibold tracking-[-0.04em] text-[var(--foreground)] sm:mt-5 sm:text-4xl md:text-5xl">
-                  Start with a team pilot, then scale by workflow.
-                </h2>
-                <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--muted-foreground)] sm:mt-4 sm:text-lg sm:leading-8">
-                  Launch with one team, prove the operational lift quickly, and
-                  expand to more workflows once the review process is in place.
-                </p>
-              </div>
-
-              <div className="rounded-[14px] border border-[var(--card-border)] bg-[#14161d] p-5 text-white shadow-[0_22px_60px_rgba(0,0,0,0.3)] sm:rounded-[18px] sm:p-6">
-                <p className="text-xs uppercase tracking-[0.24em] text-white/60 sm:text-sm">
-                  Team Pilot
-                </p>
-                <p className="display-font mt-2 text-4xl sm:mt-3 sm:text-5xl">
-                  $20
-                </p>
-                <p className="mt-1.5 text-xs text-white/70 sm:mt-2 sm:text-sm">
-                  per workspace / month
-                </p>
-                <div className="mt-4 space-y-2 text-xs text-white/78 sm:mt-6 sm:space-y-3 sm:text-sm">
-                  <p>Unlimited workflow runs</p>
-                  <p>Shared templates and audit trails</p>
-                  <p>Admin controls and approval gates</p>
-                </div>
-                <Button
-                  className="mt-5 w-full cursor-not-allowed opacity-90 sm:mt-6"
-                  type="button"
-                  disabled
-                  aria-label="Pilot pricing enrollment coming soon"
-                  title="Pilot enrollment coming soon"
-                >
-                  Pilot enrollment coming soon
-                </Button>
               </div>
             </div>
           </Card>

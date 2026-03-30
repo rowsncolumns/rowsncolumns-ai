@@ -216,7 +216,7 @@ export function FileMenu({
               Import CSV
             </DropdownMenuItem>
           ) : null}
-          {(allowCreateNew || (allowImport && (onImportExcel || onImportCSV))) ? (
+          {allowCreateNew || (allowImport && (onImportExcel || onImportCSV)) ? (
             <DropdownMenuSeparator />
           ) : null}
           <DropdownMenuItem onClick={handleExportExcel}>

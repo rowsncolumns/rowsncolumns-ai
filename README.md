@@ -87,12 +87,23 @@ Notes:
 
 ## Credits + Admin Refill
 
-Users receive daily credits with a non-accumulating reset to `30`.
+Users receive daily free credits with a non-accumulating reset to `20`.
+
+- Free plan: `20` daily credits (daily bucket resets, no rollover)
+- Pro: `$35/month`, `500` monthly credits
+- Max: `$200/month`, `3500` monthly credits
+- Top-up: `$50` one-off purchase adds `800` credits
+
+Credit accounting uses two buckets:
+
+- `daily_free_remaining` (free-only reset bucket)
+- durable paid `balance` (plan grants + top-ups, no expiry)
 
 Run credits migration:
 
 ```bash
 yarn db:migrate:credits
+yarn db:migrate:billing
 ```
 
 Optional admin allowlists (comma-separated) for manual refill access in Settings:
@@ -100,6 +111,37 @@ Optional admin allowlists (comma-separated) for manual refill access in Settings
 ```bash
 RNC_ADMIN_USER_IDS=
 RNC_ADMIN_EMAILS=
+```
+
+Stripe billing env vars:
+
+```bash
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+# Optional override for customer portal config in Stripe
+STRIPE_BILLING_PORTAL_CONFIGURATION_ID=
+
+# Lookup keys from Stripe Prices
+STRIPE_PRICE_LOOKUP_KEY_PRO_MONTHLY=pro_monthly
+STRIPE_PRICE_LOOKUP_KEY_MAX_MONTHLY=max_monthly
+STRIPE_PRICE_LOOKUP_KEY_TOPUP_50=topup_50
+```
+
+Optional: provision the Stripe product + prices (idempotent by lookup key):
+
+```bash
+yarn stripe:provision:billing-catalog
+```
+
+Optional: migrate existing Pro subscribers to the latest Pro price (`$35`) without proration:
+
+```bash
+# Dry run
+yarn stripe:migrate:pro-35
+
+# Apply changes
+yarn stripe:migrate:pro-35 --apply
 ```
 
 ## ShareDB On Postgres (Neon)

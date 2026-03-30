@@ -126,7 +126,7 @@ export const CHAT_API_ENDPOINT = "/api/chat";
 export const CHAT_HISTORY_API_ENDPOINT = "/api/chat/history";
 export const INSUFFICIENT_CREDITS_ERROR_CODE = "INSUFFICIENT_CREDITS";
 export const OUT_OF_CREDITS_MESSAGE =
-  "You've run out of credits for today. Credits reset to 30 at the next daily reset.";
+  "You've run out of credits. Buy a top-up in Billing or wait for the next free daily reset.";
 
 export const CHAT_EXTERNAL_API_BASE_URL = (
   process.env.NEXT_PUBLIC_CHAT_API_BASE_URL ?? ""

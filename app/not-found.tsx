@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { getButtonClassName } from "@/components/ui/button";
 import { supportEmail } from "@/components/site-navigation";
 import { Card } from "@/components/ui/card";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
@@ -54,13 +55,17 @@ export default async function NotFound() {
                 <div className="mt-7 flex flex-wrap gap-3">
                   <Link
                     href="/"
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-foreground)] shadow-[0_18px_40px_rgba(255,109,52,0.22)] transition hover:bg-[var(--accent-strong)]"
+                    className={getButtonClassName({
+                      variant: "primary",
+                    })}
                   >
                     Back to home
                   </Link>
                   <Link
                     href="/sheets"
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-[var(--card-bg-solid)] px-5 text-sm font-semibold text-[var(--foreground)] ring-1 ring-[var(--card-border)] transition hover:opacity-90"
+                    className={getButtonClassName({
+                      variant: "secondary",
+                    })}
                   >
                     Open sheets
                   </Link>

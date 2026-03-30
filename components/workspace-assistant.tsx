@@ -4492,9 +4492,18 @@ const CONTEXT_USAGE_WARNING_COPY =
 type CreditsApiResponse = {
   credits?: {
     balance?: number;
+    available?: number | null;
+    dailyFreeRemaining?: number | null;
+    paidBalance?: number | null;
     dailyLimit?: number;
     unlimited?: boolean;
     updatedAt?: string;
+  };
+  billing?: {
+    plan?: "free" | "pro" | "max";
+    subscriptionStatus?: string | null;
+    trialEndsAt?: string | null;
+    currentPeriodEnd?: string | null;
   };
 };
 
@@ -5278,9 +5287,26 @@ function AssistantComposer({
       />
       {!hasCredits && (
         <div className="px-4 pt-3">
-          <div className="flex items-start gap-2 rounded-lg border border-[#f5c58d] bg-[#fff8ee] px-3 py-2 text-xs text-[#8a4a0a]">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <p className="leading-5">{OUT_OF_CREDITS_MESSAGE}</p>
+          <div className="rounded-lg border border-(--sheet-formula-text)/35 bg-(--sheet-formula-bg) px-3 py-2 text-xs text-(--sheet-formula-text)">
+            <div className="flex items-start gap-2">
+              <Info
+                className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              <p className="leading-5">{OUT_OF_CREDITS_MESSAGE}</p>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 pl-5">
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  window.location.assign("/account/billing");
+                }}
+              >
+                Open Billing
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -5670,7 +5696,10 @@ function WorkspaceAssistantPanel({
       }
 
       const payload = (await response.json()) as CreditsApiResponse;
-      const balance = payload.credits?.balance;
+      const balance =
+        typeof payload.credits?.available === "number"
+          ? payload.credits?.available
+          : payload.credits?.balance;
       const isUnlimited = payload.credits?.unlimited === true;
       setRemainingCredits(typeof balance === "number" ? balance : null);
       setIsUnlimitedCredits(isUnlimited);

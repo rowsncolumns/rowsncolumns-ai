@@ -432,12 +432,12 @@ export const ensureChatRunCredits = async (input: {
   }
 
   const credits = await getUserCredits(input.userId);
-  if (credits.balance >= MIN_CREDITS_PER_RUN) {
+  if (credits.availableCredits >= MIN_CREDITS_PER_RUN) {
     return { ok: true };
   }
 
   const outOfCreditsErrorMessage =
-    "Insufficient credits for today. Credits reset to 30 at the next daily reset.";
+    "Insufficient credits. Buy a top-up in Billing or wait for the next free daily reset.";
   await persistAssistantFailureToCheckpoint({
     threadId: input.threadId,
     userId: input.userId,
@@ -452,7 +452,7 @@ export const ensureChatRunCredits = async (input: {
       payload: {
         error: outOfCreditsErrorMessage,
         code: "INSUFFICIENT_CREDITS",
-        remainingCredits: credits.balance,
+        remainingCredits: credits.availableCredits,
       },
     },
   };

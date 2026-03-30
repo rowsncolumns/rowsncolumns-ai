@@ -4,6 +4,7 @@ import { isAdminUser } from "@/lib/auth/admin";
 import { auth } from "@/lib/auth/server";
 import { INITIAL_CREDITS } from "@/lib/credits/pricing";
 import { getUserCredits } from "@/lib/credits/repository";
+import { getUserBillingEntitlement } from "@/lib/billing/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,15 +27,26 @@ export async function GET() {
 
     const isAdmin = isAdminUser({ id: user.id, email: user.email });
     const credits = await getUserCredits(userId);
+    const billing = await getUserBillingEntitlement(userId);
+    const available = isAdmin ? null : credits.availableCredits;
 
     return NextResponse.json({
       credits: {
-        balance: credits.balance,
+        balance: available,
+        available,
+        dailyFreeRemaining: isAdmin ? null : credits.dailyFreeRemaining,
+        paidBalance: isAdmin ? null : credits.paidBalance,
         creditDay: credits.creditDay,
         dailyLimit: INITIAL_CREDITS,
         unlimited: isAdmin,
         nextResetAt: getNextResetAtUtc(credits.creditDay),
         updatedAt: credits.updatedAt,
+      },
+      billing: {
+        plan: billing.plan,
+        subscriptionStatus: billing.subscriptionStatus,
+        trialEndsAt: billing.trialEndsAt,
+        currentPeriodEnd: billing.currentPeriodEnd,
       },
     });
   } catch (error) {

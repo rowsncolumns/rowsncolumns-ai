@@ -1,4 +1,6 @@
-export const INITIAL_CREDITS = 30;
+import { FREE_DAILY_CREDITS } from "@/lib/billing/plans";
+
+export const INITIAL_CREDITS = FREE_DAILY_CREDITS;
 export const MIN_CREDITS_PER_RUN = 1;
 export const MAX_CREDITS_PER_RUN = 100; // Increased cap for heavy agentic runs
 

@@ -8,7 +8,7 @@ import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { SheetsTable } from "@/components/sheets-table";
-import { Button } from "@/components/ui/button";
+import { Button, getButtonClassName } from "@/components/ui/button";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import {
   listOwnedDocuments,
@@ -196,7 +196,11 @@ export default async function SheetsPage({
                       filter: result.filter,
                       query: null,
                     })}
-                    className="inline-flex h-9 items-center justify-center rounded-lg px-2.5 text-sm font-semibold text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
+                    className={getButtonClassName({
+                      variant: "ghost",
+                      size: "sm",
+                      className: "rounded-lg px-2.5",
+                    })}
                   >
                     Clear
                   </Link>

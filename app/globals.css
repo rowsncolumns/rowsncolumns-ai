@@ -7,7 +7,7 @@
   --muted-foreground: #5f6472;
   --accent: #ff6d34;
   --accent-strong: #f4571b;
-  --accent-foreground: #fff7f1;
+  --accent-foreground: #2b140b;
   --badge: rgba(255, 109, 52, 0.14);
   --badge-foreground: #9a3c11;
   --ring: rgba(255, 109, 52, 0.52);
@@ -385,25 +385,6 @@ body.rnc-dark .hero-grid {
   animation: rise-in 0.8s ease-out 0.18s both;
 }
 
-.glow-line {
-  position: relative;
-  overflow: hidden;
-}
-
-.glow-line::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 -35%;
-  width: 30%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.7),
-    transparent
-  );
-  animation: sweep 7s linear infinite;
-}
-
 @keyframes float-slow {
   0%,
   100% {
@@ -422,15 +403,6 @@ body.rnc-dark .hero-grid {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes sweep {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(420%);
   }
 }
 

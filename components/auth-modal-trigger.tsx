@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Github, User, X } from "lucide-react";
+import { Github, Loader2, User, X } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ type AuthModalTriggerProps = {
   authenticatedTriggerText?: string;
   mobileAuthenticatedTriggerText?: string;
   initialIsAuthenticated?: boolean;
-  triggerVariant?: "ghost" | "hero";
+  triggerVariant?: "ghost" | "primary" | "contrast";
   redirectTo?: string;
   className?: string;
   showIconOnMobile?: boolean;
@@ -51,7 +51,7 @@ export function AuthModalTrigger({
   mobileAuthenticatedTriggerText,
   initialIsAuthenticated = false,
   triggerVariant = "ghost",
-  redirectTo = "/sheets/new",
+  redirectTo = "/sheets",
   className = "",
   showIconOnMobile = false,
 }: AuthModalTriggerProps) {
@@ -72,6 +72,7 @@ export function AuthModalTrigger({
   const [loadingProvider, setLoadingProvider] = useState<SocialProvider | null>(
     null,
   );
+  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -110,20 +111,35 @@ export function AuthModalTrigger({
     [callbackURL],
   );
 
+  const createDocumentAndRedirect = useCallback(async () => {
+    setIsCreatingDocument(true);
+    try {
+      const response = await fetch("/api/documents", { method: "POST" });
+      if (!response.ok) {
+        throw new Error("Failed to create document");
+      }
+      const { documentId } = await response.json();
+      window.location.assign(`/sheets/${documentId}`);
+    } catch (err) {
+      console.error("Failed to create document:", err);
+      setIsCreatingDocument(false);
+    }
+  }, []);
+
   const handleTriggerClick = useCallback(async () => {
     if (isAuthenticated) {
-      window.location.assign(redirectTo);
+      await createDocumentAndRedirect();
       return;
     }
 
     const { data } = await authClient.getSession();
     if (data?.user) {
-      window.location.assign(redirectTo);
+      await createDocumentAndRedirect();
       return;
     }
 
     setOpen(true);
-  }, [isAuthenticated, redirectTo]);
+  }, [isAuthenticated, createDocumentAndRedirect]);
 
   const modal = open ? (
     <div
@@ -195,8 +211,11 @@ export function AuthModalTrigger({
           className={`rounded-lg ${className}`}
           type="button"
           onClick={handleTriggerClick}
+          disabled={isCreatingDocument}
         >
-          {showIconOnMobile ? (
+          {isCreatingDocument ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : showIconOnMobile ? (
             <>
               <User className="h-4 w-4 sm:hidden" />
               <span className="hidden sm:inline">{resolvedTriggerText}</span>
@@ -206,14 +225,22 @@ export function AuthModalTrigger({
           )}
         </Button>
       ) : (
-        <button
+        <Button
           type="button"
+          size="lg"
+          variant={triggerVariant === "contrast" ? "contrast" : "primary"}
           onClick={handleTriggerClick}
-          className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-(--accent) px-6 text-base font-semibold text-(--accent-foreground) shadow-[0_18px_40px_rgba(255,109,52,0.22)] transition-all duration-200 hover:bg-(--accent-strong) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-background ${className}`}
+          disabled={isCreatingDocument}
+          className={`rounded-xl ${className}`}
         >
-          <span className="sm:hidden">{resolvedMobileTriggerText}</span>
-          <span className="hidden sm:inline">{resolvedTriggerText}</span>
-        </button>
+          {isCreatingDocument ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : null}
+          <>
+            <span className="sm:hidden">{resolvedMobileTriggerText}</span>
+            <span className="hidden sm:inline">{resolvedTriggerText}</span>
+          </>
+        </Button>
       )}
 
       {typeof document !== "undefined"

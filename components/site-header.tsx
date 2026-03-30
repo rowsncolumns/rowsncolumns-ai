@@ -58,6 +58,12 @@ const isNavigationItemActive = (pathname: string, href: string): boolean => {
       pathname.startsWith("/account/settings/")
     );
   }
+  if (pathOnly === "/account/billing") {
+    return (
+      pathname === "/account/billing" ||
+      pathname.startsWith("/account/billing/")
+    );
+  }
   return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`);
 };
 
@@ -123,7 +129,7 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
                 RowsnColumns AI
               </p>
               <p className="hidden text-sm text-(--muted-foreground) sm:block!">
-                Agentic AI for spreadsheet operations
+                Agentic AI for Spreadsheets
               </p>
             </div>
           </a>
@@ -139,8 +145,8 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
                     aria-current={isActive ? "page" : undefined}
                     className={`rnc-site-header-link rounded-lg px-4 py-2 text-sm font-medium transition ${
                       isActive
-                        ? "bg-[var(--nav-hover)] text-[var(--foreground)]"
-                        : "text-[var(--muted-foreground)]"
+                        ? "bg-(--nav-hover) text-foreground"
+                        : "text-(--muted-foreground)"
                     }`}
                   >
                     {item.label}
@@ -205,7 +211,9 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
                   href={item.href}
                   aria-current={isActive ? "page" : undefined}
                   className={`rnc-mobile-drawer-link ${
-                    isActive ? "bg-[var(--nav-hover)] text-[var(--foreground)]" : ""
+                    isActive
+                      ? "bg-[var(--nav-hover)] text-[var(--foreground)]"
+                      : ""
                   }`}
                   onClick={() => setIsDrawerOpen(false)}
                 >

@@ -16,7 +16,7 @@ function readSingleParam(value: string | string[] | undefined): string | null {
 
 function normalizeCallbackPath(value: string | null): string {
   if (value && value.startsWith("/") && !value.startsWith("//")) return value;
-  return "/sheets/new";
+  return "/sheets";
 }
 
 export const dynamic = "force-dynamic";
