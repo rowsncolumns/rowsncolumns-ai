@@ -418,6 +418,9 @@ WHEN TO USE THIS TOOL:
 - Updating cells with formulas or static values
 - Updating a single cell or a multi-cell region
 
+MULTI-SHEET SUPPORT:
+Cross-sheet references are supported. Write to other sheets using "'Sheet Name'!A1:B5" range syntax. Formulas can reference other sheets (e.g., =SUM('Data'!B:B)). Use spreadsheet_sheet to create new sheets if needed.
+
 CRITICAL RULES:
 1. Range uses A1 notation (e.g., 'A1:C3', 'B2:D5', or "'Sheet Name'!A1:B5" for cross-sheet references).
 2. 'cells' must be a 2D array: list of rows. Dimensions MUST match the range.
