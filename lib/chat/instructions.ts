@@ -93,7 +93,7 @@ const FINANCIAL_MODEL_STANDARDS_BLOCK = [
   "Layout standards:",
   "- Total calculations must sum cells directly above (no horizontal ranges).",
   "- Hide gridlines (showGridLines: false); use horizontal borders above totals.",
-  "- Section headers: left-justified, dark blue fill (#000080), white text (#FFFFFF), merged across columns (use spreadsheet_sheet merges).",
+  "- Section headers: left-justified, dark blue fill (#1E3A8A), white text (#FFFFFF), merged across columns (use spreadsheet_sheet merges).",
   "- Column labels: right-aligned.",
   "- Row labels: left-justified; indent submetrics with leading spaces in cell values.",
   "- Maintain consistent column widths within sections.",

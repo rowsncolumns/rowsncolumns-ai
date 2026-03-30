@@ -3321,12 +3321,6 @@ WHEN TO USE THIS TOOL:
 - Deleting unwanted sheets
 - Duplicating sheets as templates or backups
 
-CRITICAL CONSTRAINTS:
-- Merged cells CANNOT span across frozen and non-frozen regions. A merge must be entirely within the frozen area OR entirely outside it.
-- Before adding merges, check frozenRowCount and frozenColumnCount. If frozenRowCount=2, a merge like A1:A3 is invalid (spans rows 1-2 frozen and row 3 non-frozen).
-- Similarly, if frozenColumnCount=1, a merge like A1:B1 is invalid (column A is frozen, column B is not).
-- When setting frozen rows/columns, ensure no existing merges span the freeze boundary.
-
 PARAMETERS:
 - docId: The document ID (required for all actions)
 - action: "create" | "update" | "delete" | "duplicate" (required)
