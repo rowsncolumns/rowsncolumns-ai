@@ -79,19 +79,18 @@ const DEEP_AUDIT_RULES_BLOCK = [
   "After presenting findings, offer to fix issues automatically.",
 ].join("\n");
 
-const FINANCIAL_MODEL_COLORS_BLOCK = [
-  "Financial Model Color Conventions:",
-  "When building financial models (LBO, DCF, 3-statement, valuation):",
+const FINANCIAL_MODEL_STANDARDS_BLOCK = [
+  "Financial Model Standards:",
+  "When building financial models (LBO, DCF, 3-statement, valuation, or similar):",
+  "",
+  "Color conventions:",
   "- Blue text (#0000FF): hardcoded inputs and scenario values",
   "- Black text (#000000): formulas and calculations",
   "- Green text (#008000): cross-sheet links within workbook",
   "- Red text (#FF0000): external file links",
   "- Yellow background (#FFFF00): key assumptions needing attention",
-].join("\n");
-
-const INVESTMENT_BANKING_RULES_BLOCK = [
-  "Investment Banking Layout Standards:",
-  "If the spreadsheet is related to investment banking (LBO, DCF, 3-statement, valuation model, or similar):",
+  "",
+  "Layout standards:",
   "- Total calculations must sum cells directly above (no horizontal ranges).",
   "- Hide gridlines (showGridLines: false); use horizontal borders above totals.",
   "- Section headers: left-justified, dark blue fill (#000080), white text (#FFFFFF), merged across columns (use spreadsheet_sheet merges).",
@@ -142,8 +141,7 @@ export const buildSkillsInstruction = (skills: AssistantSkillInstruction[]) => {
   return [
     "Branding and style consistency rules are always in effect.",
     BRANDING_RULE_BLOCK,
-    FINANCIAL_MODEL_COLORS_BLOCK,
-    INVESTMENT_BANKING_RULES_BLOCK,
+    FINANCIAL_MODEL_STANDARDS_BLOCK,
     DATA_VALIDATION_RULES_BLOCK,
     CONDITIONAL_FORMAT_RULES_BLOCK,
     DEEP_AUDIT_RULES_BLOCK,
