@@ -1,18 +1,23 @@
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-import { getButtonClassName } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 
 type NewSheetButtonProps = {
   className?: string;
 };
 
 export function NewSheetButton({ className }: NewSheetButtonProps) {
+  const router = useRouter();
+
   return (
-    <Link
-      href="/sheets/new"
-      className={getButtonClassName({ size: "sm", className })}
+    <Button
+      size="sm"
+      className={className}
+      onClick={() => {
+        router.push(`/sheets/new`);
+      }}
     >
       New Sheet
-    </Link>
+    </Button>
   );
 }
