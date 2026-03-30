@@ -419,7 +419,7 @@ WHEN TO USE THIS TOOL:
 - Updating a single cell or a multi-cell region
 
 CRITICAL RULES:
-1. Range uses A1 notation (e.g., 'A1:C3', 'B2:D5').
+1. Range uses A1 notation (e.g., 'A1:C3', 'B2:D5', or "'Sheet Name'!A1:B5" for cross-sheet references).
 2. 'cells' must be a 2D array: list of rows. Dimensions MUST match the range.
 3. Each cell object can have 'value', 'formula', and/or 'citation' (or be empty {}).
 4. Use empty objects {} for blank cells you want to skip.
@@ -467,6 +467,17 @@ Example 5 — Write values with citations to track data sources:
     [{"value": "Q3 Revenue"}, {"value": 12000000, "citation": "https://example.com/annual-report.pdf?excerpt=Q3%20revenue%20was%20%2412M"}],
     [{"value": "Growth Rate"}, {"value": 0.15, "citation": "https://example.com/analysis.pdf?excerpt=15%25%20year-over-year%20growth"}]
   ]
+
+Example 6 — Write to a different sheet (cross-sheet reference):
+  range: "'Sales Data'!A1:B2"
+  cells: [
+    [{"value": "Q1"}, {"value": "Q2"}],
+    [{"value": 100}, {"value": 200}]
+  ]
+
+Example 7 — Formula referencing another sheet:
+  range: "A1"
+  cells: [[{"formula": "='Sales Data'!B2 + 'Sales Data'!C2"}]]
 
 `,
   schema: SpreadsheetChangeBatchSchema,
@@ -898,6 +909,9 @@ The cells parameter is a 2D array (rows of cells):
   [[{"cellStyles": {...}}, {"cellStyles": {...}}], ...]
 
 Use {} for cells with no formatting changes.
+
+CROSS-SHEET REFERENCES:
+Range supports sheet name prefix: "'Sheet Name'!A1:D1" to format cells on a different sheet.
 
 CELLSTYLES PROPERTIES:
 - textFormat: {bold, italic, underline, strikethrough, fontFamily, fontSize, color}
