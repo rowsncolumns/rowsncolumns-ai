@@ -18,6 +18,7 @@ const initPostHog = async () => {
     capture_pageview: true,
     capture_pageleave: true,
     autocapture: true,
+    disable_surveys: true,
     disable_session_recording: true,
     persistence: "localStorage+cookie",
   });

@@ -674,3 +674,62 @@ body.rnc-dark .prose hr {
     display: block;
   }
 }
+
+@media print {
+  @page {
+    margin: 10mm;
+  }
+
+  html,
+  body,
+  body.rnc-dark,
+  body.body-new-workspace {
+    background: #fff !important;
+  }
+
+  .rnc-workspace-page {
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .rnc-workspace-site-header,
+  .rnc-workspace-breadcrumbs,
+  .rnc-workspace-assistant-panel,
+  .rnc-workspace-assistant-separator,
+  .rnc-workspace-assistant-bubble,
+  .rnc-workspace-toolbar,
+  .rnc-workspace-formula-bar,
+  .rnc-workspace-bottom-bar,
+  .rnc-workspace-mobile-chat {
+    display: none !important;
+  }
+
+  .rnc-workspace-mobile-tabs [role="tablist"] {
+    display: none !important;
+  }
+
+  .rnc-workspace-mobile-sheet {
+    position: static !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    display: flex !important;
+  }
+
+  .rnc-workspace-panels {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .rnc-workspace-spreadsheet-panel,
+  .rnc-workspace-spreadsheet-pane,
+  .rnc-workspace-grid-frame {
+    width: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+}

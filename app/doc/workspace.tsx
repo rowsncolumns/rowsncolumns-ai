@@ -948,7 +948,7 @@ function SpreadsheetPane({
   );
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col"
+      className="rnc-workspace-spreadsheet-pane flex h-full min-h-0 flex-1 flex-col"
       data-locale={locale}
       data-currency={currency}
     >
@@ -973,7 +973,7 @@ function SpreadsheetPane({
       />
       <Toolbar
         enableFloating
-        className={`rounded-tl-xl rounded-tr-xl ${
+        className={`rnc-workspace-toolbar rounded-tl-xl rounded-tr-xl ${
           canEdit ? "" : "pointer-events-none opacity-70"
         }`}
       >
@@ -1347,7 +1347,11 @@ function SpreadsheetPane({
         </IconButton>
       </Toolbar>
 
-      <FormulaBar className={canEdit ? undefined : "pointer-events-none"}>
+      <FormulaBar
+        className={`rnc-workspace-formula-bar ${
+          canEdit ? "" : "pointer-events-none"
+        }`}
+      >
         <RangeSelector
           selections={selections}
           activeCell={activeCell}
@@ -1374,7 +1378,7 @@ function SpreadsheetPane({
         />
       </FormulaBar>
 
-      <div className="min-h-0 flex-1 flex">
+      <div className="rnc-workspace-grid-frame min-h-0 flex-1 flex">
         <CanvasGrid
           {...spreadsheetColors}
           enableQuickEdit={false}
@@ -1551,7 +1555,7 @@ function SpreadsheetPane({
         />
       </div>
 
-      <BottomBar className="rounded-bl-xl rounded-br-xl">
+      <BottomBar className="rnc-workspace-bottom-bar rounded-bl-xl rounded-br-xl">
         {canEdit ? <NewSheetButton onClick={onCreateNewSheet} /> : null}
 
         <SheetSwitcher
@@ -1750,7 +1754,7 @@ function CollapsedAssistantButton({
   return (
     <button
       onClick={onOpen}
-      className={`assistant-bubble ${
+      className={`assistant-bubble rnc-workspace-assistant-bubble ${
         showAssistantBubbleEntrance ? "animate-bubble-entrance" : ""
       } fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-full bg-linear-to-br from-orange-400 to-orange-500 pl-4 pr-5 text-white transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2`}
       aria-label={
@@ -1878,7 +1882,7 @@ function DocumentTitleInlineEditor({
   }, [canEdit, documentId, draftTitle, fallbackTitle, isSaving, title]);
 
   return (
-    <div className="mb-2 px-1 sm:px-2">
+    <div className="rnc-workspace-breadcrumbs mb-2 px-1 sm:px-2">
       <div className="flex h-11 items-center gap-1.5">
         <Link
           href="/sheets"
@@ -2087,8 +2091,8 @@ export function NewWorkspace({
 
   return (
     <AssistantRuntimeProvider runtime={assistantRuntime.runtime}>
-      <main className="flex h-[100svh] w-full flex-col overflow-hidden px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-dvh sm:px-5 sm:pt-5 sm:pb-5">
-        <div className="mb-4">
+      <main className="rnc-workspace-page flex h-[100svh] w-full flex-col overflow-hidden px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-dvh sm:px-5 sm:pt-5 sm:pb-5">
+        <div className="rnc-workspace-site-header mb-4">
           <SiteHeader
             initialUser={{
               id: currentUser.id,
@@ -2112,7 +2116,7 @@ export function NewWorkspace({
                 onValueChange={(value) =>
                   setMobileTab(value === "sheet" ? "sheet" : "chat")
                 }
-                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                className="rnc-workspace-mobile-tabs flex min-h-0 flex-1 flex-col overflow-hidden"
               >
                 <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-(--panel-border) bg-(--assistant-chip-bg) p-1">
                   <TabsTrigger
@@ -2132,7 +2136,7 @@ export function NewWorkspace({
                   <TabsContent
                     value="chat"
                     forceMount
-                    className={`absolute inset-0 min-h-0 ${
+                    className={`rnc-workspace-mobile-chat absolute inset-0 min-h-0 ${
                       mobileTab === "chat"
                         ? "z-10 flex"
                         : "z-0 flex pointer-events-none select-none opacity-0"
@@ -2145,7 +2149,7 @@ export function NewWorkspace({
                   <TabsContent
                     value="sheet"
                     forceMount
-                    className={`absolute inset-0 min-h-0 ${
+                    className={`rnc-workspace-mobile-sheet absolute inset-0 min-h-0 ${
                       mobileTab === "sheet"
                         ? "z-10 flex"
                         : "z-0 flex pointer-events-none select-none opacity-0"
@@ -2164,18 +2168,18 @@ export function NewWorkspace({
                   orientation="horizontal"
                   defaultLayout={defaultLayout}
                   onLayoutChanged={handleLayoutChanged}
-                  className="min-h-0 flex-1 flex"
+                  className="rnc-workspace-panels min-h-0 flex-1 flex"
                   resizeTargetMinimumSize={{ coarse: 32, fine: 16 }}
                 >
                   <Panel
                     id={SPREADSHEET_PANEL_ID}
-                    className="min-w-0 flex flex-col relative"
+                    className="rnc-workspace-spreadsheet-panel min-w-0 flex flex-col relative"
                   >
                     {spreadsheetPane}
                   </Panel>
                   {!isAssistantCollapsed && (
                     <>
-                      <PanelSeparator className="group flex w-4 cursor-col-resize touch-none select-none items-center justify-center bg-transparent outline-none transition-colors hover:bg-black/5 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0">
+                      <PanelSeparator className="rnc-workspace-assistant-separator group flex w-4 cursor-col-resize touch-none select-none items-center justify-center bg-transparent outline-none transition-colors hover:bg-black/5 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0">
                         <div className="pointer-events-none flex h-12 w-1 items-center justify-center rounded-full bg-black/15 transition-colors duration-150 group-hover:bg-black/30" />
                       </PanelSeparator>
                       <Panel
@@ -2183,7 +2187,7 @@ export function NewWorkspace({
                         minSize={ASSISTANT_PANEL_MIN_WIDTH}
                         maxSize={ASSISTANT_PANEL_DEFAULT_WIDTH}
                         groupResizeBehavior="preserve-pixel-size"
-                        className="min-w-0"
+                        className="rnc-workspace-assistant-panel min-w-0"
                       >
                         {assistantPane}
                       </Panel>

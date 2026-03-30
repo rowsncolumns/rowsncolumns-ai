@@ -217,6 +217,17 @@ export async function listOwnedDocumentIds(userId: string): Promise<string[]> {
   return rows.map((row) => row.doc_id);
 }
 
+export async function documentExists(docId: string): Promise<boolean> {
+  const rows = await db<{ doc_id: string }[]>`
+    SELECT doc_id
+    FROM document_owners
+    WHERE doc_id = ${docId}
+    LIMIT 1
+  `;
+
+  return rows.length > 0;
+}
+
 const normalizePaginationValue = (
   value: number,
   { min, max }: { min: number; max: number },

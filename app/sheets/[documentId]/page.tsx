@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import { isAdminUser } from "@/lib/auth/admin";
 import {
+  documentExists,
   ensureDocumentAccess,
   ensureDocumentMetadata,
 } from "@/lib/documents/repository";
@@ -29,6 +30,11 @@ const MOBILE_USER_AGENT_REGEX =
 const toShortDocumentId = (documentId: string): string =>
   documentId.slice(0, 8);
 
+const resolveShareToken = (
+  shareTokenValue: string | string[] | undefined,
+): string | undefined =>
+  Array.isArray(shareTokenValue) ? shareTokenValue[0] : shareTokenValue;
+
 const getRequestCountryCode = (headerStore: Headers): string | null =>
   headerStore.get("x-vercel-ip-country") ??
   headerStore.get("cf-ipcountry") ??
@@ -37,23 +43,54 @@ const getRequestCountryCode = (headerStore: Headers): string | null =>
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: PageProps): Promise<Metadata> {
   const { documentId } = await params;
+  const resolvedSearchParams = await searchParams;
+  const shareToken = resolveShareToken(resolvedSearchParams.share);
   const shortId = toShortDocumentId(documentId);
+  const fallbackTitle = `Sheet ${shortId}`;
+  const fallbackDescription = `Spreadsheet workspace for sheet ${shortId}.`;
+
+  const session = await getServerSessionSafe();
+  if (!session?.user) {
+    return {
+      title: fallbackTitle,
+      description: fallbackDescription,
+    };
+  }
+
+  if (!(await documentExists(documentId))) {
+    return {
+      title: fallbackTitle,
+      description: fallbackDescription,
+    };
+  }
+
+  const access = await ensureDocumentAccess({
+    docId: documentId,
+    userId: session.user.id,
+    shareToken,
+  });
+  if (!access.canAccess) {
+    return {
+      title: fallbackTitle,
+      description: fallbackDescription,
+    };
+  }
+
+  const documentMetadata = await ensureDocumentMetadata({ docId: documentId });
 
   return {
-    title: `Sheet ${shortId}`,
-    description: `Spreadsheet workspace for sheet ${shortId}.`,
+    title: documentMetadata.title,
+    description: `Spreadsheet workspace for ${documentMetadata.title}.`,
   };
 }
 
 export default async function SheetPage({ params, searchParams }: PageProps) {
   const { documentId } = await params;
   const resolvedSearchParams = await searchParams;
-  const shareTokenValue = resolvedSearchParams.share;
-  const shareToken = Array.isArray(shareTokenValue)
-    ? shareTokenValue[0]
-    : shareTokenValue;
+  const shareToken = resolveShareToken(resolvedSearchParams.share);
 
   const callbackPath = shareToken
     ? `/sheets/${documentId}?share=${encodeURIComponent(shareToken)}`
@@ -62,6 +99,10 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
   const session = await getServerSessionSafe();
   if (!session?.user) {
     redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
+  }
+
+  if (!(await documentExists(documentId))) {
+    notFound();
   }
 
   const access = await ensureDocumentAccess({
