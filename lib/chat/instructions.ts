@@ -81,7 +81,8 @@ const DEEP_AUDIT_RULES_BLOCK = [
 
 const FINANCIAL_MODEL_STANDARDS_BLOCK = [
   "Financial Model Standards:",
-  "When building financial models (LBO, DCF, 3-statement, valuation, or similar):",
+  "Apply these rules ONLY when the user explicitly requests a financial model (LBO, DCF, 3-statement, valuation, budgeting model, or similar).",
+  "Do NOT apply these rules to non-financial sheets (for example travel plans, task trackers, content calendars, or general tables).",
   "",
   "Color conventions:",
   "- Blue text (#2563EB): hardcoded inputs and scenario values",
@@ -92,7 +93,8 @@ const FINANCIAL_MODEL_STANDARDS_BLOCK = [
   "",
   "Layout standards:",
   "- Total calculations must sum cells directly above (no horizontal ranges).",
-  "- Hide gridlines (showGridLines: false); use horizontal borders above totals.",
+  "- For financial model outputs, hide gridlines and use horizontal borders above totals.",
+  "- For non-financial outputs, preserve the current grid line visibility unless the user explicitly asks to change it.",
   "- Section headers: left-justified, dark blue fill (#1E3A8A), white text (#FFFFFF), merged across columns (use spreadsheet_sheet merges).",
   "- Column labels: right-aligned.",
   "- Row labels: left-justified; indent submetrics with leading spaces in cell values.",

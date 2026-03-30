@@ -37,6 +37,19 @@ export type ViewPortProps = {
   visibleColumnStopIndex: number;
 };
 
+export type UserLocationContext = {
+  /** ISO 3166-1 alpha-2 country code (e.g., "US", "SG", "IN") */
+  countryCode?: string;
+  /** IANA timezone identifier (e.g., "America/New_York", "Asia/Singapore") */
+  timezone?: string;
+  /** BCP 47 locale tag (e.g., "en-US", "en-SG") */
+  locale?: string;
+  /** ISO 4217 currency code (e.g., "USD", "SGD") */
+  currency?: string;
+  /** Current date/time in ISO 8601 format */
+  currentTime?: string;
+};
+
 export type SpreadsheetAssistantContext = {
   documentId?: string;
   sheets?: Array<{
@@ -63,6 +76,8 @@ export type SpreadsheetAssistantContext = {
     themeColorsByIndex?: Record<string, string | undefined>;
     darkThemeColors?: Record<string, string> | null;
   };
+  /** User's location context for regional awareness */
+  userLocation?: UserLocationContext;
 };
 
 type SpreadsheetContextPayloadInput = {
@@ -233,6 +248,31 @@ List of named ranges:
         context.namedRanges,
       ),
     );
+  }
+
+  if (context.userLocation) {
+    const locationParts: string[] = [];
+    if (context.userLocation.countryCode) {
+      locationParts.push(`Country: ${context.userLocation.countryCode}`);
+    }
+    if (context.userLocation.timezone) {
+      locationParts.push(`Timezone: ${context.userLocation.timezone}`);
+    }
+    if (context.userLocation.locale) {
+      locationParts.push(`Locale: ${context.userLocation.locale}`);
+    }
+    if (context.userLocation.currency) {
+      locationParts.push(`Currency: ${context.userLocation.currency}`);
+    }
+    if (context.userLocation.currentTime) {
+      locationParts.push(`Current time: ${context.userLocation.currentTime}`);
+    }
+    if (locationParts.length > 0) {
+      lines.push(
+        `User's location context (use this for regional formatting, date/time awareness, and currency defaults):
+${locationParts.join("\n")}`,
+      );
+    }
   }
 
   if (lines.length === 0) {
@@ -421,6 +461,25 @@ export const sanitizeSpreadsheetAssistantContext = (
       }
     : undefined;
 
+  const userLocationRaw = asRecord(record.userLocation);
+  const userLocation: UserLocationContext | undefined = userLocationRaw
+    ? {
+        countryCode: asString(userLocationRaw.countryCode),
+        timezone: asString(userLocationRaw.timezone),
+        locale: asString(userLocationRaw.locale),
+        currency: asString(userLocationRaw.currency),
+        currentTime: asString(userLocationRaw.currentTime),
+      }
+    : undefined;
+  // Only include userLocation if it has at least one defined field
+  const hasUserLocation =
+    userLocation &&
+    (userLocation.countryCode ||
+      userLocation.timezone ||
+      userLocation.locale ||
+      userLocation.currency ||
+      userLocation.currentTime);
+
   const context: SpreadsheetAssistantContext = {
     documentId: asString(record.documentId),
     sheets: sheets && sheets.length > 0 ? sheets : undefined,
@@ -433,6 +492,7 @@ export const sanitizeSpreadsheetAssistantContext = (
     namedRanges:
       namedRanges && namedRanges.length > 0 ? namedRanges : undefined,
     theme,
+    userLocation: hasUserLocation ? userLocation : undefined,
   };
 
   if (
@@ -445,7 +505,8 @@ export const sanitizeSpreadsheetAssistantContext = (
     !context.tables &&
     !context.charts &&
     !context.namedRanges &&
-    !context.theme
+    !context.theme &&
+    !context.userLocation
   ) {
     return undefined;
   }

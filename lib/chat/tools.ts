@@ -1501,7 +1501,12 @@ Args:
 const handleSpreadsheetReadDocument = async (
   input: SpreadsheetReadDocumentInput,
 ): Promise<string> => {
-  const { docId, sheetId: inputSheetId, range: rangeStr, layer = "values" } = input;
+  const {
+    docId,
+    sheetId: inputSheetId,
+    range: rangeStr,
+    layer = "values",
+  } = input;
 
   if (!docId) {
     return JSON.stringify({

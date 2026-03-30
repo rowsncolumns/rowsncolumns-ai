@@ -19,6 +19,7 @@ import {
   resolveRunSystemInstructions,
   resolveChatRequest,
 } from "@/lib/chat/server-core";
+import { resolveUserLocation } from "@/lib/locale-preference";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,12 +77,33 @@ export async function POST(request: Request) {
     const isAdmin = isAdminUser({ id: user.id, email: user.email });
 
     const body = (await request.json()) as ChatRequestBody;
-    const resolved = resolveChatRequest(body, {
-      model: CHAT_MODEL,
-      mode: CHAT_MODE,
-      provider: CHAT_PROVIDER,
-      reasoningEnabled: CHAT_REASONING_ENABLED,
+
+    // Extract user location from request headers
+    const userLocation = resolveUserLocation({
+      acceptLanguage: request.headers.get("accept-language"),
+      countryCode:
+        request.headers.get("x-vercel-ip-country") ||
+        request.headers.get("cf-ipcountry"),
+      timezone: request.headers.get("x-vercel-ip-timezone"),
     });
+
+    // Merge userLocation into the context
+    const contextWithLocation = {
+      ...(typeof body.context === "object" && body.context !== null
+        ? body.context
+        : {}),
+      userLocation,
+    };
+
+    const resolved = resolveChatRequest(
+      { ...body, context: contextWithLocation },
+      {
+        model: CHAT_MODEL,
+        mode: CHAT_MODE,
+        provider: CHAT_PROVIDER,
+        reasoningEnabled: CHAT_REASONING_ENABLED,
+      },
+    );
     if (!resolved.ok) {
       return NextResponse.json(resolved.error.payload, {
         status: resolved.error.status,

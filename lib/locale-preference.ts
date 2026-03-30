@@ -167,3 +167,63 @@ export const resolveLocaleAndCurrency = ({
 
   return { locale, currency };
 };
+
+export type UserLocationInfo = {
+  countryCode: string;
+  timezone: string;
+  locale: string;
+  currency: string;
+  currentTime: string;
+};
+
+type ResolveUserLocationOptions = {
+  /** Accept-Language header value */
+  acceptLanguage?: string | null;
+  /** ISO 3166-1 alpha-2 country code (from x-vercel-ip-country, cf-ipcountry, etc.) */
+  countryCode?: string | null;
+  /** IANA timezone (from x-vercel-ip-timezone, etc.) */
+  timezone?: string | null;
+};
+
+/**
+ * Resolves user location context from request headers.
+ * Extracts country, timezone, locale, currency, and current time.
+ */
+export const resolveUserLocation = ({
+  acceptLanguage,
+  countryCode,
+  timezone,
+}: ResolveUserLocationOptions): UserLocationInfo => {
+  const { locale, currency } = resolveLocaleAndCurrency({
+    acceptLanguage,
+    countryCode,
+  });
+
+  const resolvedCountryCode = normalizeCountryCode(countryCode) ?? DEFAULT_REGION;
+  const resolvedTimezone = timezone?.trim() || "UTC";
+
+  // Get current time in user's timezone
+  let currentTime: string;
+  try {
+    currentTime = new Date().toLocaleString("en-US", {
+      timeZone: resolvedTimezone,
+      dateStyle: "full",
+      timeStyle: "long",
+    });
+  } catch {
+    // Fallback to UTC if timezone is invalid
+    currentTime = new Date().toLocaleString("en-US", {
+      timeZone: "UTC",
+      dateStyle: "full",
+      timeStyle: "long",
+    });
+  }
+
+  return {
+    countryCode: resolvedCountryCode,
+    timezone: resolvedTimezone,
+    locale,
+    currency,
+    currentTime,
+  };
+};
