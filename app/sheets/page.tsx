@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { Search } from "lucide-react";
 
 import { NewSheetButton } from "@/components/new-sheet-button";
 import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
@@ -152,11 +153,11 @@ export default async function SheetsPage({
               <NewSheetButton className="h-9 shrink-0 rounded-lg px-4" />
             </div>
 
-            <div className="flex w-full flex-wrap items-center gap-2">
+            <div className="flex w-full items-center gap-2">
               <form
                 action="/sheets"
                 method="get"
-                className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"
               >
                 {result.filter !== "owned" ? (
                   <input type="hidden" name="filter" value={result.filter} />
@@ -168,22 +169,25 @@ export default async function SheetsPage({
                   defaultValue={query ?? ""}
                   placeholder="Search by sheet title"
                   aria-label="Search by sheet title"
-                  className="h-9 min-w-56 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                  className="h-9 min-w-0 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent)"
                 />
-                <div className="min-w-0">
+                <div className="min-w-0 shrink-0">
                   <SheetsFilterPicker
                     value={result.filter}
                     query={query}
                     hideLabelOnMobile
+                    buttonClassName="w-auto"
                   />
                 </div>
                 <Button
                   type="submit"
                   size="sm"
                   variant="secondary"
-                  className="h-9 rounded-lg px-3"
+                  className="h-9 w-9 rounded-lg p-0"
+                  aria-label="Search sheets"
                 >
-                  Search
+                  <Search className="h-4 w-4" />
+                  <span className="sr-only">Search</span>
                 </Button>
                 {query ? (
                   <Link
