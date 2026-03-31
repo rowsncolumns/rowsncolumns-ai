@@ -168,27 +168,33 @@ import { selectionFromActiveCell } from "@rowsncolumns/grid";
 import { ChevronRight, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 
-const getShareDbUrl = () => {
-  const appendMcpToken = (url: string) => {
-    if (typeof window === "undefined") {
-      return url;
-    }
-    const token = new URLSearchParams(window.location.search).get("mcpToken");
-    if (!token) {
-      return url;
-    }
-    try {
-      const parsed = new URL(url);
-      parsed.searchParams.set("mcpToken", token);
-      return parsed.toString();
-    } catch {
-      const separator = url.includes("?") ? "&" : "?";
-      return `${url}${separator}mcpToken=${encodeURIComponent(token)}`;
-    }
-  };
+const appendShareDbQueryParam = (
+  url: string,
+  key: string,
+  value: string,
+): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(key, value);
+    return parsed.toString();
+  } catch {
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  }
+};
 
+const getMcpTokenFromUrl = (): string | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const token = new URLSearchParams(window.location.search).get("mcpToken");
+  const trimmed = token?.trim();
+  return trimmed ? trimmed : null;
+};
+
+const getShareDbBaseUrl = () => {
   const configured = process.env.NEXT_PUBLIC_SHAREDB_URL?.trim();
-  if (configured) return appendMcpToken(configured);
+  if (configured) return configured;
 
   const port = process.env.NEXT_PUBLIC_SHAREDB_PORT?.trim() || "8080";
   if (typeof window === "undefined") {
@@ -196,7 +202,7 @@ const getShareDbUrl = () => {
   }
 
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return appendMcpToken(`${protocol}://${window.location.hostname}:${port}`);
+  return `${protocol}://${window.location.hostname}:${port}`;
 };
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
@@ -303,8 +309,10 @@ const formatShareDbReason = (reason: unknown): string | null => {
   return null;
 };
 
-const createShareDbSocket = (): ShareDBSocketWithDiagnostics => {
-  const reconnectingSocket = new ReconnectingWebSocket(getShareDbUrl());
+const createShareDbSocket = (
+  urlProvider: ConstructorParameters<typeof ReconnectingWebSocket>[0],
+): ShareDBSocketWithDiagnostics => {
+  const reconnectingSocket = new ReconnectingWebSocket(urlProvider);
   let lastCloseReason: string | null = null;
 
   const socket: ShareDBSocketWithDiagnostics = {
@@ -345,10 +353,6 @@ const createShareDbSocket = (): ShareDBSocketWithDiagnostics => {
 
   return socket;
 };
-
-// Create ShareDB connection
-const socket = createShareDbSocket();
-const connection = new ShareDBClient.Connection(socket);
 
 const initialSheets: Sheet[] = [
   createNewSheet(1, "Sheet1"),
@@ -545,6 +549,66 @@ function SpreadsheetPane({
     useState<boolean>(false);
   const lastShareDbErrorToastRef = useRef<string | null>(null);
 
+  const { connection, socket } = useMemo(() => {
+    const urlProvider = async (): Promise<string> => {
+      const url = getShareDbBaseUrl();
+
+      const mcpToken = getMcpTokenFromUrl();
+      if (mcpToken) {
+        return appendShareDbQueryParam(url, "mcpToken", mcpToken);
+      }
+
+      try {
+        const response = await fetch(
+          `/api/sharedb/ws-token?docId=${encodeURIComponent(documentId)}`,
+          {
+            method: "GET",
+            credentials: "same-origin",
+            cache: "no-store",
+          },
+        );
+        if (!response.ok) {
+          return url;
+        }
+        const payload = (await response.json().catch(() => null)) as {
+          token?: unknown;
+        } | null;
+        if (typeof payload?.token !== "string") {
+          return url;
+        }
+        const refreshedToken = payload.token.trim();
+        if (!refreshedToken) {
+          return url;
+        }
+        return appendShareDbQueryParam(url, "wsToken", refreshedToken);
+      } catch {
+        return url;
+      }
+    };
+
+    const nextSocket = createShareDbSocket(urlProvider);
+    const nextConnection = new ShareDBClient.Connection(nextSocket);
+    return {
+      connection: nextConnection,
+      socket: nextSocket,
+    };
+  }, [documentId]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        connection.close();
+      } catch {
+        // Ignore close errors while unmounting.
+      }
+      try {
+        socket.close(1000);
+      } catch {
+        // Ignore close errors while unmounting.
+      }
+    };
+  }, [connection, socket]);
+
   useEffect(() => {
     const maybeToastShareDbIssue = (
       normalizedState: ShareDbConnectionState,
@@ -598,7 +662,7 @@ function SpreadsheetPane({
       connection.removeListener("connection error", handleConnectionError);
       connection.removeListener("error", handleConnectionError);
     };
-  }, []);
+  }, [connection, socket]);
 
   const isShareDbConnected = shareDbConnectionState === "connected";
   const shouldShowShareDbStatus =

@@ -17,6 +17,7 @@ const createShareDBRedisPubSub = require("sharedb-redis-pubsub") as (options: {
 import { getFlags, isTrackingEnabledForSource } from "./lib/feature-flags";
 import { ensureDocumentAccess } from "./lib/documents/repository";
 import { verifyMcpShareDbAccessToken } from "./lib/sharedb/mcp-token";
+import { verifyShareDbWsAccessToken } from "./lib/sharedb/ws-token";
 import { resolveAuditHistoryAccess } from "./lib/operation-history/access";
 import { generateInverseRawOp } from "./lib/operation-history/inverse-op";
 import { createOperationHistory } from "./lib/operation-history/repository";
@@ -105,15 +106,12 @@ const PORT = parseInt(
   10,
 );
 const HOST = process.env.HOST || "0.0.0.0";
-const AUTH_BASE_URL =
-  process.env.NEON_AUTH_BASE_URL?.trim().replace(/\/+$/, "") ?? null;
 const SHAREDB_COLLECTION =
   process.env.SHAREDB_COLLECTION?.trim() || "spreadsheets";
 const SHAREDB_AUTH_DEBUG = process.env.SHAREDB_AUTH_DEBUG === "true";
 const SHAREDB_REDIS_URL = process.env.SHAREDB_REDIS_URL?.trim() || null;
 const SHAREDB_REDIS_PREFIX =
   process.env.SHAREDB_REDIS_PREFIX?.trim() || "rnc:sharedb";
-const AUTH_IDENTITY_CACHE_TTL_MS = 5 * 60_000;
 const AUDIT_ACCESS_CACHE_TTL_MS = 5 * 60_000;
 const DOC_ACCESS_CACHE_TTL_MS = parsePositiveInt(
   process.env.SHAREDB_DOC_ACCESS_CACHE_TTL_MS,
@@ -181,11 +179,6 @@ const SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER = parseBoolean(
   process.env.SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
   true,
 );
-const SESSION_COOKIE_NAMES = [
-  "__Secure-neon-auth.session_token",
-  "neon-auth.session_token",
-  "session_token",
-] as const;
 
 type AuthIdentity = {
   userId: string;
@@ -193,17 +186,11 @@ type AuthIdentity = {
   name: string | null;
 };
 
-type SessionIntrospectionResult = {
-  user?: {
-    id?: string;
-    email?: string | null;
-    name?: string | null;
-  } | null;
-} | null;
-
 type AuthFailureReason =
+  | "no_ws_token"
   | "no_cookie"
   | "invalid_token"
+  | "invalid_ws_token"
   | "invalid_mcp_token"
   | "timeout"
   | "endpoint_failure";
@@ -223,6 +210,10 @@ type AgentAuditState = {
 
 type AgentAuthState = {
   identity: AuthIdentity | null;
+  wsAccess: {
+    docId: string;
+    permission: DocumentPermission;
+  } | null;
   mcpAccess: {
     docId: string;
     permission: DocumentPermission;
@@ -310,10 +301,6 @@ type QueryContextLike = {
   query?: unknown;
 };
 
-const authIdentityCache = new Map<
-  string,
-  { result: IdentityResolutionResult; expiresAt: number }
->();
 const auditAccessCache = new Map<
   string,
   { access: Omit<AgentAuditState, "identity">; expiresAt: number }
@@ -338,72 +325,6 @@ const getStringValue = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const parseCookies = (
-  cookieHeader: string | undefined,
-): Map<string, string> => {
-  const cookies = new Map<string, string>();
-  if (!cookieHeader) {
-    return cookies;
-  }
-
-  for (const part of cookieHeader.split(";")) {
-    const [rawName, ...rawValueParts] = part.split("=");
-    const name = rawName?.trim();
-    if (!name) {
-      continue;
-    }
-    const rawValue = rawValueParts.join("=").trim();
-    try {
-      cookies.set(name, decodeURIComponent(rawValue));
-    } catch {
-      cookies.set(name, rawValue);
-    }
-  }
-
-  return cookies;
-};
-
-const getBearerToken = (
-  authorizationHeader: string | undefined,
-): string | null => {
-  if (!authorizationHeader) {
-    return null;
-  }
-  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
-  if (!match) {
-    return null;
-  }
-  return getStringValue(match[1]) ?? null;
-};
-
-const getSessionTokenFromRequest = (req?: IncomingMessage): string | null => {
-  if (!req) {
-    return null;
-  }
-
-  const authorization = Array.isArray(req.headers.authorization)
-    ? req.headers.authorization[0]
-    : req.headers.authorization;
-  const bearerToken = getBearerToken(authorization);
-  if (bearerToken) {
-    return bearerToken;
-  }
-
-  const cookieHeader = Array.isArray(req.headers.cookie)
-    ? req.headers.cookie.join("; ")
-    : req.headers.cookie;
-  const cookies = parseCookies(cookieHeader);
-
-  for (const cookieName of SESSION_COOKIE_NAMES) {
-    const token = getStringValue(cookies.get(cookieName));
-    if (token) {
-      return token;
-    }
-  }
-
-  return null;
-};
-
 const getMcpTokenFromRequest = (req?: IncomingMessage): string | null => {
   if (!req?.url) {
     return null;
@@ -411,6 +332,18 @@ const getMcpTokenFromRequest = (req?: IncomingMessage): string | null => {
   try {
     const parsed = new URL(req.url, "http://localhost");
     return getStringValue(parsed.searchParams.get("mcpToken"));
+  } catch {
+    return null;
+  }
+};
+
+const getWsTokenFromRequest = (req?: IncomingMessage): string | null => {
+  if (!req?.url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(req.url, "http://localhost");
+    return getStringValue(parsed.searchParams.get("wsToken"));
   } catch {
     return null;
   }
@@ -431,152 +364,6 @@ const logAuth = (
         ? console.error
         : console.log;
   logger("[sharedb-auth]", message, payload ?? {});
-};
-
-const isTimeoutError = (error: unknown): boolean => {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-  const err = error as { name?: unknown };
-  return err.name === "TimeoutError" || err.name === "AbortError";
-};
-
-const isUnauthorizedStatus = (status: number): boolean => {
-  return status === 400 || status === 401 || status === 403;
-};
-
-const pickFailureReason = (
-  current: AuthFailureReason | null,
-  next: AuthFailureReason,
-): AuthFailureReason => {
-  if (!current) {
-    return next;
-  }
-  if (next === "timeout") {
-    return "timeout";
-  }
-  if (next === "endpoint_failure" && current !== "timeout") {
-    return "endpoint_failure";
-  }
-  return current;
-};
-
-const verifyTokenViaSessionIntrospection = async (
-  token: string,
-): Promise<IdentityResolutionResult> => {
-  if (!AUTH_BASE_URL) {
-    return {
-      identity: null,
-      failureReason: "endpoint_failure",
-    };
-  }
-
-  let failureReason: AuthFailureReason | null = null;
-  let lastStatusCode: number | undefined;
-
-  for (const cookieName of SESSION_COOKIE_NAMES) {
-    try {
-      const response = await fetch(`${AUTH_BASE_URL}/get-session`, {
-        method: "GET",
-        headers: {
-          Cookie: `${cookieName}=${encodeURIComponent(token)}`,
-        },
-        signal: AbortSignal.timeout(2500),
-      });
-
-      if (!response.ok) {
-        lastStatusCode = response.status;
-        failureReason = pickFailureReason(
-          failureReason,
-          isUnauthorizedStatus(response.status)
-            ? "invalid_token"
-            : "endpoint_failure",
-        );
-        continue;
-      }
-
-      const payload = (await response
-        .json()
-        .catch(() => null)) as SessionIntrospectionResult;
-      const userId = getStringValue(payload?.user?.id);
-      if (!userId) {
-        failureReason = pickFailureReason(failureReason, "invalid_token");
-        continue;
-      }
-
-      return {
-        identity: {
-          userId,
-          email: getStringValue(payload?.user?.email) ?? null,
-          name: getStringValue(payload?.user?.name) ?? null,
-        },
-        failureReason: null,
-      };
-    } catch (error) {
-      failureReason = pickFailureReason(
-        failureReason,
-        isTimeoutError(error) ? "timeout" : "endpoint_failure",
-      );
-    }
-  }
-
-  return {
-    identity: null,
-    failureReason: failureReason ?? "invalid_token",
-    statusCode: lastStatusCode,
-  };
-};
-
-const getCachedIdentity = (
-  token: string,
-): IdentityResolutionResult | undefined => {
-  const cached = authIdentityCache.get(token);
-  if (!cached) {
-    return undefined;
-  }
-  if (cached.expiresAt < Date.now()) {
-    authIdentityCache.delete(token);
-    return undefined;
-  }
-  return cached.result;
-};
-
-const cacheIdentity = (
-  token: string,
-  result: IdentityResolutionResult,
-): void => {
-  authIdentityCache.set(token, {
-    result,
-    expiresAt: Date.now() + AUTH_IDENTITY_CACHE_TTL_MS,
-  });
-};
-
-const resolveIdentityFromRequest = async (
-  req?: IncomingMessage,
-): Promise<IdentityResolutionResult> => {
-  if (!AUTH_BASE_URL) {
-    return {
-      identity: null,
-      failureReason: "endpoint_failure",
-    };
-  }
-
-  const token = getSessionTokenFromRequest(req);
-  if (!token) {
-    return {
-      identity: null,
-      failureReason: "no_cookie",
-    };
-  }
-
-  const cached = getCachedIdentity(token);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const result = await verifyTokenViaSessionIntrospection(token);
-  cacheIdentity(token, result);
-  return result;
 };
 
 const resolveAuditAccessCached = async (
@@ -715,6 +502,7 @@ const toAgentAuthState = (
   result: IdentityResolutionResult,
 ): AgentAuthState => ({
   identity: result.identity,
+  wsAccess: null,
   mcpAccess: null,
   failureReason: result.failureReason,
   statusCode: result.statusCode,
@@ -740,10 +528,30 @@ const ensureAgentAuthState = async (
     return inFlight;
   }
 
-  const promise = resolveIdentityFromRequest(context.req)
-    .then(async (result) => {
-      const state = toAgentAuthState(result);
-      if (!state.identity) {
+  const promise = Promise.resolve()
+    .then(async () => {
+      const state = toAgentAuthState({
+        identity: null,
+        failureReason: "no_ws_token",
+      });
+      const wsToken = getWsTokenFromRequest(context.req);
+      if (wsToken) {
+        const access = await verifyShareDbWsAccessToken(wsToken);
+        if (access) {
+          state.identity = {
+            userId: access.userId,
+            email: access.email ?? null,
+            name: access.name ?? null,
+          };
+          state.wsAccess = {
+            docId: access.docId,
+            permission: access.permission,
+          };
+          state.failureReason = null;
+        } else {
+          state.failureReason = "invalid_ws_token";
+        }
+      } else {
         const mcpToken = getMcpTokenFromRequest(context.req);
         if (mcpToken) {
           const access = await verifyMcpShareDbAccessToken(mcpToken);
@@ -763,6 +571,12 @@ const ensureAgentAuthState = async (
         logAuth("warn", "identity_unresolved", {
           reason: state.failureReason,
           statusCode: state.statusCode,
+        });
+      } else if (state.wsAccess && state.identity) {
+        logAuth("debug", "ws_token_resolved", {
+          userId: state.identity.userId,
+          docId: state.wsAccess.docId,
+          permission: state.wsAccess.permission,
         });
       } else if (state.mcpAccess) {
         logAuth("debug", "mcp_token_resolved", {
@@ -931,6 +745,19 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
             continue;
           }
 
+          if (authState.wsAccess && authState.wsAccess.docId !== docId) {
+            const error = createForbiddenError(
+              "WS token is not valid for this document.",
+            );
+            rejectSnapshotReadWithError(context, snapshot, error);
+            logAuth("warn", "read_denied", {
+              collection: context.collection,
+              docId,
+              reason: "forbidden",
+            });
+            continue;
+          }
+
           if (authState.mcpAccess) {
             if (authState.mcpAccess.docId !== docId) {
               const error = createForbiddenError(
@@ -1011,6 +838,18 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
           throw createUnauthorizedError(
             "Authentication required to edit this document.",
           );
+        }
+        if (authState.wsAccess) {
+          if (authState.wsAccess.docId !== docId) {
+            throw createForbiddenError(
+              "WS token is not valid for this document.",
+            );
+          }
+          if (authState.wsAccess.permission !== "edit") {
+            throw createForbiddenError(
+              "WS token does not allow edit access.",
+            );
+          }
         }
         if (authState.mcpAccess) {
           if (authState.mcpAccess.docId !== docId) {

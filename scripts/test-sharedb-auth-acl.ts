@@ -34,7 +34,15 @@ const invokeMiddleware = async (
 
 const createAuthState = (input?: {
   userId?: string;
-  failureReason?: "no_cookie" | "invalid_token" | "timeout" | "endpoint_failure" | null;
+  failureReason?:
+    | "no_ws_token"
+    | "no_cookie"
+    | "invalid_token"
+    | "invalid_ws_token"
+    | "invalid_mcp_token"
+    | "timeout"
+    | "endpoint_failure"
+    | null;
   statusCode?: number;
   mcpAccess?: { docId: string; permission: "view" | "edit" } | null;
 }) => ({
@@ -95,7 +103,7 @@ async function main() {
       run: async () => {
         const rejected: Error[] = [];
         const custom: Record<string, unknown> = {
-          __authState: createAuthState({ failureReason: "no_cookie" }),
+          __authState: createAuthState({ failureReason: "no_ws_token" }),
         };
         const error = await invokeMiddleware(readSnapshots, {
           collection: "spreadsheets",
