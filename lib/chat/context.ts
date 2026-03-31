@@ -190,54 +190,181 @@ const toCompactBackgroundColor = (value: unknown) => {
   };
 };
 
-const toCompactCellXf = (value: unknown): Record<string, unknown> | undefined => {
+const HORIZONTAL_ALIGNMENT_CODES: Record<string, string> = {
+  left: "l",
+  center: "c",
+  right: "r",
+  justify: "j",
+  fill: "f",
+  distributed: "d",
+};
+
+const VERTICAL_ALIGNMENT_CODES: Record<string, string> = {
+  top: "t",
+  middle: "m",
+  bottom: "b",
+  justify: "j",
+  distributed: "d",
+};
+
+const WRAP_STRATEGY_CODES: Record<string, string> = {
+  overflow: "o",
+  wrap: "w",
+  clip: "c",
+};
+
+const NUMBER_FORMAT_TYPE_CODES: Record<string, string> = {
+  number: "N",
+  percent: "P",
+  currency: "C",
+  date: "D",
+  time: "T",
+  datetime: "DT",
+  scientific: "S",
+  fraction: "F",
+  text: "TXT",
+};
+
+const BORDER_SIDE_CODES: Record<string, string> = {
+  top: "t",
+  right: "r",
+  bottom: "b",
+  left: "l",
+};
+
+const BORDER_STYLE_CODES: Record<string, string> = {
+  solid: "s",
+  solid_medium: "sm",
+  solid_thick: "st",
+  double: "d",
+  dashed: "ds",
+  dotted: "dt",
+  none: "n",
+  hairline: "h",
+  medium: "m",
+  thick: "th",
+};
+
+const toCompactToken = (
+  rawValue: string | undefined,
+  map: Record<string, string>,
+) => {
+  if (!rawValue) return undefined;
+  const normalized = rawValue.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return map[normalized] ?? normalized;
+};
+
+const toCompactNumberFormatType = (rawValue: string | undefined) => {
+  if (!rawValue) return undefined;
+  const normalized = rawValue.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return NUMBER_FORMAT_TYPE_CODES[normalized] ?? normalized.toUpperCase();
+};
+
+const toCompactCellXf = (value: unknown): string | undefined => {
   const record = asRecord(value);
   if (!record) return undefined;
 
-  const next: Record<string, unknown> = {};
+  const segments: string[] = [];
 
   const numberFormat = asRecord(record.numberFormat);
-  const numberFormatType = asString(numberFormat?.type);
+  const rawNumberFormatType =
+    asString(record.numberFormatType) ?? asString(numberFormat?.type);
+  const numberFormatType = toCompactNumberFormatType(rawNumberFormatType);
   if (numberFormatType) {
-    next.numberFormatType = numberFormatType;
+    segments.push(`nf:${numberFormatType}`);
   }
 
-  const borders = asRecord(record.borders);
-  if (borders) {
-    const compactBorderTokens = COMPACT_BORDER_SIDES.map((side) =>
-      toCompactBorderToken(side, borders[side]),
-    ).filter((token): token is string => Boolean(token));
-    if (compactBorderTokens.length > 0) {
-      next.borders = compactBorderTokens.join("|");
+  let compactBorders = asString(record.borders);
+  if (compactBorders) {
+    // Normalize any prior long-form side/style tokens into short codes.
+    compactBorders = compactBorders
+      .split("|")
+      .map((token) => {
+        const [rawSide = "", rawStyle = "", ...rest] = token.split(":");
+        const side = toCompactToken(rawSide, BORDER_SIDE_CODES) ?? rawSide;
+        const style = toCompactToken(rawStyle, BORDER_STYLE_CODES) ?? rawStyle;
+        return [side, style, ...rest].filter(Boolean).join(":");
+      })
+      .join("|");
+  }
+  if (compactBorders) {
+    segments.push(`b:${compactBorders}`);
+  } else {
+    const borders = asRecord(record.borders);
+    if (borders) {
+      const compactBorderTokens = COMPACT_BORDER_SIDES.map((side) =>
+        toCompactBorderToken(side, borders[side]),
+      ).filter((token): token is string => Boolean(token));
+      if (compactBorderTokens.length > 0) {
+        const encodedBorders = compactBorderTokens
+          .map((token) => {
+            const [rawSide = "", rawStyle = "", ...rest] = token.split(":");
+            const compactSide =
+              toCompactToken(rawSide, BORDER_SIDE_CODES) ?? rawSide;
+            const compactStyle =
+              toCompactToken(rawStyle, BORDER_STYLE_CODES) ?? rawStyle;
+            return [compactSide, compactStyle, ...rest]
+              .filter(Boolean)
+              .join(":");
+          })
+          .join("|");
+        segments.push(`b:${encodedBorders}`);
+      }
     }
   }
 
-  const compactTextFormat = toCompactTextFormat(record.textFormat);
+  const compactTextFormat =
+    asString(record.textFormat) ?? toCompactTextFormat(record.textFormat);
   if (compactTextFormat) {
-    next.textFormat = compactTextFormat;
+    segments.push(`t:${compactTextFormat}`);
   }
 
   const backgroundColor = toCompactBackgroundColor(record.backgroundColor);
   if (backgroundColor) {
-    next.backgroundColor = backgroundColor;
+    if (typeof backgroundColor === "string") {
+      segments.push(`bg:${backgroundColor}`);
+    } else {
+      const theme = asNumber(backgroundColor.theme);
+      const tint = asNumber(backgroundColor.tint);
+      if (theme !== undefined || tint !== undefined) {
+        const themeToken = theme !== undefined ? `th${theme}` : "";
+        const tintToken = tint !== undefined ? `ti${tint}` : "";
+        segments.push(
+          `bg:${[themeToken, tintToken].filter(Boolean).join(",")}`,
+        );
+      }
+    }
   }
 
-  const horizontalAlignment = asString(record.horizontalAlignment);
-  if (horizontalAlignment) {
-    next.horizontalAlignment = horizontalAlignment;
+  const horizontalAlignment =
+    asString(record.horizontalAlignment) ?? asString(record.ha);
+  const compactHorizontalAlignment = toCompactToken(
+    horizontalAlignment,
+    HORIZONTAL_ALIGNMENT_CODES,
+  );
+  if (compactHorizontalAlignment) {
+    segments.push(`h:${compactHorizontalAlignment}`);
   }
 
-  const verticalAlignment = asString(record.verticalAlignment);
-  if (verticalAlignment) {
-    next.verticalAlignment = verticalAlignment;
+  const verticalAlignment =
+    asString(record.verticalAlignment) ?? asString(record.va);
+  const compactVerticalAlignment = toCompactToken(
+    verticalAlignment,
+    VERTICAL_ALIGNMENT_CODES,
+  );
+  if (compactVerticalAlignment) {
+    segments.push(`v:${compactVerticalAlignment}`);
   }
 
-  const wrapStrategy = asString(record.wrapStrategy);
-  if (wrapStrategy) {
-    next.wrapStrategy = wrapStrategy;
+  const wrapStrategy = asString(record.wrapStrategy) ?? asString(record.ws);
+  const compactWrapStrategy = toCompactToken(wrapStrategy, WRAP_STRATEGY_CODES);
+  if (compactWrapStrategy) {
+    segments.push(`w:${compactWrapStrategy}`);
   }
 
-  return Object.keys(next).length > 0 ? next : undefined;
+  return segments.length > 0 ? segments.join(";") : undefined;
 };
 
 export const compactCellXfsForAssistant = (
@@ -247,9 +374,12 @@ export const compactCellXfsForAssistant = (
     return undefined;
   }
 
-  const next: Record<string, unknown> = {};
+  const next: Record<string, string> = {};
   for (const [styleId, styleValue] of Object.entries(value)) {
-    const compactStyle = toCompactCellXf(styleValue);
+    const compactStyle =
+      typeof styleValue === "string" && styleValue.trim().length > 0
+        ? styleValue.trim()
+        : toCompactCellXf(styleValue);
     if (compactStyle) {
       next[styleId] = compactStyle;
     }
@@ -356,12 +486,23 @@ IMPORTANT INDEXING RULE:
         `This object is a compacted cell formatting registry for the spreadsheet.
 Each cell format is identified by a "sid" in the styles.
 The map key is the format ID.
-Each value only includes high-signal formatting fields:
-- numberFormatType
-- borders (compressed as side:style:color[:width] tokens joined by "|")
-- textFormat (compressed tokens: b=bold, i=italic, u=underline, s=strikethrough, c:#HEX color, fs:size)
-- backgroundColor
-- horizontalAlignment / verticalAlignment / wrapStrategy
+Each value is a compact token string with ";" segments. Always decode these tokens before reasoning about formatting.
+- Segment separator: ";"
+- Unknown segments may appear; ignore unknown segments.
+- Missing segment means "not specified" (do not infer default formatting from absence).
+
+Token schema:
+- nf:<type> (N/P/C/D/T/DT/S/F/TXT)
+- b:<borders> where each border token is side:style:color[:width], side in t/r/b/l, styles compressed (s, sm, st, d, ds, dt, n, h, m, th), multiple borders joined by "|"
+- t:<textFormat> where text tokens are joined by "|" and include b/i/u/s/c:#HEX/fs:<size>
+- bg:<color> (or theme/tint encoded form)
+- h:<horizontalAlignment> where l/c/r/j/f/d
+- v:<verticalAlignment> where t/m/b/j/d
+- w:<wrapStrategy> where o/w/c
+
+Examples:
+- "nf:P;h:r" => percent format, right-aligned.
+- "b:t:s:#000000|b:d:#000000;t:b|c:#111827;bg:#F6EFE6;h:l" => top solid black border + bottom double black border, bold dark text, light background, left-aligned.
 `,
         context.cellXfs,
       ),
