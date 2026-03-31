@@ -14,7 +14,7 @@ const ensureStripeWebhookSchemaReady = async () => {
 
   ensureStripeWebhookSchemaPromise = (async () => {
     await db`
-      CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+      CREATE TABLE IF NOT EXISTS public.stripe_webhook_events (
         event_id TEXT PRIMARY KEY,
         event_type TEXT NOT NULL,
         payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -35,7 +35,7 @@ export async function hasProcessedStripeWebhookEvent(eventId: string) {
   await ensureStripeWebhookSchemaReady();
   const rows = await db<StripeWebhookEventRow[]>`
     SELECT event_id
-    FROM stripe_webhook_events
+    FROM public.stripe_webhook_events
     WHERE event_id = ${eventId}
     LIMIT 1
   `;
@@ -49,7 +49,7 @@ export async function markStripeWebhookEventProcessed(input: {
 }) {
   await ensureStripeWebhookSchemaReady();
   await db`
-    INSERT INTO stripe_webhook_events (
+    INSERT INTO public.stripe_webhook_events (
       event_id,
       event_type,
       payload

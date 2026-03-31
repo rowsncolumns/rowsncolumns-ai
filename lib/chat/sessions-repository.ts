@@ -26,7 +26,7 @@ const ensureAssistantSessionsTable = async () => {
   if (!ensureAssistantSessionsTablePromise) {
     ensureAssistantSessionsTablePromise = (async () => {
       await db`
-        CREATE TABLE IF NOT EXISTS assistant_sessions (
+        CREATE TABLE IF NOT EXISTS public.assistant_sessions (
           thread_id TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
           doc_id TEXT,
@@ -38,15 +38,15 @@ const ensureAssistantSessionsTable = async () => {
       `;
       await db`
         CREATE INDEX IF NOT EXISTS assistant_sessions_user_updated_idx
-          ON assistant_sessions (user_id, updated_at DESC)
+          ON public.assistant_sessions (user_id, updated_at DESC)
       `;
       await db`
         CREATE INDEX IF NOT EXISTS assistant_sessions_user_doc_updated_idx
-          ON assistant_sessions (user_id, doc_id, updated_at DESC)
+          ON public.assistant_sessions (user_id, doc_id, updated_at DESC)
       `;
       // Add model column if it doesn't exist (migration for existing tables)
       await db`
-        ALTER TABLE assistant_sessions
+        ALTER TABLE public.assistant_sessions
         ADD COLUMN IF NOT EXISTS model TEXT
       `;
     })().catch((error) => {
@@ -92,7 +92,7 @@ export async function upsertAssistantSession(input: {
 
   await ensureAssistantSessionsTable();
   await db`
-    INSERT INTO assistant_sessions (
+    INSERT INTO public.assistant_sessions (
       thread_id,
       user_id,
       doc_id,
@@ -109,9 +109,9 @@ export async function upsertAssistantSession(input: {
     ON CONFLICT (thread_id) DO UPDATE
       SET
         user_id = EXCLUDED.user_id,
-        doc_id = COALESCE(EXCLUDED.doc_id, assistant_sessions.doc_id),
-        title = COALESCE(EXCLUDED.title, assistant_sessions.title),
-        model = COALESCE(EXCLUDED.model, assistant_sessions.model),
+        doc_id = COALESCE(EXCLUDED.doc_id, public.assistant_sessions.doc_id),
+        title = COALESCE(EXCLUDED.title, public.assistant_sessions.title),
+        model = COALESCE(EXCLUDED.model, public.assistant_sessions.model),
         updated_at = NOW()
   `;
 }
@@ -149,7 +149,7 @@ export async function listAssistantSessions(input: {
           model,
           created_at,
           updated_at
-        FROM assistant_sessions
+        FROM public.assistant_sessions
         WHERE user_id = ${userId}
           AND doc_id = ${docId}
         ORDER BY updated_at DESC
@@ -164,7 +164,7 @@ export async function listAssistantSessions(input: {
           model,
           created_at,
           updated_at
-        FROM assistant_sessions
+        FROM public.assistant_sessions
         WHERE user_id = ${userId}
         ORDER BY updated_at DESC
         LIMIT ${limit}
@@ -193,7 +193,7 @@ export async function getAssistantSessionByThreadId(input: {
       model,
       created_at,
       updated_at
-    FROM assistant_sessions
+    FROM public.assistant_sessions
     WHERE thread_id = ${threadId}
       AND user_id = ${userId}
     LIMIT 1
@@ -215,7 +215,7 @@ export async function deleteAssistantSession(input: {
 
   await ensureAssistantSessionsTable();
   const rows = await db<{ thread_id: string }[]>`
-    DELETE FROM assistant_sessions
+    DELETE FROM public.assistant_sessions
     WHERE thread_id = ${threadId}
       AND user_id = ${userId}
     RETURNING thread_id

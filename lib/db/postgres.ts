@@ -39,6 +39,9 @@ export const db: PostgresClient =
   postgres(databaseUrl, {
     prepare: false,
     ssl: "require",
+    connection: {
+      search_path: "public",
+    },
     onnotice: () => {}, // Suppress NOTICE messages (e.g., "relation already exists")
   });
 

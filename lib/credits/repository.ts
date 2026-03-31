@@ -113,12 +113,12 @@ const ensureCreditSchemaReady = async () => {
 
   ensureCreditSchemaPromise = (async () => {
     await db`
-      ALTER TABLE user_credits
+      ALTER TABLE public.user_credits
       ADD COLUMN IF NOT EXISTS daily_free_remaining INTEGER
     `;
 
     await db`
-      UPDATE user_credits
+      UPDATE public.user_credits
       SET
         daily_free_remaining = LEAST(balance, ${INITIAL_CREDITS}),
         balance = GREATEST(balance - LEAST(balance, ${INITIAL_CREDITS}), 0)
@@ -126,22 +126,22 @@ const ensureCreditSchemaReady = async () => {
     `;
 
     await db`
-      ALTER TABLE user_credits
+      ALTER TABLE public.user_credits
       ALTER COLUMN balance SET DEFAULT 0
     `;
 
     await db.unsafe(
-      `ALTER TABLE user_credits ALTER COLUMN daily_free_remaining SET DEFAULT ${INITIAL_CREDITS}`,
+      `ALTER TABLE public.user_credits ALTER COLUMN daily_free_remaining SET DEFAULT ${INITIAL_CREDITS}`,
     );
 
     await db`
-      UPDATE user_credits
+      UPDATE public.user_credits
       SET daily_free_remaining = ${INITIAL_CREDITS}
       WHERE daily_free_remaining IS NULL
     `;
 
     await db`
-      ALTER TABLE user_credits
+      ALTER TABLE public.user_credits
       ALTER COLUMN daily_free_remaining SET NOT NULL
     `;
   })();
@@ -205,7 +205,7 @@ export async function ensureUserCredits(userId: string): Promise<void> {
   const currentCreditDay = getCurrentUtcCreditDay();
 
   await db`
-    INSERT INTO user_credits (user_id, balance, daily_free_remaining, credit_day)
+    INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
     VALUES (${userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
     ON CONFLICT (user_id) DO NOTHING
   `;
@@ -218,7 +218,7 @@ export async function getUserCredits(userId: string): Promise<UserCreditsRecord>
   const usesDailyFreeBucket = entitlement.plan === "free";
 
   const rows = await db<UserCreditsRow[]>`
-    UPDATE user_credits
+    UPDATE public.user_credits
     SET
       daily_free_remaining = CASE
         WHEN ${usesDailyFreeBucket} = FALSE THEN 0
@@ -269,7 +269,7 @@ export async function chargeUserCreditsForRun({
     const tx = transaction as unknown as typeof db;
 
     await tx`
-      INSERT INTO user_credits (user_id, balance, daily_free_remaining, credit_day)
+      INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
       VALUES (${userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
       ON CONFLICT (user_id) DO NOTHING
     `;
@@ -280,7 +280,7 @@ export async function chargeUserCreditsForRun({
       SELECT
         delta,
         balance_after
-      FROM credit_ledger
+      FROM public.credit_ledger
       WHERE user_id = ${userId}
         AND run_id = ${runId}
         AND reason = ${CHAT_RUN_REASON}
@@ -304,7 +304,7 @@ export async function chargeUserCreditsForRun({
         credit_day,
         created_at,
         updated_at
-      FROM user_credits
+      FROM public.user_credits
       WHERE user_id = ${userId}
       FOR UPDATE
     `;
@@ -329,7 +329,7 @@ export async function chargeUserCreditsForRun({
     const remainingCredits = getAvailableCredits(charged.buckets);
 
     await tx`
-      UPDATE user_credits
+      UPDATE public.user_credits
       SET
         balance = ${charged.buckets.paidBalance},
         daily_free_remaining = ${charged.buckets.dailyFreeRemaining},
@@ -339,7 +339,7 @@ export async function chargeUserCreditsForRun({
     `;
 
     await tx`
-      INSERT INTO credit_ledger (
+      INSERT INTO public.credit_ledger (
         id,
         user_id,
         run_id,
@@ -393,7 +393,7 @@ export async function grantUserCreditsFromBillingEvent(
     const tx = transaction as unknown as typeof db;
 
     await tx`
-      INSERT INTO user_credits (user_id, balance, daily_free_remaining, credit_day)
+      INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
       VALUES (${input.userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
       ON CONFLICT (user_id) DO NOTHING
     `;
@@ -401,7 +401,7 @@ export async function grantUserCreditsFromBillingEvent(
     const existingRows = await tx<{ balance_after: number }[]>`
       SELECT
         balance_after
-      FROM credit_ledger
+      FROM public.credit_ledger
       WHERE user_id = ${input.userId}
         AND run_id = ${input.idempotencyKey}
         AND reason = ${input.reason}
@@ -418,7 +418,7 @@ export async function grantUserCreditsFromBillingEvent(
           credit_day,
           created_at,
           updated_at
-        FROM user_credits
+        FROM public.user_credits
         WHERE user_id = ${input.userId}
         LIMIT 1
       `;
@@ -447,7 +447,7 @@ export async function grantUserCreditsFromBillingEvent(
         credit_day,
         created_at,
         updated_at
-      FROM user_credits
+      FROM public.user_credits
       WHERE user_id = ${input.userId}
       FOR UPDATE
     `;
@@ -469,7 +469,7 @@ export async function grantUserCreditsFromBillingEvent(
     const nextAvailableCredits = getAvailableCredits(nextBuckets);
 
     await tx`
-      UPDATE user_credits
+      UPDATE public.user_credits
       SET
         balance = ${nextBuckets.paidBalance},
         daily_free_remaining = ${nextBuckets.dailyFreeRemaining},
@@ -479,7 +479,7 @@ export async function grantUserCreditsFromBillingEvent(
     `;
 
     await tx`
-      INSERT INTO credit_ledger (
+      INSERT INTO public.credit_ledger (
         id,
         user_id,
         run_id,
@@ -537,7 +537,7 @@ export async function adminRefillUserCredits({
     const tx = transaction as unknown as typeof db;
 
     await tx`
-      INSERT INTO user_credits (user_id, balance, daily_free_remaining, credit_day)
+      INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
       VALUES (${userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
       ON CONFLICT (user_id) DO NOTHING
     `;
@@ -550,7 +550,7 @@ export async function adminRefillUserCredits({
         credit_day,
         created_at,
         updated_at
-      FROM user_credits
+      FROM public.user_credits
       WHERE user_id = ${userId}
       FOR UPDATE
     `;
@@ -578,7 +578,7 @@ export async function adminRefillUserCredits({
     const nextAvailableCredits = getAvailableCredits(nextBuckets);
 
     const updatedRows = await tx<{ updated_at: Date | string }[]>`
-      UPDATE user_credits
+      UPDATE public.user_credits
       SET
         balance = ${nextBuckets.paidBalance},
         daily_free_remaining = ${nextBuckets.dailyFreeRemaining},
@@ -589,7 +589,7 @@ export async function adminRefillUserCredits({
     `;
 
     await tx`
-      INSERT INTO credit_ledger (
+      INSERT INTO public.credit_ledger (
         id,
         user_id,
         delta,

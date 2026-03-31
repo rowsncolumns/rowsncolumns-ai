@@ -179,7 +179,7 @@ export async function ensureDocumentOwnership({
   userId: string;
 }): Promise<EnsureDocumentOwnershipResult> {
   await db`
-    INSERT INTO document_owners (doc_id, user_id)
+    INSERT INTO public.document_owners (doc_id, user_id)
     VALUES (${docId}, ${userId})
     ON CONFLICT (doc_id) DO NOTHING
   `;
@@ -190,7 +190,7 @@ export async function ensureDocumentOwnership({
       user_id,
       created_at,
       updated_at
-    FROM document_owners
+    FROM public.document_owners
     WHERE doc_id = ${docId}
     LIMIT 1
   `;
@@ -209,7 +209,7 @@ export async function ensureDocumentOwnership({
 export async function listOwnedDocumentIds(userId: string): Promise<string[]> {
   const rows = await db<{ doc_id: string }[]>`
     SELECT doc_id
-    FROM document_owners
+    FROM public.document_owners
     WHERE user_id = ${userId}
     ORDER BY created_at DESC
   `;
@@ -220,7 +220,7 @@ export async function listOwnedDocumentIds(userId: string): Promise<string[]> {
 export async function documentExists(docId: string): Promise<boolean> {
   const rows = await db<{ doc_id: string }[]>`
     SELECT doc_id
-    FROM document_owners
+    FROM public.document_owners
     WHERE doc_id = ${docId}
     LIMIT 1
   `;
@@ -307,9 +307,9 @@ export async function listOwnedDocuments({
             VALUES
               (
                 CASE
-                  WHEN snapshots.metadata ? 'mtime'
-                    AND jsonb_typeof(snapshots.metadata->'mtime') = 'number'
-                  THEN to_timestamp((snapshots.metadata->>'mtime')::double precision / 1000.0)
+                  WHEN public.snapshots.metadata ? 'mtime'
+                    AND jsonb_typeof(public.snapshots.metadata->'mtime') = 'number'
+                  THEN to_timestamp((public.snapshots.metadata->>'mtime')::double precision / 1000.0)
                   ELSE NULL
                 END
               ),
@@ -319,18 +319,18 @@ export async function listOwnedDocuments({
           ) AS ts(candidate_ts)
         ) AS last_modified_at,
         'owned'::text AS access_type
-      FROM document_owners AS owners
-      LEFT JOIN document_metadata AS metadata
+      FROM public.document_owners AS owners
+      LEFT JOIN public.document_metadata AS metadata
         ON metadata.doc_id = owners.doc_id
-      LEFT JOIN document_share_links AS shares
+      LEFT JOIN public.document_share_links AS shares
         ON shares.doc_id = owners.doc_id
         AND shares.is_active = TRUE
-      LEFT JOIN document_favorites AS favorites
+      LEFT JOIN public.document_favorites AS favorites
         ON favorites.doc_id = owners.doc_id
         AND favorites.user_id = ${userId}
-      LEFT JOIN snapshots
-        ON snapshots.collection = ${SHAREDB_COLLECTION}
-        AND snapshots.doc_id = owners.doc_id
+      LEFT JOIN public.snapshots
+        ON public.snapshots.collection = ${SHAREDB_COLLECTION}
+        AND public.snapshots.doc_id = owners.doc_id
       WHERE owners.user_id = ${userId}
 
       UNION ALL
@@ -347,9 +347,9 @@ export async function listOwnedDocuments({
             VALUES
               (
                 CASE
-                  WHEN snapshots.metadata ? 'mtime'
-                    AND jsonb_typeof(snapshots.metadata->'mtime') = 'number'
-                  THEN to_timestamp((snapshots.metadata->>'mtime')::double precision / 1000.0)
+                  WHEN public.snapshots.metadata ? 'mtime'
+                    AND jsonb_typeof(public.snapshots.metadata->'mtime') = 'number'
+                  THEN to_timestamp((public.snapshots.metadata->>'mtime')::double precision / 1000.0)
                   ELSE NULL
                 END
               ),
@@ -359,17 +359,17 @@ export async function listOwnedDocuments({
           ) AS ts(candidate_ts)
         ) AS last_modified_at,
         'shared'::text AS access_type
-      FROM document_access_grants AS grants
-      INNER JOIN document_owners AS owners
+      FROM public.document_access_grants AS grants
+      INNER JOIN public.document_owners AS owners
         ON owners.doc_id = grants.doc_id
-      LEFT JOIN document_metadata AS metadata
+      LEFT JOIN public.document_metadata AS metadata
         ON metadata.doc_id = grants.doc_id
-      LEFT JOIN document_favorites AS favorites
+      LEFT JOIN public.document_favorites AS favorites
         ON favorites.doc_id = grants.doc_id
         AND favorites.user_id = ${userId}
-      LEFT JOIN snapshots
-        ON snapshots.collection = ${SHAREDB_COLLECTION}
-        AND snapshots.doc_id = grants.doc_id
+      LEFT JOIN public.snapshots
+        ON public.snapshots.collection = ${SHAREDB_COLLECTION}
+        AND public.snapshots.doc_id = grants.doc_id
       WHERE grants.user_id = ${userId}
         AND owners.user_id <> ${userId}
     )
@@ -408,9 +408,9 @@ export async function listOwnedDocuments({
             VALUES
               (
                 CASE
-                  WHEN snapshots.metadata ? 'mtime'
-                    AND jsonb_typeof(snapshots.metadata->'mtime') = 'number'
-                  THEN to_timestamp((snapshots.metadata->>'mtime')::double precision / 1000.0)
+                  WHEN public.snapshots.metadata ? 'mtime'
+                    AND jsonb_typeof(public.snapshots.metadata->'mtime') = 'number'
+                  THEN to_timestamp((public.snapshots.metadata->>'mtime')::double precision / 1000.0)
                   ELSE NULL
                 END
               ),
@@ -420,18 +420,18 @@ export async function listOwnedDocuments({
           ) AS ts(candidate_ts)
         ) AS last_modified_at,
         'owned'::text AS access_type
-      FROM document_owners AS owners
-      LEFT JOIN document_metadata AS metadata
+      FROM public.document_owners AS owners
+      LEFT JOIN public.document_metadata AS metadata
         ON metadata.doc_id = owners.doc_id
-      LEFT JOIN document_share_links AS shares
+      LEFT JOIN public.document_share_links AS shares
         ON shares.doc_id = owners.doc_id
         AND shares.is_active = TRUE
-      LEFT JOIN document_favorites AS favorites
+      LEFT JOIN public.document_favorites AS favorites
         ON favorites.doc_id = owners.doc_id
         AND favorites.user_id = ${userId}
-      LEFT JOIN snapshots
-        ON snapshots.collection = ${SHAREDB_COLLECTION}
-        AND snapshots.doc_id = owners.doc_id
+      LEFT JOIN public.snapshots
+        ON public.snapshots.collection = ${SHAREDB_COLLECTION}
+        AND public.snapshots.doc_id = owners.doc_id
       WHERE owners.user_id = ${userId}
 
       UNION ALL
@@ -448,9 +448,9 @@ export async function listOwnedDocuments({
             VALUES
               (
                 CASE
-                  WHEN snapshots.metadata ? 'mtime'
-                    AND jsonb_typeof(snapshots.metadata->'mtime') = 'number'
-                  THEN to_timestamp((snapshots.metadata->>'mtime')::double precision / 1000.0)
+                  WHEN public.snapshots.metadata ? 'mtime'
+                    AND jsonb_typeof(public.snapshots.metadata->'mtime') = 'number'
+                  THEN to_timestamp((public.snapshots.metadata->>'mtime')::double precision / 1000.0)
                   ELSE NULL
                 END
               ),
@@ -460,17 +460,17 @@ export async function listOwnedDocuments({
           ) AS ts(candidate_ts)
         ) AS last_modified_at,
         'shared'::text AS access_type
-      FROM document_access_grants AS grants
-      INNER JOIN document_owners AS owners
+      FROM public.document_access_grants AS grants
+      INNER JOIN public.document_owners AS owners
         ON owners.doc_id = grants.doc_id
-      LEFT JOIN document_metadata AS metadata
+      LEFT JOIN public.document_metadata AS metadata
         ON metadata.doc_id = grants.doc_id
-      LEFT JOIN document_favorites AS favorites
+      LEFT JOIN public.document_favorites AS favorites
         ON favorites.doc_id = grants.doc_id
         AND favorites.user_id = ${userId}
-      LEFT JOIN snapshots
-        ON snapshots.collection = ${SHAREDB_COLLECTION}
-        AND snapshots.doc_id = grants.doc_id
+      LEFT JOIN public.snapshots
+        ON public.snapshots.collection = ${SHAREDB_COLLECTION}
+        AND public.snapshots.doc_id = grants.doc_id
       WHERE grants.user_id = ${userId}
         AND owners.user_id <> ${userId}
     )
@@ -523,12 +523,12 @@ export async function setDocumentFavorite({
   const accessibleRows = await db<{ doc_id: string }[]>`
     WITH accessible_documents AS (
       SELECT owners.doc_id
-      FROM document_owners AS owners
+      FROM public.document_owners AS owners
       WHERE owners.doc_id = ${docId}
         AND owners.user_id = ${userId}
       UNION
       SELECT grants.doc_id
-      FROM document_access_grants AS grants
+      FROM public.document_access_grants AS grants
       WHERE grants.doc_id = ${docId}
         AND grants.user_id = ${userId}
     )
@@ -544,14 +544,14 @@ export async function setDocumentFavorite({
   try {
     if (favorite) {
       await db`
-        INSERT INTO document_favorites (doc_id, user_id)
+        INSERT INTO public.document_favorites (doc_id, user_id)
         VALUES (${docId}, ${userId})
         ON CONFLICT (doc_id, user_id) DO UPDATE
           SET updated_at = NOW()
       `;
     } else {
       await db`
-        DELETE FROM document_favorites
+        DELETE FROM public.document_favorites
         WHERE doc_id = ${docId}
           AND user_id = ${userId}
       `;
@@ -577,7 +577,7 @@ export async function ensureDocumentMetadata({
 
   try {
     await db`
-      INSERT INTO document_metadata (doc_id, title)
+      INSERT INTO public.document_metadata (doc_id, title)
       VALUES (${docId}, ${defaultTitle})
       ON CONFLICT (doc_id) DO NOTHING
     `;
@@ -588,7 +588,7 @@ export async function ensureDocumentMetadata({
         title,
         created_at,
         updated_at
-      FROM document_metadata
+      FROM public.document_metadata
       WHERE doc_id = ${docId}
       LIMIT 1
     `;
@@ -625,7 +625,7 @@ export async function updateDocumentTitle({
 
   try {
     const rows = await db<DocumentMetadataRow[]>`
-      INSERT INTO document_metadata (doc_id, title)
+      INSERT INTO public.document_metadata (doc_id, title)
       VALUES (${docId}, ${normalizedTitle})
       ON CONFLICT (doc_id) DO UPDATE
         SET
@@ -664,7 +664,7 @@ export async function deleteOwnedDocument({
   return db.begin(async (tx) => {
     const deletedOwnerRows = await tx.unsafe<{ doc_id: string }[]>(
       `
-        DELETE FROM document_owners
+        DELETE FROM public.document_owners
         WHERE doc_id = $1
           AND user_id = $2
         RETURNING doc_id
@@ -679,7 +679,7 @@ export async function deleteOwnedDocument({
     try {
       await tx.unsafe(
         `
-          DELETE FROM snapshots
+          DELETE FROM public.snapshots
           WHERE collection = $1
             AND doc_id = $2
         `,
@@ -694,7 +694,7 @@ export async function deleteOwnedDocument({
     try {
       await tx.unsafe(
         `
-          DELETE FROM ops
+          DELETE FROM public.ops
           WHERE collection = $1
             AND doc_id = $2
         `,
@@ -720,7 +720,7 @@ const hasDocumentAccessGrant = async ({
   try {
     const rows = await db<{ doc_id: string }[]>`
       SELECT doc_id
-      FROM document_access_grants
+      FROM public.document_access_grants
       WHERE doc_id = ${docId}
         AND user_id = ${userId}
       LIMIT 1
@@ -743,7 +743,7 @@ const upsertDocumentAccessGrant = async ({
 }): Promise<void> => {
   try {
     await db`
-      INSERT INTO document_access_grants (doc_id, user_id, granted_via)
+      INSERT INTO public.document_access_grants (doc_id, user_id, granted_via)
       VALUES (${docId}, ${userId}, 'share')
       ON CONFLICT (doc_id, user_id) DO UPDATE
         SET
@@ -764,7 +764,7 @@ const getActiveSharePermissionByDocumentId = async (
   try {
     const rows = await db<{ permission: string | null }[]>`
       SELECT permission
-      FROM document_share_links
+      FROM public.document_share_links
       WHERE doc_id = ${docId}
         AND is_active = TRUE
       LIMIT 1
@@ -778,7 +778,7 @@ const getActiveSharePermissionByDocumentId = async (
     if (isMissingColumnError(error)) {
       const rows = await db<{ doc_id: string }[]>`
         SELECT doc_id
-        FROM document_share_links
+        FROM public.document_share_links
         WHERE doc_id = ${docId}
           AND is_active = TRUE
         LIMIT 1
@@ -801,7 +801,7 @@ const getActiveShareLinkByToken = async ({
       SELECT
         doc_id,
         permission
-      FROM document_share_links
+      FROM public.document_share_links
       WHERE doc_id = ${docId}
         AND is_active = TRUE
         AND share_token = ${shareToken}
@@ -817,7 +817,7 @@ const getActiveShareLinkByToken = async ({
     if (isMissingColumnError(error)) {
       const rows = await db<{ doc_id: string }[]>`
         SELECT doc_id
-        FROM document_share_links
+        FROM public.document_share_links
         WHERE doc_id = ${docId}
           AND is_active = TRUE
           AND share_token = ${shareToken}
@@ -914,7 +914,7 @@ export async function getOrCreateDocumentShareLink({
         created_by_user_id,
         created_at,
         updated_at
-      FROM document_share_links
+      FROM public.document_share_links
       WHERE doc_id = ${docId}
         AND is_active = TRUE
       LIMIT 1
@@ -927,7 +927,7 @@ export async function getOrCreateDocumentShareLink({
 
     const nextShareToken = crypto.randomUUID();
     const upsertedRows = await db<DocumentShareLinkRow[]>`
-      INSERT INTO document_share_links (
+      INSERT INTO public.document_share_links (
         doc_id,
         share_token,
         is_active,
@@ -945,7 +945,7 @@ export async function getOrCreateDocumentShareLink({
         SET
           share_token = EXCLUDED.share_token,
           is_active = TRUE,
-          permission = COALESCE(document_share_links.permission, EXCLUDED.permission),
+          permission = COALESCE(public.document_share_links.permission, EXCLUDED.permission),
           created_by_user_id = EXCLUDED.created_by_user_id,
           updated_at = NOW()
       RETURNING
@@ -977,7 +977,7 @@ export async function getOrCreateDocumentShareLink({
         created_by_user_id,
         created_at,
         updated_at
-      FROM document_share_links
+      FROM public.document_share_links
       WHERE doc_id = ${docId}
         AND is_active = TRUE
       LIMIT 1
@@ -989,7 +989,7 @@ export async function getOrCreateDocumentShareLink({
 
     const nextShareToken = crypto.randomUUID();
     const upsertedRows = await db<DocumentShareLinkRow[]>`
-      INSERT INTO document_share_links (
+      INSERT INTO public.document_share_links (
         doc_id,
         share_token,
         is_active,
@@ -1044,7 +1044,7 @@ export async function updateDocumentSharePermission({
 
   try {
     const rows = await db<DocumentShareLinkRow[]>`
-      INSERT INTO document_share_links (
+      INSERT INTO public.document_share_links (
         doc_id,
         share_token,
         is_active,

@@ -27,7 +27,7 @@ const ensureTables = async () => {
   if (!ensureTablesPromise) {
     ensureTablesPromise = (async () => {
       await db`
-        CREATE TABLE IF NOT EXISTS chat_runs (
+        CREATE TABLE IF NOT EXISTS public.chat_runs (
           run_id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -41,29 +41,29 @@ const ensureTables = async () => {
         )
       `;
       await db`
-        ALTER TABLE chat_runs
+        ALTER TABLE public.chat_runs
         ADD COLUMN IF NOT EXISTS cancel_reason TEXT
       `;
       await db`
-        ALTER TABLE chat_runs
+        ALTER TABLE public.chat_runs
         ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMPTZ
       `;
       await db`
-        ALTER TABLE chat_runs
+        ALTER TABLE public.chat_runs
         ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ
       `;
       await db`
         CREATE INDEX IF NOT EXISTS chat_runs_thread_idx
-          ON chat_runs (thread_id, started_at DESC)
+          ON public.chat_runs (thread_id, started_at DESC)
       `;
       await db`
         CREATE INDEX IF NOT EXISTS chat_runs_user_idx
-          ON chat_runs (user_id, started_at DESC)
+          ON public.chat_runs (user_id, started_at DESC)
       `;
       await db`
-        CREATE TABLE IF NOT EXISTS chat_run_events (
+        CREATE TABLE IF NOT EXISTS public.chat_run_events (
           id BIGSERIAL PRIMARY KEY,
-          run_id TEXT NOT NULL REFERENCES chat_runs(run_id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES public.chat_runs(run_id) ON DELETE CASCADE,
           event_type TEXT NOT NULL,
           event_data JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -71,7 +71,7 @@ const ensureTables = async () => {
       `;
       await db`
         CREATE INDEX IF NOT EXISTS chat_run_events_run_idx
-          ON chat_run_events (run_id, id ASC)
+          ON public.chat_run_events (run_id, id ASC)
       `;
     })().catch((error) => {
       ensureTablesPromise = null;
@@ -89,7 +89,7 @@ export async function createChatRun(input: {
 }): Promise<void> {
   await ensureTables();
   await db`
-    INSERT INTO chat_runs (run_id, thread_id, user_id, status)
+    INSERT INTO public.chat_runs (run_id, thread_id, user_id, status)
     VALUES (${input.runId}, ${input.threadId}, ${input.userId}, 'running')
     ON CONFLICT (run_id) DO NOTHING
   `;
@@ -102,7 +102,7 @@ export async function completeChatRun(input: {
 }): Promise<void> {
   await ensureTables();
   await db`
-    UPDATE chat_runs
+    UPDATE public.chat_runs
     SET
       status = ${input.status},
       error_message = ${input.errorMessage ?? null},
@@ -123,7 +123,7 @@ export async function requestChatRunCancel(input: {
 }): Promise<{ cancelled: boolean; runId?: string; threadId?: string }> {
   await ensureTables();
   const rows = await db<{ run_id: string; thread_id: string }[]>`
-    UPDATE chat_runs
+    UPDATE public.chat_runs
     SET
       status = 'cancelled',
       cancel_reason = ${input.reason ?? null},
@@ -151,14 +151,14 @@ export async function requestThreadRunCancel(input: {
   const rows = await db<{ run_id: string; thread_id: string }[]>`
     WITH target AS (
       SELECT run_id
-      FROM chat_runs
+      FROM public.chat_runs
       WHERE thread_id = ${input.threadId}
         AND user_id = ${input.userId}
         AND status = 'running'
       ORDER BY started_at DESC
       LIMIT 1
     )
-    UPDATE chat_runs
+    UPDATE public.chat_runs
     SET
       status = 'cancelled',
       cancel_reason = ${input.reason ?? null},
@@ -181,7 +181,7 @@ export async function isChatRunCancelled(input: {
   await ensureTables();
   const rows = await db<{ is_cancelled: boolean }[]>`
     SELECT status = 'cancelled' AS is_cancelled
-    FROM chat_runs
+    FROM public.chat_runs
     WHERE run_id = ${input.runId}
     LIMIT 1
   `;
@@ -194,7 +194,7 @@ export async function appendChatRunEvent(input: {
 }): Promise<number> {
   await ensureTables();
   const rows = await db<{ id: string }[]>`
-    INSERT INTO chat_run_events (run_id, event_type, event_data)
+    INSERT INTO public.chat_run_events (run_id, event_type, event_data)
     VALUES (${input.runId}, ${input.event.type}, ${JSON.stringify(input.event)})
     RETURNING id
   `;
@@ -218,7 +218,7 @@ export async function getChatRun(input: {
     }[]
   >`
     SELECT run_id, thread_id, user_id, status, error_message, started_at, completed_at
-    FROM chat_runs
+    FROM public.chat_runs
     WHERE run_id = ${input.runId}
       AND user_id = ${input.userId}
     LIMIT 1
@@ -257,7 +257,7 @@ export async function getLatestChatRunForThread(input: {
     }[]
   >`
     SELECT run_id, thread_id, user_id, status, error_message, started_at, completed_at
-    FROM chat_runs
+    FROM public.chat_runs
     WHERE thread_id = ${input.threadId}
       AND user_id = ${input.userId}
     ORDER BY started_at DESC
@@ -299,7 +299,7 @@ export async function getChatRunEvents(input: {
     }[]
   >`
     SELECT id, run_id, event_type, event_data, created_at
-    FROM chat_run_events
+    FROM public.chat_run_events
     WHERE run_id = ${input.runId}
       AND id > ${afterId}
     ORDER BY id ASC
@@ -322,7 +322,7 @@ export async function cleanupOldChatRuns(input: {
   const hours = input.olderThanHours ?? 24;
 
   const rows = await db<{ run_id: string }[]>`
-    DELETE FROM chat_runs
+    DELETE FROM public.chat_runs
     WHERE completed_at < NOW() - INTERVAL '${hours} hours'
     RETURNING run_id
   `;

@@ -120,7 +120,7 @@ async function getSkillById({
       active,
       created_at,
       updated_at
-    FROM assistant_skills
+    FROM public.assistant_skills
     WHERE id = ${skillId}
       AND user_id = ${userId}
     LIMIT 1
@@ -136,7 +136,7 @@ async function ensureDefaultBrandingSkillForUser(userId: string) {
 
   const existingSkills = await db<{ id: string }[]>`
     SELECT id
-    FROM assistant_skills
+    FROM public.assistant_skills
     WHERE user_id = ${userId}
     LIMIT 1
   `;
@@ -148,7 +148,7 @@ async function ensureDefaultBrandingSkillForUser(userId: string) {
   const defaultSkillId = getDefaultBrandingSkillId(userId);
 
   await db`
-    INSERT INTO assistant_skills (
+    INSERT INTO public.assistant_skills (
       id,
       user_id,
       workspace_id,
@@ -186,7 +186,7 @@ export async function listAssistantSkills({
       active,
       created_at,
       updated_at
-    FROM assistant_skills
+    FROM public.assistant_skills
     WHERE user_id = ${userId}
     ORDER BY created_at DESC
   `;
@@ -204,7 +204,7 @@ export async function createAssistantSkill({
   const id = crypto.randomUUID();
 
   const rows = await db<AssistantSkillRow[]>`
-    INSERT INTO assistant_skills (
+    INSERT INTO public.assistant_skills (
       id,
       user_id,
       workspace_id,
@@ -260,7 +260,7 @@ export async function updateAssistantSkill({
   }
 
   const rows = await db<AssistantSkillRow[]>`
-    UPDATE assistant_skills
+    UPDATE public.assistant_skills
     SET
       name = ${name ?? existingSkill.name},
       description = ${description ?? existingSkill.description},
@@ -294,7 +294,7 @@ export async function deleteAssistantSkill({
   userId,
 }: DeleteAssistantSkillInput): Promise<boolean> {
   const rows = await db<{ id: string }[]>`
-    DELETE FROM assistant_skills
+    DELETE FROM public.assistant_skills
     WHERE id = ${skillId}
       AND user_id = ${userId}
     RETURNING id

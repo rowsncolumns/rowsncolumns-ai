@@ -52,7 +52,7 @@ const ensureBillingSchemaReady = async () => {
 
   ensureBillingSchemaPromise = (async () => {
     await db`
-      CREATE TABLE IF NOT EXISTS user_billing_profile (
+      CREATE TABLE IF NOT EXISTS public.user_billing_profile (
         user_id TEXT PRIMARY KEY,
         stripe_customer_id TEXT UNIQUE,
         stripe_subscription_id TEXT UNIQUE,
@@ -117,7 +117,7 @@ export async function getUserBillingProfile(
       trial_grant_issued,
       created_at,
       updated_at
-    FROM user_billing_profile
+    FROM public.user_billing_profile
     WHERE user_id = ${userId}
     LIMIT 1
   `;
@@ -142,7 +142,7 @@ export async function getUserBillingProfileByStripeCustomerId(
       trial_grant_issued,
       created_at,
       updated_at
-    FROM user_billing_profile
+    FROM public.user_billing_profile
     WHERE stripe_customer_id = ${stripeCustomerId}
     LIMIT 1
   `;
@@ -157,7 +157,7 @@ export async function upsertStripeCustomerForUser(input: {
 }) {
   await ensureBillingSchemaReady();
   const rows = await db<BillingProfileRow[]>`
-    INSERT INTO user_billing_profile (
+    INSERT INTO public.user_billing_profile (
       user_id,
       stripe_customer_id
     )
@@ -201,7 +201,7 @@ export async function upsertUserBillingSubscriptionState(input: {
   const resolvedPlan: BillingPlanTier = entitled ? normalizedPlan : "free";
 
   const rows = await db<BillingProfileRow[]>`
-    INSERT INTO user_billing_profile (
+    INSERT INTO public.user_billing_profile (
       user_id,
       stripe_customer_id,
       stripe_subscription_id,
@@ -229,9 +229,9 @@ export async function upsertUserBillingSubscriptionState(input: {
         current_period_end = EXCLUDED.current_period_end,
         updated_at = NOW(),
         trial_grant_issued = CASE
-          WHEN user_billing_profile.stripe_subscription_id IS DISTINCT FROM EXCLUDED.stripe_subscription_id
+          WHEN public.user_billing_profile.stripe_subscription_id IS DISTINCT FROM EXCLUDED.stripe_subscription_id
             THEN FALSE
-          ELSE user_billing_profile.trial_grant_issued
+          ELSE public.user_billing_profile.trial_grant_issued
         END
     RETURNING
       user_id,
@@ -255,7 +255,7 @@ export async function markTrialGrantIssued(input: {
 }) {
   await ensureBillingSchemaReady();
   await db`
-    UPDATE user_billing_profile
+    UPDATE public.user_billing_profile
     SET
       trial_grant_issued = ${input.issued},
       updated_at = NOW()

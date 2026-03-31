@@ -161,7 +161,7 @@ export async function createOperationHistory(
   const payloadStorage = "inline" as const;
 
   const rows = await db<OperationHistoryRow[]>`
-    INSERT INTO agent_operation_history (
+    INSERT INTO public.agent_operation_history (
       collection,
       doc_id,
       source,
@@ -229,7 +229,7 @@ async function persistCustomAttributions(
   }));
 
   await db`
-    INSERT INTO agent_operation_attributions ${db(values)}
+    INSERT INTO public.agent_operation_attributions ${db(values)}
   `;
 }
 
@@ -252,7 +252,7 @@ async function persistContentSelectors(
   }));
 
   await db`
-    INSERT INTO agent_operation_content_index ${db(values)}
+    INSERT INTO public.agent_operation_content_index ${db(values)}
   `;
 }
 
@@ -263,7 +263,7 @@ export async function getOperationHistoryById(
   operationId: string
 ): Promise<OperationHistoryRecord | null> {
   const rows = await db<OperationHistoryRow[]>`
-    SELECT * FROM agent_operation_history
+    SELECT * FROM public.agent_operation_history
     WHERE id = ${operationId}
   `;
 
@@ -278,7 +278,7 @@ export async function getLatestPendingOperation(
   docId: string
 ): Promise<OperationHistoryRecord | null> {
   const rows = await db<OperationHistoryRow[]>`
-    SELECT * FROM agent_operation_history
+    SELECT * FROM public.agent_operation_history
     WHERE doc_id = ${docId}
       AND reverted_at IS NULL
     ORDER BY created_at DESC
@@ -299,7 +299,7 @@ export async function markOperationReverted(
   revertSharedbVersionTo: number
 ): Promise<void> {
   await db`
-    UPDATE agent_operation_history
+    UPDATE public.agent_operation_history
     SET
       reverted_at = NOW(),
       reverted_by_operation_id = ${revertedByOperationId},
@@ -332,7 +332,7 @@ export async function listActivities(
   const fetchLimit = limit + 1;
 
   const rows = await db<OperationHistoryRow[]>`
-    SELECT * FROM agent_operation_history
+    SELECT * FROM public.agent_operation_history
     WHERE doc_id = ${docId}
       ${cursorData ? db`AND (created_at, id) < (${cursorData.createdAt}, ${cursorData.id})` : db``}
       ${filters?.from ? db`AND created_at >= ${filters.from}` : db``}
@@ -368,7 +368,7 @@ export async function countActivities(
   filters?: ListActivitiesFilters
 ): Promise<number> {
   const results = await db<Array<{ count: string }>>`
-    SELECT COUNT(*) as count FROM agent_operation_history
+    SELECT COUNT(*) as count FROM public.agent_operation_history
     WHERE doc_id = ${docId}
       ${filters?.from ? db`AND created_at >= ${filters.from}` : db``}
       ${filters?.to ? db`AND created_at <= ${filters.to}` : db``}
@@ -388,7 +388,7 @@ export async function deleteOperationHistoryForDocument(
   docId: string
 ): Promise<void> {
   await db`
-    DELETE FROM agent_operation_history
+    DELETE FROM public.agent_operation_history
     WHERE doc_id = ${docId}
   `;
 }
