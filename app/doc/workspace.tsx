@@ -207,6 +207,7 @@ const getShareDbBaseUrl = () => {
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
 type ShareDBSocketWithDiagnostics = ShareDBSocket & {
+  connect: () => void;
   getLastCloseReason: () => string | null;
 };
 type ShareDbConnectionState =
@@ -312,18 +313,24 @@ const formatShareDbReason = (reason: unknown): string | null => {
 const createShareDbSocket = (
   urlProvider: ConstructorParameters<typeof ReconnectingWebSocket>[0],
 ): ShareDBSocketWithDiagnostics => {
-  const reconnectingSocket = new ReconnectingWebSocket(urlProvider);
+  // Keep socket closed during render; open it from a committed effect only.
+  const reconnectingSocket = new ReconnectingWebSocket(urlProvider, [], {
+    startClosed: true,
+  });
   let lastCloseReason: string | null = null;
 
   const socket: ShareDBSocketWithDiagnostics = {
     get readyState() {
       return reconnectingSocket.readyState;
     },
+    connect() {
+      reconnectingSocket.reconnect();
+    },
     close(reason?: number) {
       reconnectingSocket.close(reason);
     },
-    send(data: any) {
-      reconnectingSocket.send(data);
+    send(data: unknown) {
+      reconnectingSocket.send(data as Parameters<typeof reconnectingSocket.send>[0]);
     },
     onmessage: () => {},
     onclose: () => {},
@@ -547,7 +554,6 @@ function SpreadsheetPane({
   >(null);
   const [hasSeenShareDbConnected, setHasSeenShareDbConnected] =
     useState<boolean>(false);
-  const lastShareDbErrorToastRef = useRef<string | null>(null);
 
   const { connection, socket } = useMemo(() => {
     const urlProvider = async (): Promise<string> => {
@@ -595,6 +601,11 @@ function SpreadsheetPane({
   }, [documentId]);
 
   useEffect(() => {
+    try {
+      socket.connect();
+    } catch {
+      // Ignore connect errors and let ShareDB state listeners surface issues.
+    }
     return () => {
       try {
         connection.close();
@@ -610,18 +621,6 @@ function SpreadsheetPane({
   }, [connection, socket]);
 
   useEffect(() => {
-    const maybeToastShareDbIssue = (
-      normalizedState: ShareDbConnectionState,
-      message: string,
-    ) => {
-      const dedupeKey = `${normalizedState}:${message}`;
-      if (lastShareDbErrorToastRef.current === dedupeKey) {
-        return;
-      }
-      lastShareDbErrorToastRef.current = dedupeKey;
-      toast.error(`Live collaboration error: ${message}`);
-    };
-
     const handleStateChange = (state: unknown, reason?: unknown) => {
       const normalizedState = normalizeShareDbConnectionState(state);
       setShareDbConnectionState(normalizedState);
@@ -632,7 +631,6 @@ function SpreadsheetPane({
 
       if (normalizedState === "connected" || normalizedState === "connecting") {
         setShareDbConnectionReason(null);
-        lastShareDbErrorToastRef.current = null;
         return;
       }
 
@@ -640,14 +638,12 @@ function SpreadsheetPane({
         formatShareDbReason(reason) ?? socket.getLastCloseReason();
       const finalReason = parsedReason ?? "Connection lost.";
       setShareDbConnectionReason(finalReason);
-      maybeToastShareDbIssue(normalizedState, finalReason);
     };
 
     const handleConnectionError = (error: unknown) => {
       const parsedError = formatShareDbReason(error);
       if (parsedError) {
         setShareDbConnectionReason(parsedError);
-        maybeToastShareDbIssue("disconnected", parsedError);
       }
     };
 
