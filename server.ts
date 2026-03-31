@@ -119,10 +119,31 @@ const DOC_ACCESS_CACHE_TTL_MS = parsePositiveInt(
   process.env.SHAREDB_DOC_ACCESS_CACHE_TTL_MS,
   45_000,
 );
-const DEFAULT_SHAREDB_DOC_MAX_BYTES = 300 * 1024 * 1024; // 300 MB
-const SHAREDB_DOC_MAX_BYTES = parseNonNegativeInt(
+const POSTGRES_JSONB_MAX_BYTES = 268_435_455; // PostgreSQL hard limit for a single jsonb value
+const DEFAULT_SHAREDB_DOC_MAX_BYTES = 300 * 1024 * 1024; // requested default
+const SHAREDB_DOC_MAX_BYTES_REQUESTED = parseNonNegativeInt(
   process.env.SHAREDB_DOC_MAX_BYTES,
   DEFAULT_SHAREDB_DOC_MAX_BYTES,
+);
+const SHAREDB_DOC_JSONB_SAFETY_MARGIN_BYTES = parseNonNegativeInt(
+  process.env.SHAREDB_DOC_JSONB_SAFETY_MARGIN_BYTES,
+  8 * 1024 * 1024,
+);
+const SHAREDB_DOC_MAX_BYTES_CAP = Math.max(
+  1,
+  POSTGRES_JSONB_MAX_BYTES - SHAREDB_DOC_JSONB_SAFETY_MARGIN_BYTES,
+);
+const SHAREDB_DOC_MAX_BYTES = Math.min(
+  SHAREDB_DOC_MAX_BYTES_REQUESTED,
+  SHAREDB_DOC_MAX_BYTES_CAP,
+);
+const SHAREDB_OP_MAX_BYTES_REQUESTED = parseNonNegativeInt(
+  process.env.SHAREDB_OP_MAX_BYTES,
+  SHAREDB_DOC_MAX_BYTES_CAP,
+);
+const SHAREDB_OP_MAX_BYTES = Math.min(
+  SHAREDB_OP_MAX_BYTES_REQUESTED,
+  SHAREDB_DOC_MAX_BYTES_CAP,
 );
 const SHAREDB_WS_MAX_PAYLOAD_OVERHEAD_BYTES = parseNonNegativeInt(
   process.env.SHAREDB_WS_MAX_PAYLOAD_OVERHEAD_BYTES,
@@ -659,6 +680,10 @@ const createForbiddenError = (message: string): Error => {
 
 const createDocumentSizeLimitError = (message: string): Error => {
   return new ShareDBError("ERR_DOC_TOO_LARGE", message);
+};
+
+const createOperationSizeLimitError = (message: string): Error => {
+  return new ShareDBError("ERR_OP_TOO_LARGE", message);
 };
 
 const computeDocumentSizeBytes = (snapshotData: unknown): number | null => {
@@ -1216,15 +1241,52 @@ const registerDocumentSizeLimitMiddleware = (backend: ShareDB) => {
   }
 
   console.log("ShareDB document size limit: enabled", {
-    maxBytes: SHAREDB_DOC_MAX_BYTES,
-    maxSize: formatBytes(SHAREDB_DOC_MAX_BYTES),
+    requestedMaxBytes: SHAREDB_DOC_MAX_BYTES_REQUESTED,
+    effectiveMaxBytes: SHAREDB_DOC_MAX_BYTES,
+    effectiveMaxSize: formatBytes(SHAREDB_DOC_MAX_BYTES),
+    opMaxBytes: SHAREDB_OP_MAX_BYTES,
+    jsonbHardLimitBytes: POSTGRES_JSONB_MAX_BYTES,
+    jsonbSafetyMarginBytes: SHAREDB_DOC_JSONB_SAFETY_MARGIN_BYTES,
   });
+  if (SHAREDB_DOC_MAX_BYTES_REQUESTED > SHAREDB_DOC_MAX_BYTES) {
+    console.warn(
+      "[sharedb-size] SHAREDB_DOC_MAX_BYTES capped by PostgreSQL jsonb limits",
+      {
+        requestedBytes: SHAREDB_DOC_MAX_BYTES_REQUESTED,
+        effectiveBytes: SHAREDB_DOC_MAX_BYTES,
+      },
+    );
+  }
 
   backend.use(
     "apply",
     (context: SubmitContextLike, callback: (error?: Error) => void) => {
       if (context.collection !== SHAREDB_COLLECTION) {
         callback();
+        return;
+      }
+
+      const operationSizeBytes = computeDocumentSizeBytes(context.op ?? null);
+      if (operationSizeBytes === null) {
+        callback(
+          createOperationSizeLimitError(
+            "Unable to validate operation payload size before commit.",
+          ),
+        );
+        return;
+      }
+
+      if (operationSizeBytes > SHAREDB_OP_MAX_BYTES) {
+        const docId = toString(context.id) ?? "unknown";
+        callback(
+          createOperationSizeLimitError(
+            `Operation payload exceeds the maximum allowed size (${formatBytes(
+              SHAREDB_OP_MAX_BYTES,
+            )} / ${SHAREDB_OP_MAX_BYTES} bytes). Current operation size: ${formatBytes(
+              operationSizeBytes,
+            )} / ${operationSizeBytes} bytes. docId=${docId}`,
+          ),
+        );
         return;
       }
 
