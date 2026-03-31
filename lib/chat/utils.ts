@@ -26,6 +26,7 @@ import {
   type OperationAttribution,
   BACKEND_ATTRIBUTION,
 } from "@/lib/operation-history";
+import { getShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
 
 // Re-export for tools.ts to use
 export type { OperationAttribution };
@@ -187,15 +188,41 @@ const safeCloseWebSocket = (ws: import("ws").WebSocket) => {
   }
 };
 
-const getShareDBDocumentOnce = (
+const appendQueryParam = (
+  baseUrl: string,
+  key: string,
+  value: string,
+): string => {
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set(key, value);
+    return url.toString();
+  } catch {
+    const separator = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  }
+};
+
+const getShareDBDocumentOnce = async (
   docId: string,
 ): Promise<{
   doc: ShareDBClient.Doc;
   connection: ShareDBClient.Connection;
   close: () => void;
 }> => {
+  const runtimeContext = getShareDbRuntimeContext();
+  let resolvedShareDbUrl = SHAREDB_URL;
+  if (runtimeContext?.mcpTokenFactory) {
+    const token = await runtimeContext
+      .mcpTokenFactory({ docId, permission: "edit" })
+      .catch(() => null);
+    if (token) {
+      resolvedShareDbUrl = appendQueryParam(SHAREDB_URL, "mcpToken", token);
+    }
+  }
+
   return new Promise((resolve, reject) => {
-    const ws = new (getWebSocketCtor())(SHAREDB_URL);
+    const ws = new (getWebSocketCtor())(resolvedShareDbUrl);
     let settled = false;
     let doc: ShareDBClient.Doc | null = null;
 

@@ -10,6 +10,7 @@ const WebSocketJSONStream = require("websocket-json-stream") as new (
 ) => unknown;
 import { getFlags, isTrackingEnabledForSource } from "./lib/feature-flags";
 import { ensureDocumentAccess } from "./lib/documents/repository";
+import { verifyMcpShareDbAccessToken } from "./lib/sharedb/mcp-token";
 import { resolveAuditHistoryAccess } from "./lib/operation-history/access";
 import { generateInverseRawOp } from "./lib/operation-history/inverse-op";
 import { createOperationHistory } from "./lib/operation-history/repository";
@@ -120,6 +121,7 @@ type SessionIntrospectionResult = {
 type AuthFailureReason =
   | "no_cookie"
   | "invalid_token"
+  | "invalid_mcp_token"
   | "timeout"
   | "endpoint_failure";
 
@@ -138,6 +140,10 @@ type AgentAuditState = {
 
 type AgentAuthState = {
   identity: AuthIdentity | null;
+  mcpAccess: {
+    docId: string;
+    permission: DocumentPermission;
+  } | null;
   failureReason: AuthFailureReason | null;
   statusCode?: number;
   resolvedAt: number;
@@ -312,6 +318,18 @@ const getSessionTokenFromRequest = (req?: IncomingMessage): string | null => {
   }
 
   return null;
+};
+
+const getMcpTokenFromRequest = (req?: IncomingMessage): string | null => {
+  if (!req?.url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(req.url, "http://localhost");
+    return getStringValue(parsed.searchParams.get("mcpToken"));
+  } catch {
+    return null;
+  }
 };
 
 const logAuth = (
@@ -580,6 +598,7 @@ const toAgentAuthState = (
   result: IdentityResolutionResult,
 ): AgentAuthState => ({
   identity: result.identity,
+  mcpAccess: null,
   failureReason: result.failureReason,
   statusCode: result.statusCode,
   resolvedAt: Date.now(),
@@ -605,17 +624,38 @@ const ensureAgentAuthState = async (
   }
 
   const promise = resolveIdentityFromRequest(context.req)
-    .then((result) => {
+    .then(async (result) => {
       const state = toAgentAuthState(result);
-      custom.__authState = state;
       if (!state.identity) {
+        const mcpToken = getMcpTokenFromRequest(context.req);
+        if (mcpToken) {
+          const access = await verifyMcpShareDbAccessToken(mcpToken);
+          if (access) {
+            state.mcpAccess = {
+              docId: access.docId,
+              permission: access.permission,
+            };
+            state.failureReason = null;
+          } else {
+            state.failureReason = "invalid_mcp_token";
+          }
+        }
+      }
+      custom.__authState = state;
+      if (!state.identity && !state.mcpAccess) {
         logAuth("warn", "identity_unresolved", {
           reason: state.failureReason,
           statusCode: state.statusCode,
         });
+      } else if (state.mcpAccess) {
+        logAuth("debug", "mcp_token_resolved", {
+          docId: state.mcpAccess.docId,
+          permission: state.mcpAccess.permission,
+        });
       } else {
+        const identity = state.identity;
         logAuth("debug", "identity_resolved", {
-          userId: state.identity.userId,
+          userId: identity?.userId ?? "unknown",
         });
       }
       return state;
@@ -744,7 +784,7 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
         }
 
         const authState = await ensureAgentAuthState(context);
-        if (!authState.identity) {
+        if (!authState.identity && !authState.mcpAccess) {
           const error = createUnauthorizedError(
             "Authentication required to read this document.",
           );
@@ -774,10 +814,33 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
             continue;
           }
 
+          if (authState.mcpAccess) {
+            if (authState.mcpAccess.docId !== docId) {
+              const error = createForbiddenError(
+                "MCP token is not valid for this document.",
+              );
+              rejectSnapshotReadWithError(context, snapshot, error);
+              logAuth("warn", "read_denied", {
+                collection: context.collection,
+                docId,
+                reason: "forbidden",
+              });
+              continue;
+            }
+            logAuth("debug", "read_allowed", {
+              collection: context.collection,
+              docId,
+              permission: authState.mcpAccess.permission,
+              userId: "mcp-token",
+            });
+            continue;
+          }
+
           const { access } = await resolveDocumentAccessForAgent(
             context,
             docId,
           );
+          const authUserId = authState.identity?.userId ?? "unknown";
           if (!access?.canAccess) {
             const error = createForbiddenError(
               "You do not have access to this document.",
@@ -786,7 +849,7 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
             logAuth("warn", "read_denied", {
               collection: context.collection,
               docId,
-              userId: authState.identity.userId,
+              userId: authUserId,
               reason: "forbidden",
             });
           } else {
@@ -794,7 +857,7 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
               collection: context.collection,
               docId,
               permission: access.permission,
-              userId: authState.identity.userId,
+              userId: authUserId,
             });
           }
         }
@@ -827,10 +890,28 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
           context,
           docId,
         );
-        if (!authState.identity) {
+        if (!authState.identity && !authState.mcpAccess) {
           throw createUnauthorizedError(
             "Authentication required to edit this document.",
           );
+        }
+        if (authState.mcpAccess) {
+          if (authState.mcpAccess.docId !== docId) {
+            throw createForbiddenError(
+              "MCP token is not valid for this document.",
+            );
+          }
+          if (authState.mcpAccess.permission !== "edit") {
+            throw createForbiddenError("MCP token does not allow edit access.");
+          }
+
+          logAuth("debug", "submit_allowed", {
+            collection: context.collection,
+            docId,
+            userId: "mcp-token",
+            permission: authState.mcpAccess.permission,
+          });
+          return;
         }
         if (!access?.canAccess) {
           throw createForbiddenError(
@@ -842,11 +923,12 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
             "You do not have permission to edit this document.",
           );
         }
+        const authUserId = authState.identity?.userId ?? "unknown";
 
         logAuth("debug", "submit_allowed", {
           collection: context.collection,
           docId,
-          userId: authState.identity.userId,
+          userId: authUserId,
           permission: access.permission,
         });
       })()

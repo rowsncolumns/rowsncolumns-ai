@@ -169,8 +169,26 @@ import { ChevronRight, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 
 const getShareDbUrl = () => {
+  const appendMcpToken = (url: string) => {
+    if (typeof window === "undefined") {
+      return url;
+    }
+    const token = new URLSearchParams(window.location.search).get("mcpToken");
+    if (!token) {
+      return url;
+    }
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set("mcpToken", token);
+      return parsed.toString();
+    } catch {
+      const separator = url.includes("?") ? "&" : "?";
+      return `${url}${separator}mcpToken=${encodeURIComponent(token)}`;
+    }
+  };
+
   const configured = process.env.NEXT_PUBLIC_SHAREDB_URL?.trim();
-  if (configured) return configured;
+  if (configured) return appendMcpToken(configured);
 
   const port = process.env.NEXT_PUBLIC_SHAREDB_PORT?.trim() || "8080";
   if (typeof window === "undefined") {
@@ -178,7 +196,7 @@ const getShareDbUrl = () => {
   }
 
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${window.location.hostname}:${port}`;
+  return appendMcpToken(`${protocol}://${window.location.hostname}:${port}`);
 };
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];

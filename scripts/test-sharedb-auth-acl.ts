@@ -36,6 +36,7 @@ const createAuthState = (input?: {
   userId?: string;
   failureReason?: "no_cookie" | "invalid_token" | "timeout" | "endpoint_failure" | null;
   statusCode?: number;
+  mcpAccess?: { docId: string; permission: "view" | "edit" } | null;
 }) => ({
   identity: input?.userId
     ? {
@@ -44,6 +45,7 @@ const createAuthState = (input?: {
         name: null,
       }
     : null,
+  mcpAccess: input?.mcpAccess ?? null,
   failureReason: input?.failureReason ?? null,
   statusCode: input?.statusCode,
   resolvedAt: Date.now(),
@@ -242,6 +244,84 @@ async function main() {
         assert.equal(readError, undefined);
         assert.equal(submitError, undefined);
         assert.equal(rejected.length, 0);
+      },
+    },
+    {
+      name: "mcp token allows read for matching doc",
+      run: async () => {
+        const rejected: Error[] = [];
+        const custom: Record<string, unknown> = {
+          __authState: createAuthState({
+            mcpAccess: { docId: "doc_mcp_match", permission: "edit" },
+          }),
+        };
+
+        const error = await invokeMiddleware(readSnapshots, {
+          collection: "spreadsheets",
+          snapshots: [{ id: "doc_mcp_match" }],
+          agent: { custom },
+          rejectSnapshotRead: (_snapshot: unknown, err: Error) => rejected.push(err),
+        });
+
+        assert.equal(error, undefined);
+        assert.equal(rejected.length, 0);
+      },
+    },
+    {
+      name: "mcp token with view permission denies submit on matching doc",
+      run: async () => {
+        const custom: Record<string, unknown> = {
+          __authState: createAuthState({
+            mcpAccess: { docId: "doc_mcp_view", permission: "view" },
+          }),
+        };
+
+        const error = await invokeMiddleware(submit, {
+          collection: "spreadsheets",
+          id: "doc_mcp_view",
+          agent: { custom },
+        });
+
+        assert.ok(error);
+        assert.equal(getErrorCode(error), "ERR_FORBIDDEN");
+        assert.match(error.message, /does not allow edit access/i);
+      },
+    },
+    {
+      name: "mcp token with edit permission allows submit on matching doc",
+      run: async () => {
+        const custom: Record<string, unknown> = {
+          __authState: createAuthState({
+            mcpAccess: { docId: "doc_mcp_edit", permission: "edit" },
+          }),
+        };
+
+        const error = await invokeMiddleware(submit, {
+          collection: "spreadsheets",
+          id: "doc_mcp_edit",
+          agent: { custom },
+        });
+
+        assert.equal(error, undefined);
+      },
+    },
+    {
+      name: "mcp token denies submit for non-matching doc",
+      run: async () => {
+        const custom: Record<string, unknown> = {
+          __authState: createAuthState({
+            mcpAccess: { docId: "doc_mcp_match", permission: "edit" },
+          }),
+        };
+
+        const error = await invokeMiddleware(submit, {
+          collection: "spreadsheets",
+          id: "doc_other",
+          agent: { custom },
+        });
+
+        assert.ok(error);
+        assert.equal(getErrorCode(error), "ERR_FORBIDDEN");
       },
     },
     {

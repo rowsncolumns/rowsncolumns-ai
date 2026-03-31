@@ -18,6 +18,11 @@ import {
   getShareDBDocument,
   type ShareDBSpreadsheetDoc,
 } from "../lib/chat/utils";
+import { withShareDbRuntimeContext } from "../lib/sharedb/runtime-context";
+import {
+  canIssueMcpShareDbToken,
+  issueMcpShareDbAccessToken,
+} from "../lib/sharedb/mcp-token";
 import { resolveAppBaseUrl, resolveAppOrigin } from "./app-url";
 import { selectionToAddress, uuidString } from "@rowsncolumns/utils";
 import {
@@ -110,6 +115,26 @@ type UiHost = "claude" | "openai" | null;
 export type RegisterSpreadsheetToolsOptions = {
   uiHost?: UiHost;
   mcpServerUrl?: string | null;
+};
+
+const buildMcpDocToken = async (
+  docId: string,
+  permission: "view" | "edit" = "edit",
+): Promise<string | null> => {
+  return issueMcpShareDbAccessToken({
+    docId,
+    permission,
+  });
+};
+
+const withMcpShareDbContext = async <T>(callback: () => Promise<T>) => {
+  return withShareDbRuntimeContext(
+    {
+      mcpTokenFactory: ({ docId, permission }) =>
+        buildMcpDocToken(docId, permission),
+    },
+    callback,
+  );
 };
 
 const normalizeDomainHost = (value: string | null | undefined) => {
@@ -589,7 +614,9 @@ const readWidgetBundle = async () => {
 const readSpreadsheetDocument = async (
   docId: string,
 ): Promise<ShareDBSpreadsheetDoc | null> => {
-  const { doc, close } = await getShareDBDocument(docId);
+  const { doc, close } = await withMcpShareDbContext(() =>
+    getShareDBDocument(docId),
+  );
   try {
     if (doc.type === null || !doc.data) {
       return null;
@@ -612,7 +639,9 @@ const createSpreadsheetDocument = async ({
       ? sheetTitle.trim()
       : "Sheet1";
 
-  const { doc, close } = await getShareDBDocument(docId);
+  const { doc, close } = await withMcpShareDbContext(() =>
+    getShareDBDocument(docId),
+  );
   try {
     if (doc.type !== null) {
       return { created: false, exists: true };
@@ -754,6 +783,12 @@ export const registerSpreadsheetTools = (
   server: McpServer,
   options: RegisterSpreadsheetToolsOptions = {},
 ) => {
+  if (!canIssueMcpShareDbToken()) {
+    console.warn(
+      "[mcp] SHAREDB_MCP_TOKEN_SECRET is not set; remote MCP spreadsheet tools will not be able to open ShareDB docs without first-party auth.",
+    );
+  }
+
   const registerTool = server.registerTool.bind(server) as (
     name: string,
     config: {
@@ -788,7 +823,9 @@ export const registerSpreadsheetTools = (
         let errorCode: string | undefined;
 
         try {
-          const result = await spreadsheetTool.invoke(args);
+          const result = await withMcpShareDbContext(() =>
+            spreadsheetTool.invoke(args),
+          );
           return normalizeToolResult(result);
         } catch (error) {
           success = false;
@@ -1252,6 +1289,10 @@ export const registerSpreadsheetTools = (
       );
       url.searchParams.set("locale", resolvedLocale);
       url.searchParams.set("currency", resolvedCurrency);
+      const mcpToken = await buildMcpDocToken(docId, "edit");
+      if (mcpToken) {
+        url.searchParams.set("mcpToken", mcpToken);
+      }
 
       // Track document creation
       trackMcpSession(docId, {
@@ -1273,6 +1314,7 @@ export const registerSpreadsheetTools = (
           locale: resolvedLocale,
           currency: resolvedCurrency,
           url: url.toString(),
+          ...(mcpToken ? { mcpToken } : {}),
         },
       };
     },
@@ -1336,6 +1378,10 @@ export const registerSpreadsheetTools = (
       const resolvedCurrency = (parsed.currency ?? currency).toUpperCase();
       url.searchParams.set("locale", resolvedLocale);
       url.searchParams.set("currency", resolvedCurrency);
+      const mcpToken = await buildMcpDocToken(parsed.docId, "edit");
+      if (mcpToken) {
+        url.searchParams.set("mcpToken", mcpToken);
+      }
 
       // Track document open
       trackMcpSession(parsed.docId, {
@@ -1354,6 +1400,7 @@ export const registerSpreadsheetTools = (
           locale: resolvedLocale,
           currency: resolvedCurrency,
           url: url.toString(),
+          ...(mcpToken ? { mcpToken } : {}),
         },
       };
     },
