@@ -1,7 +1,7 @@
 import { db } from "@/lib/db/postgres";
 import type { ChatStreamEvent } from "@/lib/chat/protocol";
 
-export type ChatRunStatus = "running" | "completed" | "failed";
+export type ChatRunStatus = "running" | "completed" | "failed" | "cancelled";
 
 export type ChatRunRecord = {
   runId: string;
@@ -33,9 +33,24 @@ const ensureTables = async () => {
           user_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'running',
           error_message TEXT,
+          cancel_reason TEXT,
+          cancel_requested_at TIMESTAMPTZ,
+          cancelled_at TIMESTAMPTZ,
           started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           completed_at TIMESTAMPTZ
         )
+      `;
+      await db`
+        ALTER TABLE chat_runs
+        ADD COLUMN IF NOT EXISTS cancel_reason TEXT
+      `;
+      await db`
+        ALTER TABLE chat_runs
+        ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMPTZ
+      `;
+      await db`
+        ALTER TABLE chat_runs
+        ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ
       `;
       await db`
         CREATE INDEX IF NOT EXISTS chat_runs_thread_idx
@@ -82,7 +97,7 @@ export async function createChatRun(input: {
 
 export async function completeChatRun(input: {
   runId: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "cancelled";
   errorMessage?: string;
 }): Promise<void> {
   await ensureTables();
@@ -91,9 +106,86 @@ export async function completeChatRun(input: {
     SET
       status = ${input.status},
       error_message = ${input.errorMessage ?? null},
-      completed_at = NOW()
+      completed_at = NOW(),
+      cancelled_at = CASE
+        WHEN ${input.status} = 'cancelled' THEN COALESCE(cancelled_at, NOW())
+        ELSE cancelled_at
+      END
     WHERE run_id = ${input.runId}
+      AND status = 'running'
   `;
+}
+
+export async function requestChatRunCancel(input: {
+  runId: string;
+  userId: string;
+  reason?: string;
+}): Promise<{ cancelled: boolean; runId?: string; threadId?: string }> {
+  await ensureTables();
+  const rows = await db<{ run_id: string; thread_id: string }[]>`
+    UPDATE chat_runs
+    SET
+      status = 'cancelled',
+      cancel_reason = ${input.reason ?? null},
+      cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
+      cancelled_at = COALESCE(cancelled_at, NOW()),
+      completed_at = COALESCE(completed_at, NOW())
+    WHERE run_id = ${input.runId}
+      AND user_id = ${input.userId}
+      AND status = 'running'
+    RETURNING run_id, thread_id
+  `;
+
+  const row = rows[0];
+  return row
+    ? { cancelled: true, runId: row.run_id, threadId: row.thread_id }
+    : { cancelled: false };
+}
+
+export async function requestThreadRunCancel(input: {
+  threadId: string;
+  userId: string;
+  reason?: string;
+}): Promise<{ cancelled: boolean; runId?: string; threadId?: string }> {
+  await ensureTables();
+  const rows = await db<{ run_id: string; thread_id: string }[]>`
+    WITH target AS (
+      SELECT run_id
+      FROM chat_runs
+      WHERE thread_id = ${input.threadId}
+        AND user_id = ${input.userId}
+        AND status = 'running'
+      ORDER BY started_at DESC
+      LIMIT 1
+    )
+    UPDATE chat_runs
+    SET
+      status = 'cancelled',
+      cancel_reason = ${input.reason ?? null},
+      cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
+      cancelled_at = COALESCE(cancelled_at, NOW()),
+      completed_at = COALESCE(completed_at, NOW())
+    WHERE run_id IN (SELECT run_id FROM target)
+    RETURNING run_id, thread_id
+  `;
+
+  const row = rows[0];
+  return row
+    ? { cancelled: true, runId: row.run_id, threadId: row.thread_id }
+    : { cancelled: false };
+}
+
+export async function isChatRunCancelled(input: {
+  runId: string;
+}): Promise<boolean> {
+  await ensureTables();
+  const rows = await db<{ is_cancelled: boolean }[]>`
+    SELECT status = 'cancelled' AS is_cancelled
+    FROM chat_runs
+    WHERE run_id = ${input.runId}
+    LIMIT 1
+  `;
+  return rows[0]?.is_cancelled === true;
 }
 
 export async function appendChatRunEvent(input: {

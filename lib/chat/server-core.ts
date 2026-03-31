@@ -28,6 +28,7 @@ import {
   createChatRun,
   completeChatRun,
   appendChatRunEvent,
+  isChatRunCancelled,
 } from "@/lib/chat/runs-repository";
 import { getUserBillingEntitlement } from "@/lib/billing/repository";
 import { withOperationHistoryRuntimeContext } from "@/lib/operation-history/runtime-context";
@@ -489,6 +490,59 @@ export const executeChatRunStream = async (input: {
   let runError: string | undefined;
   const runId = crypto.randomUUID();
   const shouldPersistEvents = input.persistEvents ?? true;
+  const localAbortController = new AbortController();
+  let cancellationCheckInFlight = false;
+
+  const abortRun = (reason: ChatAbortReason) => {
+    if (!localAbortController.signal.aborted) {
+      localAbortController.abort(reason);
+    }
+  };
+
+  const forwardExternalAbort = () => {
+    const reason = isChatAbortReason(input.abortSignal?.reason)
+      ? (input.abortSignal!.reason as ChatAbortReason)
+      : ({
+          code: "CLIENT_ABORT",
+          message: "Chat run stopped by user.",
+        } satisfies ChatAbortReason);
+    abortRun(reason);
+  };
+
+  if (input.abortSignal) {
+    if (input.abortSignal.aborted) {
+      forwardExternalAbort();
+    } else {
+      input.abortSignal.addEventListener("abort", forwardExternalAbort, {
+        once: true,
+      });
+    }
+  }
+
+  const combinedAbortSignal = localAbortController.signal;
+  const checkCancellationAtCheckpoint = async () => {
+    if (!shouldPersistEvents || cancellationCheckInFlight || combinedAbortSignal.aborted) {
+      return;
+    }
+
+    cancellationCheckInFlight = true;
+    try {
+      const cancelled = await isChatRunCancelled({ runId });
+      if (cancelled) {
+        abortRun({
+          code: "CLIENT_ABORT",
+          message: "Chat run stopped by user.",
+        });
+      }
+    } catch (error) {
+      console.warn("[chat] Failed to check run cancellation state", {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      cancellationCheckInFlight = false;
+    }
+  };
 
   try {
     await input.onRunCreated?.(runId);
@@ -515,6 +569,9 @@ export const executeChatRunStream = async (input: {
     }
   }
 
+  // Check once right after run creation to catch races with immediate stop requests.
+  await checkCancellationAtCheckpoint();
+
   const persistAndEmit = async (
     event:
       | ChatStreamEvent
@@ -526,6 +583,13 @@ export const executeChatRunStream = async (input: {
       shouldPersistEvents &&
       event.type !== "message.delta" &&
       event.type !== "reasoning.delta";
+
+    if (shouldPersistThisEvent) {
+      await checkCancellationAtCheckpoint();
+      if (combinedAbortSignal.aborted) {
+        return;
+      }
+    }
 
     if (shouldPersistThisEvent) {
       try {
@@ -585,7 +649,7 @@ export const executeChatRunStream = async (input: {
               provider: input.request.provider,
               reasoningEnabled: input.request.reasoningEnabled,
               systemInstructions: input.request.systemInstructions,
-              abortSignal: input.abortSignal,
+              abortSignal: combinedAbortSignal,
             })) {
               if (event.type === "tool.call") {
                 toolCallCount += 1;
@@ -612,13 +676,16 @@ export const executeChatRunStream = async (input: {
                   : event;
 
               await persistAndEmit(augmentedEvent);
+              if (combinedAbortSignal.aborted) {
+                break;
+              }
             }
           },
         ),
     );
   } catch (error) {
-    const abortReason = input.abortSignal?.aborted
-      ? input.abortSignal.reason
+    const abortReason = combinedAbortSignal.aborted
+      ? combinedAbortSignal.reason
       : undefined;
     const timeoutMessage =
       isChatAbortReason(abortReason) && abortReason.code === "SERVER_TIMEOUT"
@@ -638,6 +705,10 @@ export const executeChatRunStream = async (input: {
       error: errorMessage,
     });
   } finally {
+    if (input.abortSignal) {
+      input.abortSignal.removeEventListener("abort", forwardExternalAbort);
+    }
+
     if (isCompleted && !input.isAdmin) {
       const outputChars = Math.max(messageDeltaChars, messageCompleteChars);
       const pricing = calculateChatRunCredits({
@@ -676,9 +747,19 @@ export const executeChatRunStream = async (input: {
 
     if (shouldPersistEvents) {
       try {
+        const abortReason = combinedAbortSignal.aborted
+          ? combinedAbortSignal.reason
+          : undefined;
+        const wasClientAbort =
+          isChatAbortReason(abortReason) &&
+          abortReason.code === "CLIENT_ABORT";
         await completeChatRun({
           runId,
-          status: runError ? "failed" : "completed",
+          status: wasClientAbort
+            ? "cancelled"
+            : runError
+              ? "failed"
+              : "completed",
           errorMessage: runError,
         });
       } catch (error) {

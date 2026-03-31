@@ -27,6 +27,8 @@ import {
   getChatRun,
   getChatRunEvents,
   getLatestChatRunForThread,
+  requestChatRunCancel,
+  requestThreadRunCancel,
 } from "@/lib/chat/runs-repository";
 import {
   forkThreadAtMessage,
@@ -745,27 +747,39 @@ const handleStopRequest = async (req: IncomingMessage, res: ServerResponse) => {
     message: "Chat run stopped by user.",
   };
 
-  let result = runId
-    ? abortRegisteredChatRun({ userId: identity.userId, runId, reason })
-    : abortRegisteredChatRun({
+  const dbCancelResult = runId
+    ? await requestChatRunCancel({
+        userId: identity.userId,
+        runId,
+        reason: reason.message,
+      })
+    : await requestThreadRunCancel({
         userId: identity.userId,
         threadId: threadId!,
-        reason,
+        reason: reason.message,
       });
 
-  if (!result.stopped && threadId) {
-    result = abortRegisteredChatRun({
-      userId: identity.userId,
-      threadId,
-      reason,
-    });
-  }
+  const abortRunId = dbCancelResult.runId || runId;
+  const abortThreadId = dbCancelResult.threadId || threadId;
+  const result = abortRunId
+    ? abortRegisteredChatRun({
+        userId: identity.userId,
+        runId: abortRunId,
+        reason,
+      })
+    : abortThreadId
+      ? abortRegisteredChatRun({
+          userId: identity.userId,
+          threadId: abortThreadId,
+          reason,
+        })
+      : { stopped: false as const };
 
   sendJson(req, res, 200, {
     success: true,
-    stopped: result.stopped,
-    runId: result.runId ?? null,
-    pending: result.pending === true,
+    stopped: dbCancelResult.cancelled || result.stopped,
+    runId: dbCancelResult.runId ?? result.runId ?? null,
+    pending: false,
   });
 };
 

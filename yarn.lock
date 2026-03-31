@@ -2823,10 +2823,10 @@
     "@dnd-kit/sortable" "^10.0.0"
     "@dnd-kit/utilities" "^3.2.2"
 
-"@rowsncolumns/sharedb@^1.0.29":
-  version "1.0.29"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.29/54129c9e695d1a327df8d815bf9cef96e2dfe0c6#54129c9e695d1a327df8d815bf9cef96e2dfe0c6"
-  integrity sha512-VTK0jPZcHdggiXorAh1KgrwioZrIAN0lXH49menYSwuOd8ndexXlPI9IhhBwlldmHJ5zptOoMBdcpH7L/D2g3A==
+"@rowsncolumns/sharedb@^1.0.30":
+  version "1.0.30"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/sharedb/1.0.30/434a3b8be920070d1d7ba1c40c2b6883cc6515da#434a3b8be920070d1d7ba1c40c2b6883cc6515da"
+  integrity sha512-dfY4Hrw5f+Ii6bxqigWGE8dklKvodeDdkqdLYzcfVlnG0y0LA90O8e5wbJD0CVk354a/msM0jcvWsaRHWRJX+g==
 
 "@rowsncolumns/spreadsheet-state@^21.0.50":
   version "21.0.50"

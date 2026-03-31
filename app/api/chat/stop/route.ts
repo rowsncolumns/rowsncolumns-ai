@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
 import { abortRegisteredChatRun } from "@/lib/chat/run-abort-registry";
+import {
+  requestChatRunCancel,
+  requestThreadRunCancel,
+} from "@/lib/chat/runs-repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,20 +47,33 @@ export async function POST(request: Request) {
       message: "Chat run stopped by user.",
     };
 
-    let result =
-      runId !== undefined
-        ? abortRegisteredChatRun({ userId, runId, reason })
-        : abortRegisteredChatRun({ userId, threadId: threadId!, reason });
+    const dbCancelResult = runId
+      ? await requestChatRunCancel({
+          userId,
+          runId,
+          reason: reason.message,
+        })
+      : await requestThreadRunCancel({
+          userId,
+          threadId: threadId!,
+          reason: reason.message,
+        });
 
-    if (!result.stopped && threadId) {
-      result = abortRegisteredChatRun({ userId, threadId, reason });
-    }
+    const abortRunId = dbCancelResult.runId ?? runId;
+    const abortThreadId = dbCancelResult.threadId ?? threadId;
+
+    let result =
+      abortRunId !== undefined
+        ? abortRegisteredChatRun({ userId, runId: abortRunId, reason })
+        : abortThreadId
+          ? abortRegisteredChatRun({ userId, threadId: abortThreadId, reason })
+          : { stopped: false as const };
 
     return NextResponse.json({
       success: true,
-      stopped: result.stopped,
-      runId: result.runId ?? null,
-      pending: result.pending === true,
+      stopped: dbCancelResult.cancelled || result.stopped,
+      runId: dbCancelResult.runId ?? result.runId ?? null,
+      pending: false,
     });
   } catch (error) {
     const message =
