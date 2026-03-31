@@ -54,11 +54,13 @@ export function CreditsPopoverButton({
       <PopoverTrigger asChild>
         <Button
           type="button"
+          variant="secondary"
+          size="sm"
           className={cn(
-            "rnc-assistant-chip inline-flex h-8 w-8 items-center justify-center rounded-lg px-2",
+            "inline-flex h-8 w-8 items-center justify-center rounded-lg px-2 shadow-none",
             !isCreditsLoading && !hasCredits
-              ? "border border-[#f3b3b3] bg-[#fff1f1] text-[#b42318] hover:bg-[#ffe7e7]"
-              : "border border-black/10 bg-[#faf6f0] text-(--muted-foreground)",
+              ? "border-[#f3b3b3] bg-[#fff1f1] text-[#b42318] hover:bg-[#ffe7e7]"
+              : "border-(--card-border) bg-(--assistant-chip-bg) text-(--muted-foreground) hover:bg-(--assistant-chip-hover)",
           )}
           aria-label={creditsLabel}
         >
