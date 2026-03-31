@@ -17,6 +17,7 @@ import {
 } from "@/lib/chat/server-core";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 import { isAdminUser } from "@/lib/auth/admin";
+import { resolveUserLocation } from "@/lib/locale-preference";
 import {
   abortRegisteredChatRun,
   registerChatRunAbortController,
@@ -223,6 +224,21 @@ const parseJsonBody = async <T>(req: IncomingMessage): Promise<T> => {
 
   const body = Buffer.concat(chunks).toString("utf8");
   return JSON.parse(body) as T;
+};
+
+const getHeaderValue = (
+  headers: IncomingMessage["headers"],
+  name: string,
+): string | undefined => {
+  const raw = headers[name.toLowerCase()];
+  if (Array.isArray(raw)) {
+    return raw[0]?.trim() || undefined;
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return undefined;
 };
 
 const getStringClaim = (payload: JwtPayloadLike, key: string) => {
@@ -548,12 +564,33 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
-  const resolved = resolveChatRequest(body, {
-    model: CHAT_MODEL,
-    mode: CHAT_MODE,
-    provider: CHAT_PROVIDER,
-    reasoningEnabled: CHAT_REASONING_ENABLED,
+  // Mirror Vercel /api/chat behavior: enrich context with resolved user location.
+  const userLocation = resolveUserLocation({
+    acceptLanguage: getHeaderValue(req.headers, "accept-language"),
+    countryCode:
+      getHeaderValue(req.headers, "x-vercel-ip-country") ||
+      getHeaderValue(req.headers, "cf-ipcountry"),
+    timezone:
+      getHeaderValue(req.headers, "x-vercel-ip-timezone") ||
+      getHeaderValue(req.headers, "cf-timezone"),
   });
+
+  const contextWithLocation = {
+    ...(typeof body.context === "object" && body.context !== null
+      ? body.context
+      : {}),
+    userLocation,
+  };
+
+  const resolved = resolveChatRequest(
+    { ...body, context: contextWithLocation },
+    {
+      model: CHAT_MODEL,
+      mode: CHAT_MODE,
+      provider: CHAT_PROVIDER,
+      reasoningEnabled: CHAT_REASONING_ENABLED,
+    },
+  );
   if (!resolved.ok) {
     sendJson(req, res, resolved.error.status, resolved.error.payload);
     return;
@@ -1004,7 +1041,8 @@ const handleHistoryRequest = async (
       typeof body.sourceThreadId === "string" ? body.sourceThreadId.trim() : "";
     const atMessageIndex =
       typeof body.atMessageIndex === "number" ? body.atMessageIndex : -1;
-    const docId = typeof body.docId === "string" ? body.docId.trim() : undefined;
+    const docId =
+      typeof body.docId === "string" ? body.docId.trim() : undefined;
 
     if (!sourceThreadId) {
       sendJson(req, res, 400, { error: "sourceThreadId is required." });

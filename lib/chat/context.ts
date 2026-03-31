@@ -80,6 +80,8 @@ export type SpreadsheetAssistantContext = {
   userLocation?: UserLocationContext;
 };
 
+const COMPACT_BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
+
 type SpreadsheetContextPayloadInput = {
   documentId: string;
   sheets?: Array<{ title: string; sheetId: number }>;
@@ -99,6 +101,162 @@ type SpreadsheetContextPayloadInput = {
 
 const instructionLine = (description: string, value: unknown) =>
   `${description}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
+
+const asRecord = (value: unknown) =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const asNumber = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const asString = (value: unknown) =>
+  typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+
+const asStringRecord = (value: unknown): Record<string, string> | undefined => {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const next: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (typeof entry === "string") {
+      next[key] = entry;
+    }
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+};
+
+const toCompactBorderToken = (
+  side: string,
+  value: unknown,
+): string | undefined => {
+  const border = asRecord(value);
+  if (!border) return undefined;
+
+  const style = asString(border.style);
+  const color = asString(border.color);
+  const width = asNumber(border.width);
+  if (!style && !color && width === undefined) {
+    return undefined;
+  }
+
+  const bits = [side];
+  if (style) bits.push(style);
+  if (color) bits.push(color);
+  if (width !== undefined && width > 1) bits.push(String(width));
+  return bits.join(":");
+};
+
+const toCompactTextFormat = (value: unknown): string | undefined => {
+  const textFormat = asRecord(value);
+  if (!textFormat) return undefined;
+
+  const bits: string[] = [];
+  if (textFormat.bold === true) bits.push("b");
+  if (textFormat.italic === true) bits.push("i");
+  if (textFormat.underline === true) bits.push("u");
+  if (textFormat.strikethrough === true) bits.push("s");
+
+  const color = asString(textFormat.color);
+  if (color) bits.push(`c:${color}`);
+
+  const fontSize = asNumber(textFormat.fontSize);
+  if (fontSize !== undefined) bits.push(`fs:${fontSize}`);
+
+  return bits.length > 0 ? bits.join("|") : undefined;
+};
+
+const toCompactBackgroundColor = (value: unknown) => {
+  const asFlatColor = asString(value);
+  if (asFlatColor) {
+    return asFlatColor;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const theme = asNumber(record.theme);
+  const tint = asNumber(record.tint);
+  if (theme === undefined && tint === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(theme !== undefined ? { theme } : {}),
+    ...(tint !== undefined ? { tint } : {}),
+  };
+};
+
+const toCompactCellXf = (value: unknown): Record<string, unknown> | undefined => {
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  const next: Record<string, unknown> = {};
+
+  const numberFormat = asRecord(record.numberFormat);
+  const numberFormatType = asString(numberFormat?.type);
+  if (numberFormatType) {
+    next.numberFormatType = numberFormatType;
+  }
+
+  const borders = asRecord(record.borders);
+  if (borders) {
+    const compactBorderTokens = COMPACT_BORDER_SIDES.map((side) =>
+      toCompactBorderToken(side, borders[side]),
+    ).filter((token): token is string => Boolean(token));
+    if (compactBorderTokens.length > 0) {
+      next.borders = compactBorderTokens.join("|");
+    }
+  }
+
+  const compactTextFormat = toCompactTextFormat(record.textFormat);
+  if (compactTextFormat) {
+    next.textFormat = compactTextFormat;
+  }
+
+  const backgroundColor = toCompactBackgroundColor(record.backgroundColor);
+  if (backgroundColor) {
+    next.backgroundColor = backgroundColor;
+  }
+
+  const horizontalAlignment = asString(record.horizontalAlignment);
+  if (horizontalAlignment) {
+    next.horizontalAlignment = horizontalAlignment;
+  }
+
+  const verticalAlignment = asString(record.verticalAlignment);
+  if (verticalAlignment) {
+    next.verticalAlignment = verticalAlignment;
+  }
+
+  const wrapStrategy = asString(record.wrapStrategy);
+  if (wrapStrategy) {
+    next.wrapStrategy = wrapStrategy;
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
+};
+
+export const compactCellXfsForAssistant = (
+  value: Record<string, unknown> | null | undefined,
+) => {
+  if (!value) {
+    return undefined;
+  }
+
+  const next: Record<string, unknown> = {};
+  for (const [styleId, styleValue] of Object.entries(value)) {
+    const compactStyle = toCompactCellXf(styleValue);
+    if (compactStyle) {
+      next[styleId] = compactStyle;
+    }
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
+};
 
 export const buildSpreadsheetContextInstructions = (
   context: SpreadsheetAssistantContext | undefined,
@@ -195,9 +353,15 @@ IMPORTANT INDEXING RULE:
   if (context.cellXfs) {
     lines.push(
       instructionLine(
-        `This object represents the cell formatting applied in the spreadsheet.
+        `This object is a compacted cell formatting registry for the spreadsheet.
 Each cell format is identified by a "sid" in the styles.
-The formats are stored in a cellXfs registry map, where the key is the format ID and the value describes the formatting details
+The map key is the format ID.
+Each value only includes high-signal formatting fields:
+- numberFormatType
+- borders (compressed as side:style:color[:width] tokens joined by "|")
+- textFormat (compressed tokens: b=bold, i=italic, u=underline, s=strikethrough, c:#HEX color, fs:size)
+- backgroundColor
+- horizontalAlignment / verticalAlignment / wrapStrategy
 `,
         context.cellXfs,
       ),
@@ -285,6 +449,7 @@ ${locationParts.join("\n")}`,
 export const buildSpreadsheetContextPayload = (
   input: SpreadsheetContextPayloadInput,
 ) => {
+  const compactCellXfs = compactCellXfsForAssistant(input.cellXfs);
   const assistantContext: SpreadsheetAssistantContext = {
     documentId: input.documentId,
     ...(input.sheets && input.sheets.length > 0
@@ -303,7 +468,7 @@ export const buildSpreadsheetContextPayload = (
         }
       : {}),
     ...(input.viewport ? { viewport: input.viewport } : {}),
-    ...(input.cellXfs ? { cellXfs: input.cellXfs } : {}),
+    ...(compactCellXfs ? { cellXfs: compactCellXfs } : {}),
     ...(input.tables && input.tables.length > 0
       ? { tables: input.tables }
       : {}),
@@ -324,31 +489,6 @@ export const buildSpreadsheetContextPayload = (
     assistantContext,
     contextInstructions,
   };
-};
-
-const asRecord = (value: unknown) =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-
-const asNumber = (value: unknown) =>
-  typeof value === "number" && Number.isFinite(value) ? value : undefined;
-
-const asString = (value: unknown) =>
-  typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : undefined;
-
-const asStringRecord = (value: unknown): Record<string, string> | undefined => {
-  const record = asRecord(value);
-  if (!record) return undefined;
-  const next: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(record)) {
-    if (typeof entry === "string") {
-      next[key] = entry;
-    }
-  }
-  return Object.keys(next).length > 0 ? next : undefined;
 };
 
 export const sanitizeSpreadsheetAssistantContext = (
@@ -382,7 +522,7 @@ export const sanitizeSpreadsheetAssistantContext = (
 
   const viewport = asRecord(record.viewport) as ViewPortProps | undefined;
 
-  const cellXfs = asRecord(record.cellXfs) ?? undefined;
+  const cellXfs = compactCellXfsForAssistant(asRecord(record.cellXfs));
 
   const tablesRaw = Array.isArray(record.tables) ? record.tables : undefined;
   const tables =

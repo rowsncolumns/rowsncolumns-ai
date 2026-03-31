@@ -175,12 +175,13 @@ import {
   REASONING_STORAGE_KEY,
   SKILLS_API_ENDPOINT,
 } from "@/lib/assistant/workspace-assistant-config";
-import type {
-  SpreadsheetAssistantContext,
-  ChartSummary,
-  NamedRangeSummary,
-  TableSummary,
-  ViewPortProps,
+import {
+  compactCellXfsForAssistant,
+  type SpreadsheetAssistantContext,
+  type ChartSummary,
+  type NamedRangeSummary,
+  type TableSummary,
+  type ViewPortProps,
 } from "@/lib/chat/context";
 import { parseChatStream, type ChatStreamEvent } from "@/lib/chat/protocol";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
@@ -3762,7 +3763,9 @@ export function SheetsInstructions({
         a1Address: activeCellA1Address,
       },
       viewport,
-      cellXfs: cellXfs ? Object.fromEntries([...cellXfs]) : {},
+      cellXfs: compactCellXfsForAssistant(
+        cellXfs ? Object.fromEntries([...cellXfs]) : null,
+      ),
       tables: tableSummaries,
       charts: chartSummaries,
       namedRanges: namedRangeSummaries,
