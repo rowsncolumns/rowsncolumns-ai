@@ -656,6 +656,20 @@ const resolveDocumentAccessForAgent = async (
   access: AgentDocAccessCacheEntry | null;
 }> => {
   const authState = await ensureAgentAuthState(context);
+  if (authState.wsAccess) {
+    if (authState.wsAccess.docId !== docId) {
+      return { authState, access: null };
+    }
+    return {
+      authState,
+      access: {
+        canAccess: true,
+        permission: authState.wsAccess.permission,
+        expiresAt: Number.POSITIVE_INFINITY,
+      },
+    };
+  }
+
   if (!authState.identity) {
     return { authState, access: null };
   }

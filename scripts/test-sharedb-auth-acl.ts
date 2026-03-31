@@ -44,6 +44,7 @@ const createAuthState = (input?: {
     | "endpoint_failure"
     | null;
   statusCode?: number;
+  wsAccess?: { docId: string; permission: "view" | "edit" } | null;
   mcpAccess?: { docId: string; permission: "view" | "edit" } | null;
 }) => ({
   identity: input?.userId
@@ -53,6 +54,7 @@ const createAuthState = (input?: {
         name: null,
       }
     : null,
+  wsAccess: input?.wsAccess ?? null,
   mcpAccess: input?.mcpAccess ?? null,
   failureReason: input?.failureReason ?? null,
   statusCode: input?.statusCode,
@@ -255,6 +257,48 @@ async function main() {
       },
     },
     {
+      name: "ws token allows read without document access cache lookup",
+      run: async () => {
+        const rejected: Error[] = [];
+        const custom: Record<string, unknown> = {
+          __authState: createAuthState({
+            userId: "ws_user_read",
+            wsAccess: { docId: "doc_ws_read", permission: "view" },
+          }),
+        };
+
+        const error = await invokeMiddleware(readSnapshots, {
+          collection: "spreadsheets",
+          snapshots: [{ id: "doc_ws_read" }],
+          agent: { custom },
+          rejectSnapshotRead: (_snapshot: unknown, err: Error) =>
+            rejected.push(err),
+        });
+
+        assert.equal(error, undefined);
+        assert.equal(rejected.length, 0);
+      },
+    },
+    {
+      name: "ws token with edit permission allows submit without document access cache lookup",
+      run: async () => {
+        const custom: Record<string, unknown> = {
+          __authState: createAuthState({
+            userId: "ws_user_edit",
+            wsAccess: { docId: "doc_ws_edit", permission: "edit" },
+          }),
+        };
+
+        const error = await invokeMiddleware(submit, {
+          collection: "spreadsheets",
+          id: "doc_ws_edit",
+          agent: { custom },
+        });
+
+        assert.equal(error, undefined);
+      },
+    },
+    {
       name: "mcp token allows read for matching doc",
       run: async () => {
         const rejected: Error[] = [];
@@ -336,7 +380,7 @@ async function main() {
       name: "denied submit logs reason + doc id for observability",
       run: async () => {
         const custom: Record<string, unknown> = {
-          __authState: createAuthState({ failureReason: "no_cookie" }),
+          __authState: createAuthState({ failureReason: "no_ws_token" }),
         };
         const warnings: unknown[][] = [];
         const originalWarn = console.warn;
@@ -361,7 +405,7 @@ async function main() {
             args[1] === "submit_denied" &&
             typeof args[2] === "object" &&
             args[2] !== null &&
-            (args[2] as { reason?: unknown }).reason === "no_cookie" &&
+            (args[2] as { reason?: unknown }).reason === "no_ws_token" &&
             (args[2] as { docId?: unknown }).docId === "doc_observe",
         );
         assert.ok(matched, "Expected submit_denied warning with reason and docId");
