@@ -1,10 +1,25 @@
+import path from "node:path";
 import postgres from "postgres";
+import { config as loadEnv } from "dotenv";
 
-const databaseUrl = process.env.DATABASE_URL;
+const envPaths = [
+  path.resolve(process.cwd(), ".env.local"),
+  path.resolve(process.cwd(), "external/rnc.ai/.env.local"),
+];
+
+for (const envPath of envPaths) {
+  loadEnv({
+    path: envPath,
+    override: false,
+    quiet: true,
+  });
+}
+
+const databaseUrl = process.env.DATABASE_URL ?? process.env.SHAREDB_DATABASE_URL;
 
 if (!databaseUrl) {
   throw new Error(
-    "Missing required config: DATABASE_URL. Set it in external/rnc.ai/.env.local.",
+    "Missing required config: DATABASE_URL (or SHAREDB_DATABASE_URL). Set it in .env.local.",
   );
 }
 

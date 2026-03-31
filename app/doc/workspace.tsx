@@ -130,6 +130,7 @@ import { FileMenu } from "@/components/file-menu";
 import { ShareDocumentButton } from "@/components/share-document-button";
 import { SiteHeader } from "@/components/site-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HistorySidebar } from "@/components/history-sidebar";
 import { authClient } from "@/lib/auth/client";
 import {
   getThemeModeFromBodyClass,
@@ -143,7 +144,7 @@ import {
   WorkspaceAssistantUI,
 } from "@/components/workspace-assistant";
 import { useThread } from "@assistant-ui/react";
-import { MagnifyingGlassIcon } from "@rowsncolumns/icons";
+import { MagnifyingGlassIcon, TimerIcon } from "@rowsncolumns/icons";
 import { Citation } from "@rowsncolumns/common-types";
 import { addressToSelection, uuid } from "@rowsncolumns/utils";
 import {
@@ -411,6 +412,7 @@ function SpreadsheetPane({
   initialThemeMode,
   canManageShare,
   canEdit,
+  canUseAuditHistory,
   locale,
   currency,
 }: {
@@ -419,6 +421,7 @@ function SpreadsheetPane({
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
   canEdit: boolean;
+  canUseAuditHistory: boolean;
   locale: string;
   currency: string;
 }) {
@@ -459,6 +462,7 @@ function SpreadsheetPane({
     defaultSpreadsheetTheme,
   );
   const [iterativeEnabled, setIterativeEnabled] = useState(false);
+  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
   const [shareDbConnectionState, setShareDbConnectionState] =
     useState<ShareDbConnectionState>("connecting");
   const [shareDbConnectionReason, setShareDbConnectionReason] = useState<
@@ -989,6 +993,14 @@ function SpreadsheetPane({
           documentId={documentId}
           canManageShare={canManageShare}
         />
+        {canUseAuditHistory ? (
+          <IconButton
+            onClick={() => setIsHistorySidebarOpen(true)}
+            tooltip="Version History"
+          >
+            <TimerIcon />
+          </IconButton>
+        ) : null}
         <ButtonUndo onClick={onUndo} disabled={!canUndo} />
         <ButtonRedo onClick={onRedo} disabled={!canRedo} />
         <ButtonPrint onClick={() => window.print()} />
@@ -1378,7 +1390,7 @@ function SpreadsheetPane({
         />
       </FormulaBar>
 
-      <div className="rnc-workspace-grid-frame min-h-0 flex-1 flex">
+      <div className="rnc-workspace-grid-frame min-h-0 flex-1 flex relative overflow-hidden">
         <CanvasGrid
           {...spreadsheetColors}
           enableQuickEdit={false}
@@ -1553,6 +1565,20 @@ function SpreadsheetPane({
           )}
           readonly={!canEdit}
         />
+
+        {canUseAuditHistory ? (
+          <HistorySidebar
+            documentId={documentId}
+            isOpen={isHistorySidebarOpen}
+            onClose={() => setIsHistorySidebarOpen(false)}
+            canEdit={canEdit}
+            currentUser={{
+              id: user.id,
+              name: user.name,
+              email: user.email,
+            }}
+          />
+        ) : null}
       </div>
 
       <BottomBar className="rnc-workspace-bottom-bar rounded-bl-xl rounded-br-xl">
@@ -1721,6 +1747,7 @@ type NewWorkspaceProps = {
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
   canEdit: boolean;
+  canUseAuditHistory: boolean;
   initialIsMobileLayout: boolean;
   isAdmin: boolean;
   locale: string;
@@ -1733,6 +1760,7 @@ type SpreadsheetOnlyWorkspaceProps = {
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
   canEdit: boolean;
+  canUseAuditHistory?: boolean;
   locale: string;
   currency: string;
 };
@@ -1953,6 +1981,7 @@ export function SpreadsheetOnlyWorkspace({
   initialThemeMode,
   canManageShare,
   canEdit,
+  canUseAuditHistory = false,
   locale,
   currency,
 }: SpreadsheetOnlyWorkspaceProps) {
@@ -1966,6 +1995,7 @@ export function SpreadsheetOnlyWorkspace({
             initialThemeMode={initialThemeMode}
             canManageShare={canManageShare}
             canEdit={canEdit}
+            canUseAuditHistory={canUseAuditHistory}
             locale={locale}
             currency={currency}
           />
@@ -1983,6 +2013,7 @@ export function NewWorkspace({
   initialThemeMode,
   canManageShare,
   canEdit,
+  canUseAuditHistory,
   initialIsMobileLayout,
   isAdmin,
   locale,
@@ -2052,6 +2083,7 @@ export function NewWorkspace({
       initialThemeMode={initialThemeMode}
       canManageShare={canManageShare}
       canEdit={canEdit}
+      canUseAuditHistory={canUseAuditHistory}
       locale={locale}
       currency={currency}
     />

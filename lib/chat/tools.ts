@@ -77,6 +77,7 @@ import {
   persistSpreadsheetPatches,
   type ShareDBSpreadsheetDoc,
 } from "./utils";
+import { createAgentAttribution, trackedSubmitOp } from "@/lib/operation-history";
 import {
   type StyleReference,
   type TableTheme,
@@ -1427,37 +1428,38 @@ const handleSpreadsheetSetIterativeMode = async (
         enabled,
       };
 
-      await new Promise<void>((resolve, reject) => {
-        const op: Array<Record<string, unknown>> = [];
+      const op: Array<Record<string, unknown>> = [];
 
-        if (currentIterativeCalculation !== undefined) {
-          op.push({
-            p: ["iterativeCalculation"],
-            od: currentIterativeCalculation,
-            oi: nextIterativeCalculation,
-          });
-        } else {
-          op.push({
-            p: ["iterativeCalculation"],
-            oi: nextIterativeCalculation,
-          });
-        }
-
-        if (legacyIterativeCalculationOptions !== undefined) {
-          op.push({
-            p: ["iterativeCalculationOptions"],
-            od: legacyIterativeCalculationOptions,
-          });
-        }
-
-        doc.submitOp(op, {}, (err?: unknown) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
+      if (currentIterativeCalculation !== undefined) {
+        op.push({
+          p: ["iterativeCalculation"],
+          od: currentIterativeCalculation,
+          oi: nextIterativeCalculation,
         });
+      } else {
+        op.push({
+          p: ["iterativeCalculation"],
+          oi: nextIterativeCalculation,
+        });
+      }
+
+      if (legacyIterativeCalculationOptions !== undefined) {
+        op.push({
+          p: ["iterativeCalculationOptions"],
+          od: legacyIterativeCalculationOptions,
+        });
+      }
+
+      const attribution = createAgentAttribution({
+        actorId: "spreadsheet-agent",
+        toolName: "spreadsheet_setIterativeMode",
       });
+      const submitResult = await trackedSubmitOp(doc, op, attribution, {
+        source: "agent",
+      });
+      if (!submitResult.success) {
+        throw submitResult.error ?? new Error("Failed to submit iterative mode update");
+      }
 
       return JSON.stringify({
         success: true,
