@@ -1,7 +1,6 @@
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import {
   persistAssistantFailureToCheckpoint,
-  resolveSpreadsheetAssistantSessionTitle,
   streamSpreadsheetAssistant,
 } from "@/lib/chat/graph";
 import type { ChatStreamEvent } from "@/lib/chat/protocol";
@@ -32,6 +31,7 @@ import {
 } from "@/lib/chat/runs-repository";
 import { getUserBillingEntitlement } from "@/lib/billing/repository";
 import { withOperationHistoryRuntimeContext } from "@/lib/operation-history/runtime-context";
+import { withShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
 
 export type ChatProvider = "openai" | "anthropic";
 export type ChatMode = "action" | "plan" | "ask";
@@ -470,6 +470,7 @@ export const executeChatRunStream = async (input: {
   request: ResolvedChatRequest;
   userId: string;
   isAdmin: boolean;
+  shareDbWsHeaders?: Record<string, string>;
   abortSignal?: AbortSignal;
   onRunCreated?: (runId: string) => void | Promise<void>;
   persistEvents?: boolean;
@@ -487,7 +488,6 @@ export const executeChatRunStream = async (input: {
   let isCompleted = false;
   let runError: string | undefined;
   const runId = crypto.randomUUID();
-  let sessionTitle: string | undefined;
   const shouldPersistEvents = input.persistEvents ?? true;
 
   try {
@@ -556,97 +556,65 @@ export const executeChatRunStream = async (input: {
   }
 
   try {
-    sessionTitle = await resolveSpreadsheetAssistantSessionTitle({
-      threadId: input.request.threadId,
-      userId: input.userId,
-      message:
-        input.request.message.trim() ||
-        (input.request.images.length > 0
-          ? `Analyze ${input.request.images.length} image${input.request.images.length === 1 ? "" : "s"}`
-          : "Untitled session"),
-      model: input.request.model,
-      provider: input.request.provider,
-      reasoningEnabled: input.request.reasoningEnabled,
-    });
-  } catch (error) {
-    console.error("[chat] Failed to resolve session title", {
-      threadId: input.request.threadId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  if (sessionTitle) {
-    try {
-      await upsertAssistantSession({
-        threadId: input.request.threadId,
-        userId: input.userId,
-        docId: input.request.docId,
-        title: sessionTitle,
-        model: input.request.model,
-      });
-    } catch (error) {
-      console.error("[chat] Failed to persist session title", {
-        threadId: input.request.threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  try {
     const billingEntitlement = input.isAdmin
       ? null
       : await getUserBillingEntitlement(input.userId);
     const trackingAllowed =
       input.isAdmin || billingEntitlement?.plan === "max";
 
-    await withOperationHistoryRuntimeContext(
+    await withShareDbRuntimeContext(
       {
-        userId: input.userId,
-        trackingAllowed,
+        ...(input.shareDbWsHeaders ? { wsHeaders: input.shareDbWsHeaders } : {}),
       },
-      async () => {
-        for await (const event of streamSpreadsheetAssistant({
-          threadId: input.request.threadId,
-          runId,
-          userId: input.userId,
-          docId: input.request.docId,
-          sessionTitle,
-          message: input.request.message,
-          images: input.request.images,
-          model: input.request.model,
-          mode: input.request.mode,
-          provider: input.request.provider,
-          reasoningEnabled: input.request.reasoningEnabled,
-          systemInstructions: input.request.systemInstructions,
-          abortSignal: input.abortSignal,
-        })) {
-          if (event.type === "tool.call") {
-            toolCallCount += 1;
-          }
+      async () =>
+        withOperationHistoryRuntimeContext(
+          {
+            userId: input.userId,
+            trackingAllowed,
+          },
+          async () => {
+            for await (const event of streamSpreadsheetAssistant({
+              threadId: input.request.threadId,
+              runId,
+              userId: input.userId,
+              docId: input.request.docId,
+              message: input.request.message,
+              images: input.request.images,
+              model: input.request.model,
+              mode: input.request.mode,
+              provider: input.request.provider,
+              reasoningEnabled: input.request.reasoningEnabled,
+              systemInstructions: input.request.systemInstructions,
+              abortSignal: input.abortSignal,
+            })) {
+              if (event.type === "tool.call") {
+                toolCallCount += 1;
+              }
 
-          if (event.type === "message.delta") {
-            messageDeltaChars += event.delta.length;
-          }
+              if (event.type === "message.delta") {
+                messageDeltaChars += event.delta.length;
+              }
 
-          if (event.type === "message.complete") {
-            isCompleted = true;
-            messageCompleteChars = Math.max(
-              messageCompleteChars,
-              event.message.length,
-            );
-          }
+              if (event.type === "message.complete") {
+                isCompleted = true;
+                messageCompleteChars = Math.max(
+                  messageCompleteChars,
+                  event.message.length,
+                );
+              }
 
-          // Add runId to stream events that clients correlate to the active run.
-          const augmentedEvent =
-            event.type === "message.start" ||
-            event.type === "message.complete" ||
-            event.type === "context.usage"
-              ? { ...event, runId }
-              : event;
+              // Add runId to stream events that clients correlate to the active run.
+              const augmentedEvent =
+                event.type === "message.start" ||
+                event.type === "message.complete" ||
+                event.type === "context.usage"
+                  ? { ...event, runId }
+                  : event;
 
-          await persistAndEmit(augmentedEvent);
-        }
-      },
+              await persistAndEmit(augmentedEvent);
+            }
+          },
+        ),
     );
   } catch (error) {
     const abortReason = input.abortSignal?.aborted

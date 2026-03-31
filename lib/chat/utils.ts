@@ -222,7 +222,14 @@ const getShareDBDocumentOnce = async (
   }
 
   return new Promise((resolve, reject) => {
-    const ws = new (getWebSocketCtor())(resolvedShareDbUrl);
+    const wsHeaders = runtimeContext?.wsHeaders;
+    const wsOptions: import("ws").ClientOptions | undefined =
+      wsHeaders && Object.keys(wsHeaders).length > 0
+        ? { headers: wsHeaders }
+        : undefined;
+    const ws = wsOptions
+      ? new (getWebSocketCtor())(resolvedShareDbUrl, wsOptions)
+      : new (getWebSocketCtor())(resolvedShareDbUrl);
     let settled = false;
     let doc: ShareDBClient.Doc | null = null;
 

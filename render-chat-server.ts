@@ -241,6 +241,21 @@ const getHeaderValue = (
   return undefined;
 };
 
+const buildShareDbWsHeaders = (
+  headers: IncomingMessage["headers"],
+): Record<string, string> => {
+  const out: Record<string, string> = {};
+  const cookie = getHeaderValue(headers, "cookie");
+  if (cookie) {
+    out.cookie = cookie;
+  }
+  const authorization = getHeaderValue(headers, "authorization");
+  if (authorization) {
+    out.authorization = authorization;
+  }
+  return out;
+};
+
 const getStringClaim = (payload: JwtPayloadLike, key: string) => {
   const value = payload[key];
   if (typeof value !== "string") return null;
@@ -649,6 +664,7 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
       request: runRequest,
       userId: identity.userId,
       isAdmin,
+      shareDbWsHeaders: buildShareDbWsHeaders(req.headers),
       persistEvents: true,
       abortSignal: runAbortController.signal,
       onRunCreated: (runId) => {

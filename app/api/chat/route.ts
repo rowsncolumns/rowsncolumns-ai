@@ -63,6 +63,19 @@ const parseChatServerTimeoutMs = () => {
   return Math.min(parsed, MAX_CHAT_SERVER_TIMEOUT_MS);
 };
 
+const buildShareDbWsHeaders = (request: Request): Record<string, string> => {
+  const headers: Record<string, string> = {};
+  const cookie = request.headers.get("cookie")?.trim();
+  if (cookie) {
+    headers.cookie = cookie;
+  }
+  const authorization = request.headers.get("authorization")?.trim();
+  if (authorization) {
+    headers.authorization = authorization;
+  }
+  return headers;
+};
+
 export async function POST(request: Request) {
   try {
     const { data: session } = await auth.getSession();
@@ -182,6 +195,7 @@ export async function POST(request: Request) {
             request: runRequest,
             userId,
             isAdmin,
+            shareDbWsHeaders: buildShareDbWsHeaders(request),
             persistEvents: true,
             abortSignal: runAbortController.signal,
             onRunCreated: (runId) => {

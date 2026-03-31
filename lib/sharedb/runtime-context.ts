@@ -6,6 +6,7 @@ export interface ShareDbRuntimeContext {
     docId: string;
     permission: McpTokenPermission;
   }) => Promise<string | null>;
+  wsHeaders?: Record<string, string>;
 }
 
 const storage = new AsyncLocalStorage<ShareDbRuntimeContext>();
