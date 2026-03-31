@@ -107,6 +107,11 @@ const DOC_ACCESS_CACHE_TTL_MS = parsePositiveInt(
   process.env.SHAREDB_DOC_ACCESS_CACHE_TTL_MS,
   45_000,
 );
+const DEFAULT_SHAREDB_DOC_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+const SHAREDB_DOC_MAX_BYTES = parseNonNegativeInt(
+  process.env.SHAREDB_DOC_MAX_BYTES,
+  DEFAULT_SHAREDB_DOC_MAX_BYTES,
+);
 const SESSION_COOKIE_NAMES = [
   "__Secure-neon-auth.session_token",
   "neon-auth.session_token",
@@ -205,6 +210,7 @@ type SubmitContextLike = {
   };
   snapshot?: {
     v?: unknown;
+    data?: unknown;
   } | null;
   extra?: {
     source?: unknown;
@@ -601,6 +607,35 @@ const createUnauthorizedError = (message: string): Error => {
 
 const createForbiddenError = (message: string): Error => {
   return new ShareDBError("ERR_FORBIDDEN", message);
+};
+
+const createDocumentSizeLimitError = (message: string): Error => {
+  return new ShareDBError("ERR_DOC_TOO_LARGE", message);
+};
+
+const computeDocumentSizeBytes = (snapshotData: unknown): number | null => {
+  try {
+    return Buffer.byteLength(JSON.stringify(snapshotData ?? null), "utf8");
+  } catch {
+    return null;
+  }
+};
+
+const formatBytes = (value: number): string => {
+  if (!Number.isFinite(value) || value < 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
 };
 
 const toAgentAuthState = (
@@ -1126,6 +1161,54 @@ const registerAuditMiddleware = (backend: ShareDB) => {
   });
 };
 
+const registerDocumentSizeLimitMiddleware = (backend: ShareDB) => {
+  if (SHAREDB_DOC_MAX_BYTES <= 0) {
+    console.log("ShareDB document size limit: disabled");
+    return;
+  }
+
+  console.log("ShareDB document size limit: enabled", {
+    maxBytes: SHAREDB_DOC_MAX_BYTES,
+    maxSize: formatBytes(SHAREDB_DOC_MAX_BYTES),
+  });
+
+  backend.use(
+    "apply",
+    (context: SubmitContextLike, callback: (error?: Error) => void) => {
+      if (context.collection !== SHAREDB_COLLECTION) {
+        callback();
+        return;
+      }
+
+      const nextSizeBytes = computeDocumentSizeBytes(context.snapshot?.data);
+      if (nextSizeBytes === null) {
+        callback(
+          createDocumentSizeLimitError(
+            "Unable to validate document size after applying operation.",
+          ),
+        );
+        return;
+      }
+
+      if (nextSizeBytes <= SHAREDB_DOC_MAX_BYTES) {
+        callback();
+        return;
+      }
+
+      const docId = toString(context.id) ?? "unknown";
+      callback(
+        createDocumentSizeLimitError(
+          `Document exceeds the maximum allowed size (${formatBytes(
+            SHAREDB_DOC_MAX_BYTES,
+          )} / ${SHAREDB_DOC_MAX_BYTES} bytes). Current size: ${formatBytes(
+            nextSizeBytes,
+          )} / ${nextSizeBytes} bytes. docId=${docId}`,
+        ),
+      );
+    },
+  );
+};
+
 async function startServer() {
   console.log(
     "Connecting ShareDB to PostgreSQL:",
@@ -1187,6 +1270,7 @@ async function startServer() {
     doNotForwardSendPresenceErrorsToClient: true,
   });
   registerAuthAccessMiddleware(backend);
+  registerDocumentSizeLimitMiddleware(backend);
   registerAuditMiddleware(backend);
 
   const server = http.createServer((req, res) => {

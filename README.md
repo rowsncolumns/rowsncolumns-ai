@@ -84,6 +84,7 @@ Notes:
 - `CHAT_ALLOWED_ORIGINS` is enforced via CORS.
 - Keep `DATABASE_URL` and `SHAREDB_URL` pointing to the same production backends used by the frontend app.
 - The legacy `/api/chat` route on Vercel can remain as fallback.
+- Render chat JSON request bodies are capped at `1MB`.
 
 ## Credits + Admin Refill
 
@@ -162,6 +163,10 @@ SHAREDB_PORT=8080
 
 # Optional: set to false for local non-SSL Postgres
 SHAREDB_REQUIRE_SSL=true
+
+# Optional: maximum allowed serialized ShareDB document size in bytes.
+# Default is 50MB (52428800). Set to 0 to disable the limit.
+SHAREDB_DOC_MAX_BYTES=52428800
 ```
 
 Run ShareDB table migration:
@@ -169,6 +174,14 @@ Run ShareDB table migration:
 ```bash
 yarn db:migrate:sharedb
 ```
+
+## Runtime Size Limits
+
+- External chat service (`/chat`, `/chat/stop`, `/chat/history` POST fork): JSON request body limit is `1MB`.
+- ShareDB websocket transport (`ws`): max inbound message payload is `100MB` by default unless overridden.
+- ShareDB document writes: server-enforced max serialized snapshot size is `50MB` by default (`SHAREDB_DOC_MAX_BYTES`).
+- MCP spreadsheet resource payloads: truncated to `1MB` by default (`MCP_RESOURCE_MAX_BYTES`).
+- Chat image uploads (`/api/chat/attachments/image`): max file upload is `8MB`.
 
 ## Document Ownership Mapping
 
