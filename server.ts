@@ -64,6 +64,18 @@ const parseBoolean = (value: string | undefined, fallback: boolean) => {
   if (normalized === "0" || normalized === "false") return false;
   return fallback;
 };
+const parseBoundedInt = (
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+) => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < min || parsed > max) return fallback;
+  return parsed;
+};
 const SHAREDB_PG_MAX_POOL_SIZE = parsePositiveInt(
   process.env.SHAREDB_PG_MAX_POOL_SIZE,
   10,
@@ -111,6 +123,28 @@ const DEFAULT_SHAREDB_DOC_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 const SHAREDB_DOC_MAX_BYTES = parseNonNegativeInt(
   process.env.SHAREDB_DOC_MAX_BYTES,
   DEFAULT_SHAREDB_DOC_MAX_BYTES,
+);
+const SHAREDB_WS_COMPRESSION_ENABLED = parseBoolean(
+  process.env.SHAREDB_WS_COMPRESSION_ENABLED,
+  true,
+);
+const SHAREDB_WS_COMPRESSION_THRESHOLD_BYTES = parseNonNegativeInt(
+  process.env.SHAREDB_WS_COMPRESSION_THRESHOLD_BYTES,
+  1024,
+);
+const SHAREDB_WS_COMPRESSION_CONCURRENCY_LIMIT = parsePositiveInt(
+  process.env.SHAREDB_WS_COMPRESSION_CONCURRENCY_LIMIT,
+  10,
+);
+const SHAREDB_WS_COMPRESSION_LEVEL = parseBoundedInt(
+  process.env.SHAREDB_WS_COMPRESSION_LEVEL,
+  3,
+  0,
+  9,
+);
+const SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER = parseBoolean(
+  process.env.SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+  true,
 );
 const SESSION_COOKIE_NAMES = [
   "__Secure-neon-auth.session_token",
@@ -1222,6 +1256,13 @@ async function startServer() {
     keepAlive: SHAREDB_PG_KEEP_ALIVE,
     keepAliveInitialDelayMillis: SHAREDB_PG_KEEP_ALIVE_INITIAL_DELAY_MS,
   });
+  console.log("ShareDB WS compression:", {
+    enabled: SHAREDB_WS_COMPRESSION_ENABLED,
+    thresholdBytes: SHAREDB_WS_COMPRESSION_THRESHOLD_BYTES,
+    concurrencyLimit: SHAREDB_WS_COMPRESSION_CONCURRENCY_LIMIT,
+    level: SHAREDB_WS_COMPRESSION_LEVEL,
+    noContextTakeover: SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+  });
 
   const shouldForceSsl =
     SHAREDB_REQUIRE_SSL && !/sslmode=/i.test(SHAREDB_DATABASE_URL);
@@ -1286,7 +1327,22 @@ async function startServer() {
     res.end("Not found");
   });
 
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({
+    server,
+    perMessageDeflate: SHAREDB_WS_COMPRESSION_ENABLED
+      ? {
+          threshold: SHAREDB_WS_COMPRESSION_THRESHOLD_BYTES,
+          concurrencyLimit: SHAREDB_WS_COMPRESSION_CONCURRENCY_LIMIT,
+          zlibDeflateOptions: {
+            level: SHAREDB_WS_COMPRESSION_LEVEL,
+          },
+          clientNoContextTakeover:
+            SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+          serverNoContextTakeover:
+            SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+        }
+      : false,
+  });
 
   wss.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
