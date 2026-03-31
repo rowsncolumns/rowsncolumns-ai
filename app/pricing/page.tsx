@@ -70,6 +70,7 @@ const planCards = [
     points: [
       "High monthly credit capacity",
       "Best fit for complex multi-step workloads",
+      "Audit history and rollback controls",
       "Priority support",
       "Keeps top-up flexibility",
     ],

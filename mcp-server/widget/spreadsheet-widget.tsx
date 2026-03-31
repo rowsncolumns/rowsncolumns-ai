@@ -151,11 +151,13 @@ type ToolPayload = {
   url?: string;
   locale?: string;
   currency?: string;
+  mcpToken?: string;
 };
 
 type InitialDocState = {
   docId: string | null;
   docUrl: string | null;
+  mcpToken: string | null;
   openUrl: string | null;
   meta: string;
   locale: string;
@@ -220,6 +222,7 @@ const parseToolPayload = (value: unknown): ToolPayload | null => {
     url: readString(asRecord.url) ?? undefined,
     locale: readString(asRecord.locale) ?? undefined,
     currency: readString(asRecord.currency) ?? undefined,
+    mcpToken: readString(asRecord.mcpToken) ?? undefined,
   };
 };
 
@@ -401,6 +404,7 @@ const getInitialDocState = (config: WidgetConfig): InitialDocState => {
     return {
       docId: null,
       docUrl: null,
+      mcpToken: null,
       openUrl: null,
       meta: "Run open_spreadsheet to load a spreadsheet.",
       locale: defaultLocale,
@@ -411,6 +415,7 @@ const getInitialDocState = (config: WidgetConfig): InitialDocState => {
   const params = new URLSearchParams(window.location.search);
   const docId = readString(params.get("docId"));
   const docUrl = readString(params.get("url"));
+  const mcpToken = readString(params.get("mcpToken"));
   const sheetParam = readString(params.get("sheetId"));
   const sheetId = sheetParam === null ? null : readInteger(Number(sheetParam));
   const locale = readString(params.get("locale")) ?? defaultLocale;
@@ -419,6 +424,7 @@ const getInitialDocState = (config: WidgetConfig): InitialDocState => {
     return {
       docId: null,
       docUrl: null,
+      mcpToken: null,
       openUrl: null,
       meta: "Run open_spreadsheet to load a spreadsheet.",
       locale,
@@ -429,6 +435,7 @@ const getInitialDocState = (config: WidgetConfig): InitialDocState => {
   return {
     docId,
     docUrl,
+    mcpToken,
     openUrl: resolveDocOpenUrl({
       docId,
       sheetId: sheetId ?? undefined,
@@ -474,24 +481,34 @@ const normalizeShareDbUrl = (value: string | null): string | null => {
 const resolveShareDbUrl = (
   docUrl: string | null,
   config: WidgetConfig,
+  mcpToken?: string | null,
 ): string => {
+  const appendToken = (urlString: string) => {
+    if (!mcpToken) {
+      return urlString;
+    }
+    const parsed = new URL(urlString);
+    parsed.searchParams.set("mcpToken", mcpToken);
+    return parsed.toString();
+  };
+
   const configured = normalizeShareDbUrl(config.shareDbUrl ?? null);
   if (configured) {
-    return configured;
+    return appendToken(configured);
   }
 
   const configuredPort = readString(config.shareDbPort ?? undefined) ?? "8080";
 
   if (!docUrl) {
-    return `ws://localhost:${configuredPort}`;
+    return appendToken(`ws://localhost:${configuredPort}`);
   }
 
   try {
     const parsed = new URL(docUrl);
     const protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${parsed.hostname}:${configuredPort}`;
+    return appendToken(`${protocol}//${parsed.hostname}:${configuredPort}`);
   } catch {
-    return `ws://localhost:${configuredPort}`;
+    return appendToken(`ws://localhost:${configuredPort}`);
   }
 };
 
@@ -502,6 +519,7 @@ const createShareDbSocket = (url: string): ShareDBSocket => {
 function SpreadsheetDocumentView({
   docId,
   docUrl,
+  mcpToken,
   locale,
   currency,
   onSyncUiState,
@@ -509,13 +527,14 @@ function SpreadsheetDocumentView({
 }: {
   docId: string;
   docUrl: string | null;
+  mcpToken: string | null;
   locale: string;
   currency: string;
   onSyncUiState?: (payload: UiStateSyncPayload) => void;
   onHostDownload?: (payload: HostDownloadPayload) => Promise<boolean>;
 }) {
   const config = window.__RNC_MCP_WIDGET_CONFIG__ ?? {};
-  const shareDbUrl = resolveShareDbUrl(docUrl, config);
+  const shareDbUrl = resolveShareDbUrl(docUrl, config, mcpToken);
   const connection = useMemo(
     () => new ShareDBClient.Connection(createShareDbSocket(shareDbUrl)),
     [shareDbUrl],
@@ -1746,6 +1765,7 @@ function App() {
   const hasHostBridge = window.parent !== window;
   const [docId, setDocId] = useState<string | null>(initialState.docId);
   const [docUrl, setDocUrl] = useState<string | null>(initialState.docUrl);
+  const [mcpToken, setMcpToken] = useState<string | null>(initialState.mcpToken);
   const [meta, setMeta] = useState(initialState.meta);
   const [openUrl, setOpenUrl] = useState<string | null>(initialState.openUrl);
   const [locale, setLocale] = useState(initialState.locale);
@@ -1762,6 +1782,24 @@ function App() {
     >(),
   );
   const hostInitializedRef = useRef(false);
+
+  const resolvePayloadToken = (payload: ToolPayload | null): string | null => {
+    const direct = readString(payload?.mcpToken);
+    if (direct) {
+      return direct;
+    }
+    const fromUrl = readString(payload?.url);
+    if (!fromUrl) {
+      return null;
+    }
+    try {
+      return readString(
+        new URL(fromUrl, window.location.href).searchParams.get("mcpToken"),
+      );
+    } catch {
+      return null;
+    }
+  };
 
   const sendNotification = (
     method: string,
@@ -1912,6 +1950,7 @@ function App() {
         if (payload?.docId) {
           setDocId(payload.docId);
           setDocUrl(payload.url ?? null);
+          setMcpToken(resolvePayloadToken(payload));
           if (payload.locale) {
             setLocale(payload.locale);
           }
@@ -1936,6 +1975,7 @@ function App() {
         if (payload?.docId) {
           setDocId(payload.docId);
           setDocUrl(payload.url ?? null);
+          setMcpToken(resolvePayloadToken(payload));
           if (payload.locale) {
             setLocale(payload.locale);
           }
@@ -2010,6 +2050,7 @@ function App() {
         key={`${docId}-${locale}-${currency}`}
         docId={docId}
         docUrl={docUrl}
+        mcpToken={mcpToken}
         locale={locale}
         currency={currency}
         onSyncUiState={onSyncUiState}

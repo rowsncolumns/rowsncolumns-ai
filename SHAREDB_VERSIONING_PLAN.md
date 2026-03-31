@@ -397,17 +397,18 @@ Goal: achieve behavioral parity with Y/hub while staying fully on ShareDB (no Yj
 - Restore-to and restore-range produce deterministic snapshots.
 - APIs meet target latency/SLO under production-like load.
 
-## 15) History Toolbar + Activity Panel (UI Plan)
-Add a document history surface in the spreadsheet workspace that exposes ShareDB activity timeline data.
+## 15) History Sidebar + Activity Panel (UI Plan)
+Add a document history surface in the spreadsheet workspace that exposes ShareDB activity timeline data with undo capabilities.
 
 ### 15.1 UX
 - Add a `History` button in the spreadsheet toolbar (`app/doc/workspace.tsx`) near the existing search control.
-- Clicking `History` opens an activity panel:
-  - desktop: right-side panel
+- Clicking `History` opens an activity sidebar:
+  - desktop: right-side panel (collapsible)
   - mobile: drawer/full-height panel
-- v1 is read-only:
-  - list activity entries only
-  - no rollback/restore actions inside the panel yet
+- Sidebar shows all attributed operations to the sheet:
+  - grouped by tool/agent run when applicable
+  - shows actor (user/agent), timestamp, and operation summary
+  - visual indicator for reverted operations
 
 ### 15.2 Panel Data
 - Backing source: app-level operation history (`agent_operation_history`), not raw ShareDB op log.
@@ -416,25 +417,208 @@ Add a document history surface in the spreadsheet workspace that exposes ShareDB
   - actor (`actor_type`, `actor_id`)
   - `activity_type` (`write`/`rollback`/`restore`)
   - version range (`sharedb_version_from` -> `sharedb_version_to`)
-  - source/tool context from `metadata`
+  - source/tool context from `metadata` (toolName, toolCallId)
   - reverted state (`reverted_at`, `reverted_by_operation_id`)
 - Panel states:
   - loading
   - empty
   - error
-  - paginated list with “Load more”
+  - paginated list with "Load more"
 
-### 15.3 API Bridge
-- Add app endpoint:
+### 15.3 Undo/Rollback Button
+Each activity item in the sidebar includes an undo button:
+- Button is visible for revertable operations (`reverted_at IS NULL`)
+- Button is disabled/hidden for already-reverted operations
+- Clicking undo:
+  1. Shows confirmation dialog with preview of what will be undone
+  2. Calls `POST /api/documents/{documentId}/undo` with `operationId`
+  3. Updates UI to reflect reverted state
+  4. Shows success/error toast
+- Rollback-of-rollback: rollback activities can also be undone (re-applies original changes)
+
+### 15.4 Per-Tool Undo Capability
+Support undoing all operations from a specific tool invocation:
+- Activity items with same `toolCallId` are grouped visually
+- "Undo all from this tool call" option when multiple ops share `toolCallId`
+- Implementation:
+  1. Query operations by `toolCallId` from metadata
+  2. Undo in reverse chronological order
+  3. Each undo creates its own rollback activity
+- API: `POST /api/documents/{documentId}/undo` with `{ toolCallId: "xxx" }`
+
+### 15.5 API Bridge
+- Activity endpoint:
   - `GET /api/documents/{documentId}/activity`
-- Query params:
-  - `limit`, `cursor`
-  - optional `from`, `to`, `by`, `activityTypes`
-- Response shape:
-  - `items: ActivityItem[]`
-  - `nextCursor: string | null`
-- API bridge maps to internal activity service (`GET /activity/{docId}`) and normalizes output for UI.
+  - Query params: `limit`, `cursor`, `from`, `to`, `by`, `activityTypes`, `sources`
+  - Response: `{ items: ActivityItem[], nextCursor: string | null }`
+- Undo endpoint:
+  - `POST /api/documents/{documentId}/undo`
+  - Body: `{ operationId?: string, toolCallId?: string, preview?: boolean }`
+  - Response: `{ success, operationId, rollbackOperationId, versionFrom, versionTo }`
+- Check undo status:
+  - `GET /api/documents/{documentId}/undo?operationId=xxx`
+  - Response: `{ canUndo: boolean, reason?: string }`
 
-### 15.4 Non-Goals for This UI Phase
-- No rollback/restore mutation buttons in panel.
+### 15.6 Activity Item UI Component
+```tsx
+// ActivityItem component structure
+<ActivityItem>
+  <ActorAvatar type={actorType} />
+  <ActivityContent>
+    <ActorName>{actorId}</ActorName>
+    <ToolBadge>{metadata.toolName}</ToolBadge>
+    <Timestamp>{createdAt}</Timestamp>
+    <VersionRange>v{versionFrom} → v{versionTo}</VersionRange>
+  </ActivityContent>
+  <UndoButton
+    disabled={!!revertedAt}
+    onClick={() => handleUndo(operationId)}
+  />
+  {revertedAt && <RevertedBadge>Reverted</RevertedBadge>}
+</ActivityItem>
+```
+
+### 15.7 Non-Goals for This UI Phase
 - No live streaming updates in panel; refresh + pagination is sufficient for v1.
+- No content-level selective rollback UI (rollback specific cells only).
+- No drag-and-drop reordering of operations.
+
+## 16) Feature Flag Based Deployment
+
+Deploy the versioning system incrementally using feature flags to control exposure and enable instant rollback.
+
+### 16.1 Flag Definitions
+```typescript
+// Feature flags (e.g., LaunchDarkly, environment vars, or internal config)
+flags: {
+  enableOperationTracking: boolean,      // Master switch for history persistence
+  enableOperationTrackingForAgents: boolean,  // Track agent writes
+  enableOperationTrackingForUsers: boolean,   // Track user writes
+  enableOperationTrackingForBackend: boolean, // Track backend/system writes
+  enableHistoryPanel: boolean,           // Show History button in toolbar
+  enableRollbackApi: boolean,            // Enable rollback/restore endpoints
+  trackingMode: 'blocking' | 'async' | 'shadow',  // See 16.2
+}
+```
+
+### 16.2 Tracking Modes
+- **shadow**: Tracking runs in parallel but failures are logged only (no impact on writes). Use for validation.
+- **async**: Tracking is fire-and-forget after successful write. Tracking failures don't block edits.
+- **blocking**: Tracking must succeed for write to complete. Use only after confidence is established.
+
+Recommended rollout:
+1. Start with `shadow` mode to validate data quality
+2. Move to `async` mode for production use
+3. Consider `blocking` only if audit guarantees are required
+
+### 16.3 Wrapper Implementation with Flags
+```typescript
+async function trackedSubmitOp(doc, op, attribution, options) {
+  const trackingEnabled = flags.enableOperationTracking &&
+    ((attribution.source === 'agent' && flags.enableOperationTrackingForAgents) ||
+     (attribution.source === 'user' && flags.enableOperationTrackingForUsers) ||
+     (attribution.source === 'backend' && flags.enableOperationTrackingForBackend));
+
+  const versionFrom = doc.version;
+
+  // Always submit the op first (non-blocking tracking)
+  await doc.submitOp(op, options?.source);
+
+  const versionTo = doc.version;
+
+  if (!trackingEnabled) return;
+
+  const trackingPromise = persistOperationHistory({
+    doc,
+    op,
+    attribution,
+    versionFrom,
+    versionTo,
+  });
+
+  if (flags.trackingMode === 'shadow') {
+    trackingPromise.catch(err => logger.warn('Shadow tracking failed', err));
+  } else if (flags.trackingMode === 'async') {
+    trackingPromise.catch(err => logger.error('Async tracking failed', err));
+  } else if (flags.trackingMode === 'blocking') {
+    await trackingPromise; // Only mode where tracking failure surfaces
+  }
+}
+```
+
+### 16.4 Gradual Rollout Plan
+1. **Week 1**: Deploy with all flags off. Code is in place but inactive.
+2. **Week 2**: Enable `shadow` mode for agent writes only on staging.
+3. **Week 3**: Enable `shadow` mode for agent writes in production. Validate data.
+4. **Week 4**: Switch to `async` mode for agent writes. Monitor for errors.
+5. **Week 5**: Enable `async` tracking for user writes (higher volume).
+6. **Week 6**: Enable History panel UI behind flag for internal users.
+7. **Week 7+**: Gradual rollout of History panel to all users.
+
+## 17) Feature Rollback Strategy
+
+If the versioning system causes issues, here's how to disable or fully remove it.
+
+### 17.1 Instant Disable (No Deploy Required)
+Set feature flags to off:
+```
+enableOperationTracking = false
+enableHistoryPanel = false
+enableRollbackApi = false
+```
+This immediately stops all tracking and hides UI. Existing data remains but is unused.
+
+### 17.2 Graceful Degradation
+If tracking persistence is failing but writes should continue:
+1. Switch `trackingMode` to `shadow` (failures are logged, not thrown)
+2. Writes continue unaffected
+3. Investigate and fix tracking issues offline
+
+### 17.3 Code Rollback (If Needed)
+If wrapper code itself is problematic:
+
+**Step 1: Revert wrapper to passthrough**
+```typescript
+async function trackedSubmitOp(doc, op, attribution, options) {
+  // Bypass all tracking, direct submit
+  return doc.submitOp(op, options?.source);
+}
+```
+
+**Step 2: Remove wrapper calls (optional)**
+Revert call sites from `trackedSubmitOp(...)` back to `doc.submitOp(...)`.
+
+### 17.4 Database Cleanup (Full Removal)
+If the feature is being fully removed:
+
+```sql
+-- Drop tables in dependency order
+DROP TABLE IF EXISTS agent_operation_attributions;
+DROP TABLE IF EXISTS agent_operation_content_index;
+DROP TABLE IF EXISTS agent_operation_history;
+
+-- Drop any worker/cursor tables if hybrid persistence was enabled
+DROP TABLE IF EXISTS sharedb_activity_worker_cursor;
+DROP TABLE IF EXISTS sharedb_activity_chunk;
+```
+
+Note: This is a one-way operation. Export data first if audit records may be needed.
+
+### 17.5 Rollback Risk Assessment
+
+| Component | Risk | Mitigation |
+|-----------|------|------------|
+| Tracking wrapper | Medium - in write path | Non-blocking async mode by default |
+| History persistence | Low - additive tables | Shadow mode validates before production |
+| History UI | Low - read-only panel | Feature flag hides instantly |
+| Rollback API | Low - explicit user action | Flag disables endpoints |
+| CI enforcement rule | Low - build-time only | Remove grep rule from CI config |
+
+### 17.6 Monitoring and Alerts
+Set up alerts to catch issues early:
+- Tracking error rate > 1% → alert
+- Tracking latency p99 > 500ms → alert
+- Write latency increase > 10% after enabling → alert
+- History table growth > expected → alert
+
+If alerts fire, switch to `shadow` mode and investigate before disabling entirely.

@@ -30,6 +30,8 @@ import {
   completeChatRun,
   appendChatRunEvent,
 } from "@/lib/chat/runs-repository";
+import { getUserBillingEntitlement } from "@/lib/billing/repository";
+import { withOperationHistoryRuntimeContext } from "@/lib/operation-history/runtime-context";
 
 export type ChatProvider = "openai" | "anthropic";
 export type ChatMode = "action" | "plan" | "ask";
@@ -586,47 +588,61 @@ export const executeChatRunStream = async (input: {
   }
 
   try {
-    for await (const event of streamSpreadsheetAssistant({
-      threadId: input.request.threadId,
-      runId,
-      userId: input.userId,
-      docId: input.request.docId,
-      sessionTitle,
-      message: input.request.message,
-      images: input.request.images,
-      model: input.request.model,
-      mode: input.request.mode,
-      provider: input.request.provider,
-      reasoningEnabled: input.request.reasoningEnabled,
-      systemInstructions: input.request.systemInstructions,
-      abortSignal: input.abortSignal,
-    })) {
-      if (event.type === "tool.call") {
-        toolCallCount += 1;
-      }
+    const billingEntitlement = input.isAdmin
+      ? null
+      : await getUserBillingEntitlement(input.userId);
+    const trackingAllowed =
+      input.isAdmin || billingEntitlement?.plan === "max";
 
-      if (event.type === "message.delta") {
-        messageDeltaChars += event.delta.length;
-      }
+    await withOperationHistoryRuntimeContext(
+      {
+        userId: input.userId,
+        trackingAllowed,
+      },
+      async () => {
+        for await (const event of streamSpreadsheetAssistant({
+          threadId: input.request.threadId,
+          runId,
+          userId: input.userId,
+          docId: input.request.docId,
+          sessionTitle,
+          message: input.request.message,
+          images: input.request.images,
+          model: input.request.model,
+          mode: input.request.mode,
+          provider: input.request.provider,
+          reasoningEnabled: input.request.reasoningEnabled,
+          systemInstructions: input.request.systemInstructions,
+          abortSignal: input.abortSignal,
+        })) {
+          if (event.type === "tool.call") {
+            toolCallCount += 1;
+          }
 
-      if (event.type === "message.complete") {
-        isCompleted = true;
-        messageCompleteChars = Math.max(
-          messageCompleteChars,
-          event.message.length,
-        );
-      }
+          if (event.type === "message.delta") {
+            messageDeltaChars += event.delta.length;
+          }
 
-      // Add runId to stream events that clients correlate to the active run.
-      const augmentedEvent =
-        event.type === "message.start" ||
-        event.type === "message.complete" ||
-        event.type === "context.usage"
-          ? { ...event, runId }
-          : event;
+          if (event.type === "message.complete") {
+            isCompleted = true;
+            messageCompleteChars = Math.max(
+              messageCompleteChars,
+              event.message.length,
+            );
+          }
 
-      await persistAndEmit(augmentedEvent);
-    }
+          // Add runId to stream events that clients correlate to the active run.
+          const augmentedEvent =
+            event.type === "message.start" ||
+            event.type === "message.complete" ||
+            event.type === "context.usage"
+              ? { ...event, runId }
+              : event;
+
+          await persistAndEmit(augmentedEvent);
+        }
+      },
+    );
   } catch (error) {
     const abortReason = input.abortSignal?.aborted
       ? input.abortSignal.reason

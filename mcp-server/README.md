@@ -37,6 +37,7 @@ The MCP server reuses existing spreadsheet tooling and ShareDB access from `lib/
 
 - `SHAREDB_URL` (default: `ws://localhost:8080`)
 - `SHAREDB_COLLECTION` (default: `spreadsheets`)
+- `SHAREDB_MCP_TOKEN_SECRET` (required for no-login MCP capability tokens)
 
 ## Exposed capabilities
 

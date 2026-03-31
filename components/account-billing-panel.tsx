@@ -66,7 +66,7 @@ const PLAN_CARDS: Array<{
   {
     tier: "max",
     title: "Max",
-    subtitle: "For teams and power users",
+    subtitle: "For teams, power users, and audit history access",
     priceLabel: `$${MAX_MONTHLY_PRICE_USD}/month`,
     creditsLabel: `${MAX_MONTHLY_CREDITS} credits / month`,
     buttonLabel: "Choose Max",

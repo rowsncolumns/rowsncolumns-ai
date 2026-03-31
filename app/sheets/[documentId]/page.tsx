@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import { isAdminUser } from "@/lib/auth/admin";
+import { getUserBillingEntitlement } from "@/lib/billing/repository";
 import {
   documentExists,
   ensureDocumentAccess,
@@ -138,6 +139,8 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
     id: session.user.id,
     email: session.user.email,
   });
+  const billing = await getUserBillingEntitlement(session.user.id);
+  const canUseAuditHistory = isAdmin || billing.plan === "max";
 
   return (
     <>
@@ -151,6 +154,7 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
         initialThemeMode={initialThemeMode}
         initialIsMobileLayout={initialIsMobileLayout}
         isAdmin={isAdmin}
+        canUseAuditHistory={canUseAuditHistory}
         locale={locale}
         currency={currency}
         currentUser={{

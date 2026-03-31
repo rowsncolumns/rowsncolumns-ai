@@ -56,6 +56,7 @@ export default async function McpPublicDocumentPage({ params }: PageProps) {
       documentId={documentId}
       canManageShare={false}
       canEdit={false}
+      canUseAuditHistory={false}
       initialThemeMode={initialThemeMode}
       locale={locale}
       currency={currency}

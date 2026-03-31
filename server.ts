@@ -1,18 +1,35 @@
-import http from "http";
+import http, { type IncomingMessage } from "http";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { config as loadEnv } from "dotenv";
 import ShareDB from "sharedb";
 import { WebSocketServer, WebSocket } from "ws";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const WebSocketJSONStream = require("websocket-json-stream") as new (
+  ws: WebSocket,
+) => unknown;
+import { getFlags, isTrackingEnabledForSource } from "./lib/feature-flags";
+import { ensureDocumentAccess } from "./lib/documents/repository";
+import { verifyMcpShareDbAccessToken } from "./lib/sharedb/mcp-token";
+import { resolveAuditHistoryAccess } from "./lib/operation-history/access";
+import { generateInverseRawOp } from "./lib/operation-history/inverse-op";
+import { createOperationHistory } from "./lib/operation-history/repository";
+import type { OperationAttribution } from "./lib/operation-history/types";
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const createShareDBPostgres = require("sharedb-postgres") as (
+  options?: Record<string, unknown>,
+) => unknown;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ShareDBError = require("sharedb/lib/error") as {
+  new (code: string, message?: string): Error & { code: string };
+};
 
 loadEnv({
   path: path.resolve(process.cwd(), ".env.local"),
   override: false,
   quiet: true,
 });
-const createShareDBPostgres = require("sharedb-postgres") as (
-  options?: Record<string, unknown>,
-) => unknown;
-
 const shareDbDatabaseUrl =
   process.env.SHAREDB_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -70,6 +87,153 @@ const PORT = parseInt(
   10,
 );
 const HOST = process.env.HOST || "0.0.0.0";
+const AUTH_BASE_URL =
+  process.env.NEON_AUTH_BASE_URL?.trim().replace(/\/+$/, "") ?? null;
+const SHAREDB_COLLECTION =
+  process.env.SHAREDB_COLLECTION?.trim() || "spreadsheets";
+const SHAREDB_AUTH_DEBUG = process.env.SHAREDB_AUTH_DEBUG === "true";
+const AUTH_IDENTITY_CACHE_TTL_MS = 5 * 60_000;
+const AUDIT_ACCESS_CACHE_TTL_MS = 5 * 60_000;
+const DOC_ACCESS_CACHE_TTL_MS = parsePositiveInt(
+  process.env.SHAREDB_DOC_ACCESS_CACHE_TTL_MS,
+  45_000,
+);
+const SESSION_COOKIE_NAMES = [
+  "__Secure-neon-auth.session_token",
+  "neon-auth.session_token",
+  "session_token",
+] as const;
+
+type AuthIdentity = {
+  userId: string;
+  email: string | null;
+  name: string | null;
+};
+
+type SessionIntrospectionResult = {
+  user?: {
+    id?: string;
+    email?: string | null;
+    name?: string | null;
+  } | null;
+} | null;
+
+type AuthFailureReason =
+  | "no_cookie"
+  | "invalid_token"
+  | "invalid_mcp_token"
+  | "timeout"
+  | "endpoint_failure";
+
+type IdentityResolutionResult = {
+  identity: AuthIdentity | null;
+  failureReason: AuthFailureReason | null;
+  statusCode?: number;
+};
+
+type AgentAuditState = {
+  identity: AuthIdentity | null;
+  allowed: boolean;
+  isAdmin: boolean;
+  plan: "free" | "pro" | "max" | null;
+};
+
+type AgentAuthState = {
+  identity: AuthIdentity | null;
+  mcpAccess: {
+    docId: string;
+    permission: DocumentPermission;
+  } | null;
+  failureReason: AuthFailureReason | null;
+  statusCode?: number;
+  resolvedAt: number;
+};
+
+type DocumentPermission = "view" | "edit";
+
+type AgentDocAccessCacheEntry = {
+  canAccess: boolean;
+  permission: DocumentPermission;
+  expiresAt: number;
+};
+
+type ShareDBAuditSource = {
+  source?: unknown;
+  sourceType?: unknown;
+  actorType?: unknown;
+  actorId?: unknown;
+  userId?: unknown;
+  userName?: unknown;
+  userEmail?: unknown;
+  sessionId?: unknown;
+  threadId?: unknown;
+  runId?: unknown;
+  toolName?: unknown;
+  toolCallId?: unknown;
+  channel?: unknown;
+  origin?: unknown;
+};
+
+type ConnectContextLike = {
+  agent?: {
+    custom?: Record<string, unknown>;
+  };
+  req?: IncomingMessage;
+};
+
+type SubmitContextLike = {
+  agent?: {
+    custom?: Record<string, unknown>;
+  };
+  req?: IncomingMessage;
+  collection: string;
+  id: string;
+  op?: {
+    v?: unknown;
+    src?: unknown;
+    seq?: unknown;
+    op?: unknown;
+  };
+  snapshot?: {
+    v?: unknown;
+  } | null;
+  extra?: {
+    source?: unknown;
+  };
+};
+
+type ReadSnapshotLike = {
+  id?: unknown;
+};
+
+type ReadSnapshotsContextLike = {
+  agent?: {
+    custom?: Record<string, unknown>;
+  };
+  req?: IncomingMessage;
+  collection: string;
+  snapshots: ReadSnapshotLike[];
+  rejectSnapshotRead?: (snapshot: ReadSnapshotLike, error: Error) => void;
+};
+
+type QueryContextLike = {
+  agent?: {
+    custom?: Record<string, unknown>;
+  };
+  req?: IncomingMessage;
+  collection?: string;
+  index?: string;
+  query?: unknown;
+};
+
+const authIdentityCache = new Map<
+  string,
+  { result: IdentityResolutionResult; expiresAt: number }
+>();
+const auditAccessCache = new Map<
+  string,
+  { access: Omit<AgentAuditState, "identity">; expiresAt: number }
+>();
 
 const redactDatabaseUrl = (value: string) => {
   try {
@@ -80,6 +244,877 @@ const redactDatabaseUrl = (value: string) => {
   } catch {
     return value;
   }
+};
+
+const getStringValue = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const parseCookies = (
+  cookieHeader: string | undefined,
+): Map<string, string> => {
+  const cookies = new Map<string, string>();
+  if (!cookieHeader) {
+    return cookies;
+  }
+
+  for (const part of cookieHeader.split(";")) {
+    const [rawName, ...rawValueParts] = part.split("=");
+    const name = rawName?.trim();
+    if (!name) {
+      continue;
+    }
+    const rawValue = rawValueParts.join("=").trim();
+    try {
+      cookies.set(name, decodeURIComponent(rawValue));
+    } catch {
+      cookies.set(name, rawValue);
+    }
+  }
+
+  return cookies;
+};
+
+const getBearerToken = (
+  authorizationHeader: string | undefined,
+): string | null => {
+  if (!authorizationHeader) {
+    return null;
+  }
+  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return null;
+  }
+  return getStringValue(match[1]) ?? null;
+};
+
+const getSessionTokenFromRequest = (req?: IncomingMessage): string | null => {
+  if (!req) {
+    return null;
+  }
+
+  const authorization = Array.isArray(req.headers.authorization)
+    ? req.headers.authorization[0]
+    : req.headers.authorization;
+  const bearerToken = getBearerToken(authorization);
+  if (bearerToken) {
+    return bearerToken;
+  }
+
+  const cookieHeader = Array.isArray(req.headers.cookie)
+    ? req.headers.cookie.join("; ")
+    : req.headers.cookie;
+  const cookies = parseCookies(cookieHeader);
+
+  for (const cookieName of SESSION_COOKIE_NAMES) {
+    const token = getStringValue(cookies.get(cookieName));
+    if (token) {
+      return token;
+    }
+  }
+
+  return null;
+};
+
+const getMcpTokenFromRequest = (req?: IncomingMessage): string | null => {
+  if (!req?.url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(req.url, "http://localhost");
+    return getStringValue(parsed.searchParams.get("mcpToken"));
+  } catch {
+    return null;
+  }
+};
+
+const logAuth = (
+  level: "debug" | "warn" | "error",
+  message: string,
+  payload?: Record<string, unknown>,
+) => {
+  if (level === "debug" && !SHAREDB_AUTH_DEBUG) {
+    return;
+  }
+  const logger =
+    level === "warn"
+      ? console.warn
+      : level === "error"
+        ? console.error
+        : console.log;
+  logger("[sharedb-auth]", message, payload ?? {});
+};
+
+const isTimeoutError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const err = error as { name?: unknown };
+  return err.name === "TimeoutError" || err.name === "AbortError";
+};
+
+const isUnauthorizedStatus = (status: number): boolean => {
+  return status === 400 || status === 401 || status === 403;
+};
+
+const pickFailureReason = (
+  current: AuthFailureReason | null,
+  next: AuthFailureReason,
+): AuthFailureReason => {
+  if (!current) {
+    return next;
+  }
+  if (next === "timeout") {
+    return "timeout";
+  }
+  if (next === "endpoint_failure" && current !== "timeout") {
+    return "endpoint_failure";
+  }
+  return current;
+};
+
+const verifyTokenViaSessionIntrospection = async (
+  token: string,
+): Promise<IdentityResolutionResult> => {
+  if (!AUTH_BASE_URL) {
+    return {
+      identity: null,
+      failureReason: "endpoint_failure",
+    };
+  }
+
+  let failureReason: AuthFailureReason | null = null;
+  let lastStatusCode: number | undefined;
+
+  for (const cookieName of SESSION_COOKIE_NAMES) {
+    try {
+      const response = await fetch(`${AUTH_BASE_URL}/get-session`, {
+        method: "GET",
+        headers: {
+          Cookie: `${cookieName}=${encodeURIComponent(token)}`,
+        },
+        signal: AbortSignal.timeout(2500),
+      });
+
+      if (!response.ok) {
+        lastStatusCode = response.status;
+        failureReason = pickFailureReason(
+          failureReason,
+          isUnauthorizedStatus(response.status)
+            ? "invalid_token"
+            : "endpoint_failure",
+        );
+        continue;
+      }
+
+      const payload = (await response
+        .json()
+        .catch(() => null)) as SessionIntrospectionResult;
+      const userId = getStringValue(payload?.user?.id);
+      if (!userId) {
+        failureReason = pickFailureReason(failureReason, "invalid_token");
+        continue;
+      }
+
+      return {
+        identity: {
+          userId,
+          email: getStringValue(payload?.user?.email) ?? null,
+          name: getStringValue(payload?.user?.name) ?? null,
+        },
+        failureReason: null,
+      };
+    } catch (error) {
+      failureReason = pickFailureReason(
+        failureReason,
+        isTimeoutError(error) ? "timeout" : "endpoint_failure",
+      );
+    }
+  }
+
+  return {
+    identity: null,
+    failureReason: failureReason ?? "invalid_token",
+    statusCode: lastStatusCode,
+  };
+};
+
+const getCachedIdentity = (
+  token: string,
+): IdentityResolutionResult | undefined => {
+  const cached = authIdentityCache.get(token);
+  if (!cached) {
+    return undefined;
+  }
+  if (cached.expiresAt < Date.now()) {
+    authIdentityCache.delete(token);
+    return undefined;
+  }
+  return cached.result;
+};
+
+const cacheIdentity = (
+  token: string,
+  result: IdentityResolutionResult,
+): void => {
+  authIdentityCache.set(token, {
+    result,
+    expiresAt: Date.now() + AUTH_IDENTITY_CACHE_TTL_MS,
+  });
+};
+
+const resolveIdentityFromRequest = async (
+  req?: IncomingMessage,
+): Promise<IdentityResolutionResult> => {
+  if (!AUTH_BASE_URL) {
+    return {
+      identity: null,
+      failureReason: "endpoint_failure",
+    };
+  }
+
+  const token = getSessionTokenFromRequest(req);
+  if (!token) {
+    return {
+      identity: null,
+      failureReason: "no_cookie",
+    };
+  }
+
+  const cached = getCachedIdentity(token);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const result = await verifyTokenViaSessionIntrospection(token);
+  cacheIdentity(token, result);
+  return result;
+};
+
+const resolveAuditAccessCached = async (
+  identity: AuthIdentity,
+): Promise<Omit<AgentAuditState, "identity">> => {
+  const cacheKey = `${identity.userId}:${identity.email ?? ""}`;
+  const cached = auditAccessCache.get(cacheKey);
+  if (cached && cached.expiresAt >= Date.now()) {
+    return cached.access;
+  }
+
+  const access = await resolveAuditHistoryAccess({
+    userId: identity.userId,
+    email: identity.email,
+  });
+  const normalized = {
+    allowed: access.allowed,
+    isAdmin: access.isAdmin,
+    plan: access.plan,
+  };
+
+  auditAccessCache.set(cacheKey, {
+    access: normalized,
+    expiresAt: Date.now() + AUDIT_ACCESS_CACHE_TTL_MS,
+  });
+
+  return normalized;
+};
+
+const toNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
+const toString = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const getAuditSourceType = (source: unknown): string | null => {
+  if (typeof source === "string") {
+    return source.trim().toLowerCase();
+  }
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  const metadata = source as ShareDBAuditSource;
+  const candidate = toString(metadata.sourceType) ?? toString(metadata.source);
+  return candidate ? candidate.toLowerCase() : null;
+};
+
+const isUserSource = (source: unknown): boolean => {
+  const normalized = getAuditSourceType(source);
+  if (!normalized) {
+    return true;
+  }
+  return normalized === "user";
+};
+
+const toSourceMetadata = (source: unknown): ShareDBAuditSource | null => {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  return source as ShareDBAuditSource;
+};
+
+const getOrCreateAgentCustom = (
+  context:
+    | ConnectContextLike
+    | SubmitContextLike
+    | ReadSnapshotsContextLike
+    | QueryContextLike,
+): Record<string, unknown> => {
+  if (!context.agent) {
+    return {};
+  }
+  if (!context.agent.custom) {
+    context.agent.custom = Object.create(null) as Record<string, unknown>;
+  }
+  return context.agent.custom;
+};
+
+const createUnauthorizedError = (message: string): Error => {
+  return new ShareDBError("ERR_UNAUTHORIZED", message);
+};
+
+const createForbiddenError = (message: string): Error => {
+  return new ShareDBError("ERR_FORBIDDEN", message);
+};
+
+const toAgentAuthState = (
+  result: IdentityResolutionResult,
+): AgentAuthState => ({
+  identity: result.identity,
+  mcpAccess: null,
+  failureReason: result.failureReason,
+  statusCode: result.statusCode,
+  resolvedAt: Date.now(),
+});
+
+const ensureAgentAuthState = async (
+  context:
+    | ConnectContextLike
+    | SubmitContextLike
+    | ReadSnapshotsContextLike
+    | QueryContextLike,
+): Promise<AgentAuthState> => {
+  const custom = getOrCreateAgentCustom(context);
+  const existing = (custom.__authState ?? null) as AgentAuthState | null;
+  if (existing) {
+    return existing;
+  }
+
+  const inFlight = (custom.__authStatePromise ??
+    null) as Promise<AgentAuthState> | null;
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = resolveIdentityFromRequest(context.req)
+    .then(async (result) => {
+      const state = toAgentAuthState(result);
+      if (!state.identity) {
+        const mcpToken = getMcpTokenFromRequest(context.req);
+        if (mcpToken) {
+          const access = await verifyMcpShareDbAccessToken(mcpToken);
+          if (access) {
+            state.mcpAccess = {
+              docId: access.docId,
+              permission: access.permission,
+            };
+            state.failureReason = null;
+          } else {
+            state.failureReason = "invalid_mcp_token";
+          }
+        }
+      }
+      custom.__authState = state;
+      if (!state.identity && !state.mcpAccess) {
+        logAuth("warn", "identity_unresolved", {
+          reason: state.failureReason,
+          statusCode: state.statusCode,
+        });
+      } else if (state.mcpAccess) {
+        logAuth("debug", "mcp_token_resolved", {
+          docId: state.mcpAccess.docId,
+          permission: state.mcpAccess.permission,
+        });
+      } else {
+        const identity = state.identity;
+        logAuth("debug", "identity_resolved", {
+          userId: identity?.userId ?? "unknown",
+        });
+      }
+      return state;
+    })
+    .finally(() => {
+      delete custom.__authStatePromise;
+    });
+
+  custom.__authStatePromise = promise;
+  return promise;
+};
+
+const getDocAccessCache = (
+  custom: Record<string, unknown>,
+): Record<string, AgentDocAccessCacheEntry> => {
+  const existing = custom.__docAccessCache;
+  if (existing && typeof existing === "object") {
+    return existing as Record<string, AgentDocAccessCacheEntry>;
+  }
+  const created = Object.create(null) as Record<
+    string,
+    AgentDocAccessCacheEntry
+  >;
+  custom.__docAccessCache = created;
+  return created;
+};
+
+const getCachedDocumentAccess = (
+  custom: Record<string, unknown>,
+  docId: string,
+): AgentDocAccessCacheEntry | null => {
+  const cache = getDocAccessCache(custom);
+  const entry = cache[docId];
+  if (!entry) {
+    return null;
+  }
+  if (entry.expiresAt < Date.now()) {
+    delete cache[docId];
+    return null;
+  }
+  return entry;
+};
+
+const setCachedDocumentAccess = (
+  custom: Record<string, unknown>,
+  docId: string,
+  entry: Omit<AgentDocAccessCacheEntry, "expiresAt">,
+): AgentDocAccessCacheEntry => {
+  const cache = getDocAccessCache(custom);
+  const value: AgentDocAccessCacheEntry = {
+    ...entry,
+    expiresAt: Date.now() + DOC_ACCESS_CACHE_TTL_MS,
+  };
+  cache[docId] = value;
+  return value;
+};
+
+const resolveDocumentAccessForAgent = async (
+  context:
+    | SubmitContextLike
+    | ReadSnapshotsContextLike
+    | QueryContextLike
+    | ConnectContextLike,
+  docId: string,
+): Promise<{
+  authState: AgentAuthState;
+  access: AgentDocAccessCacheEntry | null;
+}> => {
+  const authState = await ensureAgentAuthState(context);
+  if (!authState.identity) {
+    return { authState, access: null };
+  }
+
+  const custom = getOrCreateAgentCustom(context);
+  const cached = getCachedDocumentAccess(custom, docId);
+  if (cached) {
+    return {
+      authState,
+      access: cached,
+    };
+  }
+
+  const accessResult = await ensureDocumentAccess({
+    docId,
+    userId: authState.identity.userId,
+  });
+  const access = setCachedDocumentAccess(custom, docId, {
+    canAccess: accessResult.canAccess,
+    permission: accessResult.permission as DocumentPermission,
+  });
+  return {
+    authState,
+    access,
+  };
+};
+
+const rejectSnapshotReadWithError = (
+  context: ReadSnapshotsContextLike,
+  snapshot: ReadSnapshotLike,
+  error: Error,
+) => {
+  if (typeof context.rejectSnapshotRead === "function") {
+    context.rejectSnapshotRead(snapshot, error);
+    return;
+  }
+  throw error;
+};
+
+export const registerAuthAccessMiddleware = (backend: ShareDB) => {
+  backend.use("connect", (context: ConnectContextLike, callback) => {
+    void ensureAgentAuthState(context).catch((error) => {
+      logAuth("warn", "identity_resolution_failed", {
+        reason: "endpoint_failure",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    callback();
+  });
+
+  backend.use(
+    "readSnapshots",
+    (context: ReadSnapshotsContextLike, callback: (error?: Error) => void) => {
+      void (async () => {
+        if (context.collection !== SHAREDB_COLLECTION) {
+          throw createForbiddenError("Collection access is forbidden.");
+        }
+
+        const authState = await ensureAgentAuthState(context);
+        if (!authState.identity && !authState.mcpAccess) {
+          const error = createUnauthorizedError(
+            "Authentication required to read this document.",
+          );
+          const deniedDocIds = context.snapshots
+            .map((snapshot) => toString(snapshot.id))
+            .filter((docId): docId is string => Boolean(docId));
+          for (const snapshot of context.snapshots) {
+            rejectSnapshotReadWithError(context, snapshot, error);
+          }
+          logAuth("warn", "read_denied", {
+            collection: context.collection,
+            docIds: deniedDocIds,
+            reason: authState.failureReason,
+            statusCode: authState.statusCode,
+          });
+          return;
+        }
+
+        for (const snapshot of context.snapshots) {
+          const docId = toString(snapshot.id);
+          if (!docId) {
+            rejectSnapshotReadWithError(
+              context,
+              snapshot,
+              createForbiddenError("Invalid document id."),
+            );
+            continue;
+          }
+
+          if (authState.mcpAccess) {
+            if (authState.mcpAccess.docId !== docId) {
+              const error = createForbiddenError(
+                "MCP token is not valid for this document.",
+              );
+              rejectSnapshotReadWithError(context, snapshot, error);
+              logAuth("warn", "read_denied", {
+                collection: context.collection,
+                docId,
+                reason: "forbidden",
+              });
+              continue;
+            }
+            logAuth("debug", "read_allowed", {
+              collection: context.collection,
+              docId,
+              permission: authState.mcpAccess.permission,
+              userId: "mcp-token",
+            });
+            continue;
+          }
+
+          const { access } = await resolveDocumentAccessForAgent(
+            context,
+            docId,
+          );
+          const authUserId = authState.identity?.userId ?? "unknown";
+          if (!access?.canAccess) {
+            const error = createForbiddenError(
+              "You do not have access to this document.",
+            );
+            rejectSnapshotReadWithError(context, snapshot, error);
+            logAuth("warn", "read_denied", {
+              collection: context.collection,
+              docId,
+              userId: authUserId,
+              reason: "forbidden",
+            });
+          } else {
+            logAuth("debug", "read_allowed", {
+              collection: context.collection,
+              docId,
+              permission: access.permission,
+              userId: authUserId,
+            });
+          }
+        }
+      })()
+        .then(() => callback())
+        .catch((error) => {
+          callback(
+            error instanceof Error
+              ? error
+              : createForbiddenError("Unable to validate read access."),
+          );
+        });
+    },
+  );
+
+  backend.use(
+    "submit",
+    (context: SubmitContextLike, callback: (error?: Error) => void) => {
+      void (async () => {
+        if (context.collection !== SHAREDB_COLLECTION) {
+          throw createForbiddenError("Collection access is forbidden.");
+        }
+
+        const docId = toString(context.id);
+        if (!docId) {
+          throw createForbiddenError("Invalid document id.");
+        }
+
+        const { authState, access } = await resolveDocumentAccessForAgent(
+          context,
+          docId,
+        );
+        if (!authState.identity && !authState.mcpAccess) {
+          throw createUnauthorizedError(
+            "Authentication required to edit this document.",
+          );
+        }
+        if (authState.mcpAccess) {
+          if (authState.mcpAccess.docId !== docId) {
+            throw createForbiddenError(
+              "MCP token is not valid for this document.",
+            );
+          }
+          if (authState.mcpAccess.permission !== "edit") {
+            throw createForbiddenError("MCP token does not allow edit access.");
+          }
+
+          logAuth("debug", "submit_allowed", {
+            collection: context.collection,
+            docId,
+            userId: "mcp-token",
+            permission: authState.mcpAccess.permission,
+          });
+          return;
+        }
+        if (!access?.canAccess) {
+          throw createForbiddenError(
+            "You do not have access to this document.",
+          );
+        }
+        if (access.permission !== "edit") {
+          throw createForbiddenError(
+            "You do not have permission to edit this document.",
+          );
+        }
+        const authUserId = authState.identity?.userId ?? "unknown";
+
+        logAuth("debug", "submit_allowed", {
+          collection: context.collection,
+          docId,
+          userId: authUserId,
+          permission: access.permission,
+        });
+      })()
+        .then(() => callback())
+        .catch((error) => {
+          const authState = (getOrCreateAgentCustom(context).__authState ??
+            null) as AgentAuthState | null;
+          logAuth("warn", "submit_denied", {
+            collection: context.collection,
+            docId: context.id,
+            reason: authState?.failureReason ?? "forbidden",
+            statusCode: authState?.statusCode,
+            userId: authState?.identity?.userId ?? null,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          callback(
+            error instanceof Error
+              ? error
+              : createForbiddenError("Unable to validate submit access."),
+          );
+        });
+    },
+  );
+
+  backend.use(
+    "query",
+    (context: QueryContextLike, callback: (error?: Error) => void) => {
+      logAuth("warn", "query_denied", {
+        collection: context.collection,
+        index: context.index,
+      });
+      callback(
+        createForbiddenError(
+          "Query operations are not allowed on this endpoint.",
+        ),
+      );
+    },
+  );
+};
+
+const registerAuditMiddleware = (backend: ShareDB) => {
+  backend.use("connect", (context: ConnectContextLike, callback) => {
+    const flags = getFlags();
+    if (!isTrackingEnabledForSource("user", flags)) {
+      callback();
+      return;
+    }
+
+    const custom = getOrCreateAgentCustom(context);
+    const applyAuditState = (state: AgentAuditState) => {
+      custom.__auditState = state;
+    };
+
+    // Do not block ShareDB socket initialization on auth/billing lookups.
+    // If this async path is slow or unavailable, collaboration still works
+    // and audit capture is skipped until identity/access state resolves.
+    applyAuditState({
+      identity: null,
+      allowed: false,
+      isAdmin: false,
+      plan: null,
+    });
+    callback();
+
+    void (async () => {
+      const authState = await ensureAgentAuthState(context);
+      if (!authState.identity) {
+        logAuth("debug", "audit_identity_unavailable", {
+          reason: authState.failureReason,
+          statusCode: authState.statusCode,
+        });
+        return;
+      }
+
+      const access = await resolveAuditAccessCached(authState.identity);
+      applyAuditState({
+        identity: authState.identity,
+        allowed: access.allowed,
+        isAdmin: access.isAdmin,
+        plan: access.plan,
+      });
+    })().catch((error) => {
+      console.warn("[sharedb-audit] connect middleware failed:", error);
+    });
+  });
+
+  backend.use("afterWrite", (context: SubmitContextLike, callback) => {
+    const flags = getFlags();
+    if (!isTrackingEnabledForSource("user", flags)) {
+      callback();
+      return;
+    }
+
+    void (async () => {
+      const custom = getOrCreateAgentCustom(context);
+      const auditState = (custom.__auditState ??
+        null) as AgentAuditState | null;
+      if (!auditState?.allowed || !auditState.identity) {
+        return;
+      }
+
+      const sourceValue = context.extra?.source;
+      if (!isUserSource(sourceValue)) {
+        return;
+      }
+
+      const forwardOp = Array.isArray(context.op?.op)
+        ? (context.op?.op as Array<Record<string, unknown>>)
+        : null;
+      if (!forwardOp || forwardOp.length === 0) {
+        return;
+      }
+
+      const inverseOp = generateInverseRawOp(forwardOp);
+      const snapshotVersion = toNumber(context.snapshot?.v);
+      const opVersion = toNumber(context.op?.v);
+      const versionFrom = opVersion ?? Math.max(0, (snapshotVersion ?? 1) - 1);
+      const versionTo = Math.max(
+        snapshotVersion ?? versionFrom + 1,
+        versionFrom + 1,
+      );
+
+      const sourceMetadata = toSourceMetadata(sourceValue);
+      const attribution: OperationAttribution = {
+        source: "user",
+        actorType: "user",
+        actorId: auditState.identity.userId,
+        userId: auditState.identity.userId,
+        sessionId:
+          toString(sourceMetadata?.sessionId) ??
+          toString(context.op?.src) ??
+          undefined,
+        threadId: toString(sourceMetadata?.threadId) ?? undefined,
+        runId: toString(sourceMetadata?.runId) ?? undefined,
+        toolName: toString(sourceMetadata?.toolName) ?? undefined,
+        toolCallId: toString(sourceMetadata?.toolCallId) ?? undefined,
+      };
+
+      await createOperationHistory({
+        collection: context.collection,
+        docId: context.id,
+        attribution,
+        activityType: "write",
+        sharedbVersionFrom: versionFrom,
+        sharedbVersionTo: versionTo,
+        operationPayload: {
+          forward: {
+            kind: "raw_op",
+            data: forwardOp,
+          },
+          inverse: {
+            kind: "raw_op",
+            data: inverseOp,
+          },
+        },
+        metadata: {
+          userName:
+            toString(sourceMetadata?.userName) ??
+            auditState.identity.name ??
+            undefined,
+          userEmail:
+            toString(sourceMetadata?.userEmail) ??
+            auditState.identity.email ??
+            undefined,
+          sourceChannel:
+            toString(sourceMetadata?.channel) ?? "sharedb_realtime",
+          sourceOrigin:
+            toString(sourceMetadata?.origin) ?? "sharedb_server_afterwrite",
+          opSrc: toString(context.op?.src) ?? undefined,
+          opSeq: toNumber(context.op?.seq) ?? undefined,
+          plan: auditState.plan ?? undefined,
+          isAdmin: auditState.isAdmin,
+        },
+      });
+    })()
+      .catch((error) => {
+        // Do not fail the committed ShareDB write when audit persistence fails.
+        console.error(
+          "[sharedb-audit] Failed to persist operation history:",
+          error,
+        );
+      })
+      .finally(() => {
+        callback();
+      });
+  });
 };
 
 async function startServer() {
@@ -117,6 +1152,8 @@ async function startServer() {
     presence: true,
     doNotForwardSendPresenceErrorsToClient: true,
   });
+  registerAuthAccessMiddleware(backend);
+  registerAuditMiddleware(backend);
 
   const server = http.createServer((req, res) => {
     if (req.url === "/health") {
@@ -144,9 +1181,9 @@ async function startServer() {
     process.exit(1);
   });
 
-  wss.on("connection", (ws: WebSocket) => {
+  wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     const stream = new WebSocketJSONStream(ws);
-    backend.listen(stream as never);
+    backend.listen(stream as never, req);
     console.log("Client connected");
 
     ws.on("close", () => {
@@ -180,55 +1217,17 @@ async function startServer() {
   });
 }
 
-/**
- * WebSocket JSON stream adapter for ShareDB
- */
-class WebSocketJSONStream {
-  private ws: WebSocket;
-
-  constructor(ws: WebSocket) {
-    this.ws = ws;
+const isMainModule = (() => {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
   }
+  return pathToFileURL(entry).href === import.meta.url;
+})();
 
-  // ShareDB stream interface
-  on(event: string, callback: (...args: unknown[]) => void) {
-    if (event === "data") {
-      this.ws.on("message", (data: Buffer | string) => {
-        try {
-          const message = JSON.parse(data.toString());
-          callback(message);
-        } catch (error) {
-          console.error("Failed to parse message:", error);
-        }
-      });
-    } else if (event === "close" || event === "end") {
-      this.ws.on("close", callback);
-    } else if (event === "error") {
-      this.ws.on("error", callback);
-    }
-  }
-
-  write(data: unknown) {
-    if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-    }
-  }
-
-  end() {
-    this.ws.close();
-  }
-
-  // Duplex stream compatibility
-  pipe() {
-    return this;
-  }
-
-  removeListener() {
-    return this;
-  }
+if (isMainModule) {
+  startServer().catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
 }
-
-startServer().catch((error) => {
-  console.error("Failed to start server:", error);
-  process.exit(1);
-});

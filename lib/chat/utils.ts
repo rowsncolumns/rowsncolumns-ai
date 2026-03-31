@@ -3,7 +3,11 @@ import ShareDBClient from "sharedb/lib/client";
 import {
   applyPatchesToShareDBDoc,
   convertV3ToSheetData,
+  collectSheetDataOps,
+  collectArrayOps,
+  collectMapOps,
   type CellDataV3,
+  type ShareDBOp,
 } from "@rowsncolumns/sharedb/helpers";
 
 import { selectionToAddress } from "@rowsncolumns/utils";
@@ -17,6 +21,15 @@ import {
 } from "@rowsncolumns/calculation-worker";
 import { functions } from "@rowsncolumns/functions/server";
 import { setAutoFreeze } from "immer";
+import {
+  trackedSubmitOp,
+  type OperationAttribution,
+  BACKEND_ATTRIBUTION,
+} from "@/lib/operation-history";
+import { getShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
+
+// Re-export for tools.ts to use
+export type { OperationAttribution };
 
 const SHAREDB_URL = process.env.SHAREDB_URL || "ws://localhost:8080";
 const SHAREDB_COLLECTION = process.env.SHAREDB_COLLECTION || "spreadsheets";
@@ -175,15 +188,41 @@ const safeCloseWebSocket = (ws: import("ws").WebSocket) => {
   }
 };
 
-const getShareDBDocumentOnce = (
+const appendQueryParam = (
+  baseUrl: string,
+  key: string,
+  value: string,
+): string => {
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set(key, value);
+    return url.toString();
+  } catch {
+    const separator = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  }
+};
+
+const getShareDBDocumentOnce = async (
   docId: string,
 ): Promise<{
   doc: ShareDBClient.Doc;
   connection: ShareDBClient.Connection;
   close: () => void;
 }> => {
+  const runtimeContext = getShareDbRuntimeContext();
+  let resolvedShareDbUrl = SHAREDB_URL;
+  if (runtimeContext?.mcpTokenFactory) {
+    const token = await runtimeContext
+      .mcpTokenFactory({ docId, permission: "edit" })
+      .catch(() => null);
+    if (token) {
+      resolvedShareDbUrl = appendQueryParam(SHAREDB_URL, "mcpToken", token);
+    }
+  }
+
   return new Promise((resolve, reject) => {
-    const ws = new (getWebSocketCtor())(SHAREDB_URL);
+    const ws = new (getWebSocketCtor())(resolvedShareDbUrl);
     let settled = false;
     let doc: ShareDBClient.Doc | null = null;
 
@@ -493,6 +532,7 @@ export const evaluateFormulas = async (
  */
 export const ensureDocumentStructure = async (
   doc: ShareDBClient.Doc,
+  attribution?: OperationAttribution,
 ): Promise<void> => {
   const data = doc.data as ShareDBSpreadsheetDoc | null;
 
@@ -554,41 +594,208 @@ export const ensureDocumentStructure = async (
     return;
   }
 
-  await new Promise<void>((resolve, reject) => {
-    doc.submitOp(ops, {}, (err?: unknown) => {
-      if (err) {
-        reject(err);
-        return;
+  // Use tracked submit when attribution is provided or tracking is enabled
+  const effectiveAttribution = attribution ?? BACKEND_ATTRIBUTION;
+  await trackedSubmitOp(doc, ops, effectiveAttribution);
+};
+
+/**
+ * Collect json0 ops from patch tuples (mirrors applyPatchesToShareDBDoc logic).
+ * This allows us to capture the actual ops for undo support.
+ */
+const collectOpsFromPatchTuples = (
+  doc: ShareDBClient.Doc,
+  patches: SpreadsheetPatchTuples,
+  source: "agent" | "user" | "backend" = "agent",
+): ShareDBOp[] => {
+  const allOps: ShareDBOp[] = [];
+  const recalcUserId = source ?? "agent";
+  const recalcCellPatches: Array<{ op: string; path: (string | number)[]; value: unknown }> = [];
+  let recalcCellsLength = Array.isArray(doc.data?.recalcCells)
+    ? doc.data.recalcCells.length
+    : 0;
+
+  // Helper to get sheetData from doc
+  const getSheetData = () => doc.data?.sheetData;
+
+  for (const [patch, tupleType = "redo"] of patches) {
+    const type = tupleType ?? "redo";
+    const patchKey = type === "redo" ? "patches" : "inversePatches";
+
+    if (patch.sheetData) {
+      const sheetDataPatches = patch.sheetData[patchKey];
+      const ops = collectSheetDataOps(doc, sheetDataPatches, getSheetData);
+      allOps.push(...ops);
+    }
+
+    if (patch.sheets) {
+      const sheetsPatches = patch.sheets[patchKey];
+      const ops = collectArrayOps(doc, "sheets", sheetsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.tables) {
+      const tablesPatches = patch.tables[patchKey];
+      const ops = collectArrayOps(doc, "tables", tablesPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.embeds) {
+      const embedsPatches = patch.embeds[patchKey];
+      const ops = collectArrayOps(doc, "embeds", embedsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.charts) {
+      const chartsPatches = patch.charts[patchKey];
+      const ops = collectArrayOps(doc, "charts", chartsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.conditionalFormats) {
+      const conditionalFormatsPatches = patch.conditionalFormats[patchKey];
+      const ops = collectArrayOps(doc, "conditionalFormats", conditionalFormatsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.dataValidations) {
+      const dataValidationsPatches = patch.dataValidations[patchKey];
+      const ops = collectArrayOps(doc, "dataValidations", dataValidationsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.namedRanges) {
+      const namedRangesPatches = patch.namedRanges[patchKey];
+      const ops = collectArrayOps(doc, "namedRanges", namedRangesPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.sharedStrings) {
+      const sharedStringsPatches = patch.sharedStrings[patchKey];
+      const ops = collectMapOps(doc, "sharedStrings", sharedStringsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.protectedRanges) {
+      const protectedRangesPatches = patch.protectedRanges[patchKey];
+      const ops = collectArrayOps(doc, "protectedRanges", protectedRangesPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.cellXfs) {
+      const cellXfsPatches = patch.cellXfs[patchKey];
+      const ops = collectMapOps(doc, "cellXfs", cellXfsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.pivotTables) {
+      // Initialize pivotTables array if it doesn't exist (backward compatibility)
+      if (!doc.data?.pivotTables) {
+        allOps.push({ p: ["pivotTables"], oi: [] });
       }
-      resolve();
-    });
-  });
+      const pivotTablesPatches = patch.pivotTables[patchKey];
+      const ops = collectArrayOps(doc, "pivotTables", pivotTablesPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.slicers) {
+      // Initialize slicers array if it doesn't exist (backward compatibility)
+      if (!doc.data?.slicers) {
+        allOps.push({ p: ["slicers"], oi: [] });
+      }
+      const slicersPatches = patch.slicers[patchKey];
+      const ops = collectArrayOps(doc, "slicers", slicersPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.citations) {
+      // Initialize citations array if it doesn't exist (backward compatibility)
+      if (!doc.data?.citations) {
+        allOps.push({ p: ["citations"], oi: [] });
+      }
+      const citationsPatches = patch.citations[patchKey];
+      const ops = collectArrayOps(doc, "citations", citationsPatches);
+      allOps.push(...ops);
+    }
+
+    if (patch.recalcCells?.[type]) {
+      recalcCellPatches.push({
+        op: "add",
+        path: [recalcCellsLength],
+        value: {
+          userId: recalcUserId,
+          patches: Array.from(patch.recalcCells[type]).map((value: [unknown, unknown]) => [
+            value[0],
+            value[1],
+            source ?? "agent",
+          ]),
+        },
+      });
+      recalcCellsLength += 1;
+    }
+  }
+
+  if (recalcCellPatches.length > 0) {
+    // Backward compatibility: older docs may not have recalcCells initialized.
+    if (!Array.isArray(doc.data?.recalcCells)) {
+      allOps.push({ p: ["recalcCells"], oi: [] });
+    }
+    allOps.push(...collectArrayOps(doc, "recalcCells", recalcCellPatches as unknown as import("immer").Patch[]));
+  }
+
+  return allOps;
 };
 
 /**
  * Persist already-generated patch tuples to ShareDB and wait until write queue drains.
+ * Tracks operations with actual json0 ops for proper undo capability.
  */
 export const persistPatchTuples = async (
   doc: ShareDBClient.Doc,
   patchTuples: SpreadsheetPatchTuples,
   source: "agent" | "user" | "backend" = "agent",
+  attribution?: OperationAttribution,
 ) => {
-  await applyPatchesToShareDBDoc(doc, patchTuples, source);
+  // Auto-generate attribution if not provided
+  const effectiveAttribution: OperationAttribution = attribution ?? {
+    source,
+    actorType:
+      source === "agent" ? "assistant" : source === "user" ? "user" : "system",
+    actorId:
+      source === "agent"
+        ? "spreadsheet-agent"
+        : source === "user"
+          ? "unknown-user"
+          : "system",
+  };
+
+  // Collect the json0 ops from patch tuples (same logic as applyPatchesToShareDBDoc)
+  const ops = collectOpsFromPatchTuples(doc, patchTuples, source);
+
+  if (ops.length === 0) {
+    return patchTuples;
+  }
+
+  // Always submit via tracked wrapper. It handles enabled/disabled tracking via flags.
+  await trackedSubmitOp(doc, ops, effectiveAttribution, { source });
+
   return patchTuples;
 };
 
 /**
  * Persist spreadsheet patches back to ShareDB.
  * Automatically ensures document structure exists before applying patches.
+ * Optionally tracks the operation for undo capability when attribution is provided.
  */
 export const persistSpreadsheetPatches = async (
   doc: ShareDBClient.Doc,
   spreadsheet: InstanceType<typeof Spreadsheet>,
+  attribution?: OperationAttribution,
 ) => {
   // Ensure document has required structure before applying patches
-  await ensureDocumentStructure(doc);
+  await ensureDocumentStructure(doc, attribution);
 
   const patchTuples = spreadsheet.getPatchTuples();
-  await persistPatchTuples(doc, patchTuples, "agent");
+  await persistPatchTuples(doc, patchTuples, "agent", attribution);
   return patchTuples;
 };
