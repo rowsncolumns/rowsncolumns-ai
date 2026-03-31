@@ -39,6 +39,17 @@ The MCP server reuses existing spreadsheet tooling and ShareDB access from `lib/
 - `SHAREDB_COLLECTION` (default: `spreadsheets`)
 - `SHAREDB_MCP_TOKEN_SECRET` (required for no-login MCP capability tokens)
 
+## ShareDB server Redis pub/sub (production scaling)
+
+For multi-instance ShareDB websocket deployments, enable Redis pub/sub on the
+ShareDB server process:
+
+- `SHAREDB_REDIS_URL` (example: `rediss://...`)
+- `SHAREDB_REDIS_PREFIX` (optional, default: `rnc:sharedb`)
+
+When `SHAREDB_REDIS_URL` is unset, ShareDB runs without Redis pub/sub (local/dev
+single-instance mode).
+
 ## Exposed capabilities
 
 - 30 spreadsheet tools (reused from `lib/chat/tools.ts`)

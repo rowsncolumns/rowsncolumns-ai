@@ -4,10 +4,16 @@ import { pathToFileURL } from "node:url";
 import { config as loadEnv } from "dotenv";
 import ShareDB from "sharedb";
 import { WebSocketServer, WebSocket } from "ws";
+import { createClient } from "redis";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const WebSocketJSONStream = require("websocket-json-stream") as new (
   ws: WebSocket,
 ) => unknown;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const createShareDBRedisPubSub = require("sharedb-redis-pubsub") as (options: {
+  client: ReturnType<typeof createClient>;
+  prefix?: string;
+}) => unknown;
 import { getFlags, isTrackingEnabledForSource } from "./lib/feature-flags";
 import { ensureDocumentAccess } from "./lib/documents/repository";
 import { verifyMcpShareDbAccessToken } from "./lib/sharedb/mcp-token";
@@ -92,6 +98,9 @@ const AUTH_BASE_URL =
 const SHAREDB_COLLECTION =
   process.env.SHAREDB_COLLECTION?.trim() || "spreadsheets";
 const SHAREDB_AUTH_DEBUG = process.env.SHAREDB_AUTH_DEBUG === "true";
+const SHAREDB_REDIS_URL = process.env.SHAREDB_REDIS_URL?.trim() || null;
+const SHAREDB_REDIS_PREFIX =
+  process.env.SHAREDB_REDIS_PREFIX?.trim() || "rnc:sharedb";
 const AUTH_IDENTITY_CACHE_TTL_MS = 5 * 60_000;
 const AUDIT_ACCESS_CACHE_TTL_MS = 5 * 60_000;
 const DOC_ACCESS_CACHE_TTL_MS = parsePositiveInt(
@@ -1147,8 +1156,33 @@ async function startServer() {
     ...(shouldForceSsl ? { ssl: { rejectUnauthorized: false } } : {}),
   }) as never;
 
+  const pubsub: ShareDB.PubSub | undefined = (() => {
+    if (!SHAREDB_REDIS_URL) {
+      console.log("ShareDB Redis pubsub: disabled (SHAREDB_REDIS_URL unset)");
+      return undefined;
+    }
+
+    const redisClient = createClient({
+      url: SHAREDB_REDIS_URL,
+    });
+
+    redisClient.on("error", (error) => {
+      console.error("[sharedb-redis] client error:", error);
+    });
+
+    console.log("ShareDB Redis pubsub: enabled", {
+      prefix: SHAREDB_REDIS_PREFIX,
+    });
+
+    return createShareDBRedisPubSub({
+      client: redisClient,
+      prefix: SHAREDB_REDIS_PREFIX,
+    }) as ShareDB.PubSub;
+  })();
+
   const backend = new ShareDB({
     db,
+    ...(pubsub ? { pubsub } : {}),
     presence: true,
     doNotForwardSendPresenceErrorsToClient: true,
   });
