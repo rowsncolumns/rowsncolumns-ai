@@ -522,7 +522,12 @@ export const executeChatRunStream = async (input: {
           runId: string;
         }),
   ) => {
-    if (shouldPersistEvents) {
+    const shouldPersistThisEvent =
+      shouldPersistEvents &&
+      event.type !== "message.delta" &&
+      event.type !== "reasoning.delta";
+
+    if (shouldPersistThisEvent) {
       try {
         await appendChatRunEvent({ runId, event: event as ChatStreamEvent });
       } catch (error) {
