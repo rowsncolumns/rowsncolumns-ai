@@ -119,7 +119,7 @@ const DOC_ACCESS_CACHE_TTL_MS = parsePositiveInt(
   process.env.SHAREDB_DOC_ACCESS_CACHE_TTL_MS,
   45_000,
 );
-const DEFAULT_SHAREDB_DOC_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+const DEFAULT_SHAREDB_DOC_MAX_BYTES = 300 * 1024 * 1024; // 300 MB
 const SHAREDB_DOC_MAX_BYTES = parseNonNegativeInt(
   process.env.SHAREDB_DOC_MAX_BYTES,
   DEFAULT_SHAREDB_DOC_MAX_BYTES,
@@ -1336,10 +1336,8 @@ async function startServer() {
           zlibDeflateOptions: {
             level: SHAREDB_WS_COMPRESSION_LEVEL,
           },
-          clientNoContextTakeover:
-            SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
-          serverNoContextTakeover:
-            SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+          clientNoContextTakeover: SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+          serverNoContextTakeover: SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
         }
       : false,
   });
