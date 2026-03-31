@@ -77,7 +77,10 @@ import {
   persistSpreadsheetPatches,
   type ShareDBSpreadsheetDoc,
 } from "./utils";
-import { createAgentAttribution, trackedSubmitOp } from "@/lib/operation-history";
+import {
+  createAgentAttribution,
+  trackedSubmitOp,
+} from "@/lib/operation-history";
 import {
   type StyleReference,
   type TableTheme,
@@ -1458,7 +1461,10 @@ const handleSpreadsheetSetIterativeMode = async (
         source: "agent",
       });
       if (!submitResult.success) {
-        throw submitResult.error ?? new Error("Failed to submit iterative mode update");
+        throw (
+          submitResult.error ??
+          new Error("Failed to submit iterative mode update")
+        );
       }
 
       return JSON.stringify({
@@ -2599,6 +2605,13 @@ Use this approach:
   2. applyFill: Extend to remaining cells (sourceRange: "B5:C5", fillRange: "D5:M5")
 
 CRITICAL:
+- SERIES FILL (incrementing numbers/dates) REQUIRES 2+ SOURCE CELLS IN THE FILL DIRECTION:
+  • Fill DOWN (vertical): sourceRange must span at least 2 ROWS (e.g., "A1:A2" not "A1:N1")
+  • Fill RIGHT (horizontal): sourceRange must span at least 2 COLUMNS (e.g., "A1:B1" not "A1:A10")
+  • With only 1 cell/row/column in the fill direction, values are COPIED, not incremented
+  • Example: To fill rows 3-100 with incrementing values, sourceRange must be "A1:A2" (2 rows), not "A1" (1 row)
+- FORMULA FILL only needs 1 source row/column - formulas auto-adjust relative references when filled
+  • Example: Formula "=B15-C16" in row 16, when filled to row 17, becomes "=B16-C17"
 - fillRange must NOT include sourceRange.
 - fillRange specifies ONLY the destination cells to be filled
 - For fill DOWN: fillRange starts at the row AFTER sourceRange ends
@@ -2651,7 +2664,21 @@ Example 5 — Fill fiscal months 1-12 across row (1, 2 in B5:C5 → fills 3-12 i
   docId: "abc123"
   activeCell: "B5"
   sourceRange: "B5:C5"
-  fillRange: "D5:M5"`,
+  fillRange: "D5:M5"
+
+Example 6 — Fill formulas down across multiple columns (formulas in row 2 → copy to rows 3-50):
+  docId: "abc123"
+  activeCell: "A2"
+  sourceRange: "A2:F2"
+  fillRange: "A3:F50"
+  (Note: fillRange starts at row 3, NOT row 2 - formulas auto-adjust references)
+
+Example 7 — Fill incrementing numbers down (values 1,2 in A1:A2 → fills 3,4,5... in A3:A100):
+  docId: "abc123"
+  activeCell: "A1"
+  sourceRange: "A1:A2"
+  fillRange: "A3:A100"
+  (Note: sourceRange has 2 ROWS to establish the incrementing pattern)`,
   schema: SpreadsheetApplyFillSchema,
 });
 
