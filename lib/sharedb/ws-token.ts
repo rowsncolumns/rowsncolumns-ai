@@ -19,22 +19,23 @@ const DEFAULT_TTL_SECONDS = (() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
 })();
 
-const WS_TOKEN_SECRET =
-  process.env.SHAREDB_WS_TOKEN_SECRET?.trim() ||
-  process.env.SHAREDB_MCP_TOKEN_SECRET?.trim() ||
-  null;
-const WS_TOKEN_ISSUER =
-  process.env.SHAREDB_WS_TOKEN_ISSUER?.trim() || "rowsncolumns-ws";
-const WS_TOKEN_AUDIENCE =
-  process.env.SHAREDB_WS_TOKEN_AUDIENCE?.trim() || "sharedb";
+const getWsTokenConfig = () => ({
+  secret:
+    process.env.SHAREDB_WS_TOKEN_SECRET?.trim() ||
+    process.env.SHAREDB_MCP_TOKEN_SECRET?.trim() ||
+    null,
+  issuer: process.env.SHAREDB_WS_TOKEN_ISSUER?.trim() || "rowsncolumns-ws",
+  audience: process.env.SHAREDB_WS_TOKEN_AUDIENCE?.trim() || "sharedb",
+});
 
 const encoder = new TextEncoder();
 
 const getSigningSecret = (): Uint8Array | null => {
-  if (!WS_TOKEN_SECRET) {
+  const { secret } = getWsTokenConfig();
+  if (!secret) {
     return null;
   }
-  return encoder.encode(WS_TOKEN_SECRET);
+  return encoder.encode(secret);
 };
 
 export const canIssueShareDbWsAccessToken = (): boolean => {
@@ -74,6 +75,7 @@ export async function issueShareDbWsAccessToken(input: {
       : DEFAULT_TTL_SECONDS;
   const normalizedEmail = normalizeOptionalString(input.email);
   const normalizedName = normalizeOptionalString(input.name);
+  const { issuer, audience } = getWsTokenConfig();
 
   const claims: ShareDbWsAccessClaims = {
     kind: "sharedb_ws_access",
@@ -86,8 +88,8 @@ export async function issueShareDbWsAccessToken(input: {
 
   return new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-    .setIssuer(WS_TOKEN_ISSUER)
-    .setAudience(WS_TOKEN_AUDIENCE)
+    .setIssuer(issuer)
+    .setAudience(audience)
     .setIssuedAt()
     .setExpirationTime(`${ttlSeconds}s`)
     .sign(secret);
@@ -100,11 +102,12 @@ export async function verifyShareDbWsAccessToken(
   if (!secret) {
     return null;
   }
+  const { issuer, audience } = getWsTokenConfig();
 
   try {
     const verified = await jwtVerify(token, secret, {
-      issuer: WS_TOKEN_ISSUER,
-      audience: WS_TOKEN_AUDIENCE,
+      issuer,
+      audience,
     });
     const payload = verified.payload as Partial<ShareDbWsAccessClaims>;
     if (

@@ -9,20 +9,21 @@ export type McpShareDbAccessClaims = {
 };
 
 const DEFAULT_TTL_SECONDS = 60 * 60;
-const MCP_TOKEN_SECRET =
-  process.env.SHAREDB_MCP_TOKEN_SECRET?.trim() || null;
-const MCP_TOKEN_ISSUER =
-  process.env.SHAREDB_MCP_TOKEN_ISSUER?.trim() || "rowsncolumns-mcp";
-const MCP_TOKEN_AUDIENCE =
-  process.env.SHAREDB_MCP_TOKEN_AUDIENCE?.trim() || "sharedb";
+const getMcpTokenConfig = () => ({
+  secret: process.env.SHAREDB_MCP_TOKEN_SECRET?.trim() || null,
+  issuer: process.env.SHAREDB_MCP_TOKEN_ISSUER?.trim() || "rowsncolumns-mcp",
+  audience:
+    process.env.SHAREDB_MCP_TOKEN_AUDIENCE?.trim() || "sharedb",
+});
 
 const encoder = new TextEncoder();
 
 const getSigningSecret = (): Uint8Array | null => {
-  if (!MCP_TOKEN_SECRET) {
+  const { secret } = getMcpTokenConfig();
+  if (!secret) {
     return null;
   }
-  return encoder.encode(MCP_TOKEN_SECRET);
+  return encoder.encode(secret);
 };
 
 export const canIssueMcpShareDbToken = (): boolean => {
@@ -44,6 +45,7 @@ export async function issueMcpShareDbAccessToken(input: {
     typeof input.ttlSeconds === "number" && input.ttlSeconds > 0
       ? input.ttlSeconds
       : DEFAULT_TTL_SECONDS;
+  const { issuer, audience } = getMcpTokenConfig();
 
   return new SignJWT({
     kind: "mcp_sharedb_access",
@@ -51,8 +53,8 @@ export async function issueMcpShareDbAccessToken(input: {
     permission,
   } satisfies McpShareDbAccessClaims)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-    .setIssuer(MCP_TOKEN_ISSUER)
-    .setAudience(MCP_TOKEN_AUDIENCE)
+    .setIssuer(issuer)
+    .setAudience(audience)
     .setIssuedAt()
     .setExpirationTime(`${ttlSeconds}s`)
     .sign(secret);
@@ -65,11 +67,12 @@ export async function verifyMcpShareDbAccessToken(
   if (!secret) {
     return null;
   }
+  const { issuer, audience } = getMcpTokenConfig();
 
   try {
     const verified = await jwtVerify(token, secret, {
-      issuer: MCP_TOKEN_ISSUER,
-      audience: MCP_TOKEN_AUDIENCE,
+      issuer,
+      audience,
     });
     const payload = verified.payload as Partial<McpShareDbAccessClaims>;
     if (
