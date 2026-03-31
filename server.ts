@@ -124,6 +124,20 @@ const SHAREDB_DOC_MAX_BYTES = parseNonNegativeInt(
   process.env.SHAREDB_DOC_MAX_BYTES,
   DEFAULT_SHAREDB_DOC_MAX_BYTES,
 );
+const SHAREDB_WS_MAX_PAYLOAD_OVERHEAD_BYTES = parseNonNegativeInt(
+  process.env.SHAREDB_WS_MAX_PAYLOAD_OVERHEAD_BYTES,
+  1 * 1024 * 1024,
+);
+const SHAREDB_WS_MAX_PAYLOAD_CAP_BYTES =
+  SHAREDB_DOC_MAX_BYTES + SHAREDB_WS_MAX_PAYLOAD_OVERHEAD_BYTES;
+const SHAREDB_WS_MAX_PAYLOAD_REQUESTED_BYTES = parseNonNegativeInt(
+  process.env.SHAREDB_WS_MAX_PAYLOAD_BYTES,
+  SHAREDB_WS_MAX_PAYLOAD_CAP_BYTES,
+);
+const SHAREDB_WS_MAX_PAYLOAD_BYTES = Math.min(
+  SHAREDB_WS_MAX_PAYLOAD_REQUESTED_BYTES,
+  SHAREDB_WS_MAX_PAYLOAD_CAP_BYTES,
+);
 const SHAREDB_WS_COMPRESSION_ENABLED = parseBoolean(
   process.env.SHAREDB_WS_COMPRESSION_ENABLED,
   true,
@@ -1262,7 +1276,19 @@ async function startServer() {
     concurrencyLimit: SHAREDB_WS_COMPRESSION_CONCURRENCY_LIMIT,
     level: SHAREDB_WS_COMPRESSION_LEVEL,
     noContextTakeover: SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+    maxPayloadBytes: SHAREDB_WS_MAX_PAYLOAD_BYTES,
+    maxPayloadCapBytes: SHAREDB_WS_MAX_PAYLOAD_CAP_BYTES,
+    docMaxBytes: SHAREDB_DOC_MAX_BYTES,
   });
+  if (SHAREDB_WS_MAX_PAYLOAD_REQUESTED_BYTES > SHAREDB_WS_MAX_PAYLOAD_BYTES) {
+    console.warn(
+      "[sharedb-ws] SHAREDB_WS_MAX_PAYLOAD_BYTES was capped to respect SHAREDB_DOC_MAX_BYTES",
+      {
+        requestedBytes: SHAREDB_WS_MAX_PAYLOAD_REQUESTED_BYTES,
+        cappedBytes: SHAREDB_WS_MAX_PAYLOAD_BYTES,
+      },
+    );
+  }
 
   const shouldForceSsl =
     SHAREDB_REQUIRE_SSL && !/sslmode=/i.test(SHAREDB_DATABASE_URL);
@@ -1329,6 +1355,7 @@ async function startServer() {
 
   const wss = new WebSocketServer({
     server,
+    maxPayload: SHAREDB_WS_MAX_PAYLOAD_BYTES,
     perMessageDeflate: SHAREDB_WS_COMPRESSION_ENABLED
       ? {
           threshold: SHAREDB_WS_COMPRESSION_THRESHOLD_BYTES,
@@ -1357,6 +1384,22 @@ async function startServer() {
     const stream = new WebSocketJSONStream(ws);
     backend.listen(stream as never, req);
     console.log("Client connected");
+
+    ws.on("error", (error) => {
+      const errorUnknown: unknown = error;
+      const errorRecord =
+        typeof errorUnknown === "object" && errorUnknown !== null
+          ? (errorUnknown as Record<PropertyKey, unknown>)
+          : null;
+      const statusCode =
+        errorRecord && Symbol.for("status-code") in errorRecord
+          ? errorRecord[Symbol.for("status-code")]
+          : undefined;
+      console.warn("WebSocket client error:", {
+        message: error instanceof Error ? error.message : String(error),
+        ...(typeof statusCode === "number" ? { statusCode } : {}),
+      });
+    });
 
     ws.on("close", () => {
       console.log("Client disconnected");

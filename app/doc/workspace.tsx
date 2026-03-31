@@ -200,6 +200,9 @@ const getShareDbUrl = () => {
 };
 
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
+type ShareDBSocketWithDiagnostics = ShareDBSocket & {
+  getLastCloseReason: () => string | null;
+};
 type ShareDbConnectionState =
   | "connecting"
   | "connected"
@@ -224,14 +227,52 @@ const normalizeShareDbConnectionState = (
   }
 };
 
+const describeWebSocketCloseCode = (code: number): string => {
+  switch (code) {
+    case 1000:
+      return "Connection closed normally";
+    case 1001:
+      return "Connection closed (going away)";
+    case 1006:
+      return "Connection closed unexpectedly";
+    case 1008:
+      return "Connection rejected by policy";
+    case 1009:
+      return "Payload too large. Upload a smaller file or increase server payload limit.";
+    case 1011:
+      return "Server error while handling websocket message";
+    default:
+      return `Connection closed (code ${code})`;
+  }
+};
+
+const normalizeShareDbReasonText = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "undefined") {
+    return null;
+  }
+
+  const lowered = trimmed.toLowerCase();
+  if (
+    lowered.includes("max payload size exceeded") ||
+    lowered.includes("unsupported message length")
+  ) {
+    return describeWebSocketCloseCode(1009);
+  }
+  if (lowered.includes("authentication required")) {
+    return "Authentication required to access this document.";
+  }
+
+  return trimmed;
+};
+
 const formatShareDbReason = (reason: unknown): string | null => {
   if (!reason) return null;
   if (typeof reason === "string") {
-    const value = reason.trim();
-    return value.length > 0 ? value : null;
+    return normalizeShareDbReasonText(reason);
   }
   if (reason instanceof Error) {
-    return reason.message.trim() || reason.name;
+    return normalizeShareDbReasonText(reason.message) ?? reason.name;
   }
   if (typeof reason === "object") {
     const value = reason as {
@@ -240,14 +281,20 @@ const formatShareDbReason = (reason: unknown): string | null => {
       code?: unknown;
       type?: unknown;
     };
-    if (typeof value.reason === "string" && value.reason.trim()) {
-      return value.reason.trim();
+    if (
+      typeof value.reason === "string" &&
+      normalizeShareDbReasonText(value.reason)
+    ) {
+      return normalizeShareDbReasonText(value.reason);
     }
-    if (typeof value.message === "string" && value.message.trim()) {
-      return value.message.trim();
+    if (
+      typeof value.message === "string" &&
+      normalizeShareDbReasonText(value.message)
+    ) {
+      return normalizeShareDbReasonText(value.message);
     }
     if (typeof value.code === "number") {
-      return `code ${value.code}`;
+      return describeWebSocketCloseCode(value.code);
     }
     if (typeof value.type === "string" && value.type.trim()) {
       return value.type.trim();
@@ -256,10 +303,11 @@ const formatShareDbReason = (reason: unknown): string | null => {
   return null;
 };
 
-const createShareDbSocket = (): ShareDBSocket => {
+const createShareDbSocket = (): ShareDBSocketWithDiagnostics => {
   const reconnectingSocket = new ReconnectingWebSocket(getShareDbUrl());
+  let lastCloseReason: string | null = null;
 
-  const socket: ShareDBSocket = {
+  const socket: ShareDBSocketWithDiagnostics = {
     get readyState() {
       return reconnectingSocket.readyState;
     },
@@ -273,12 +321,19 @@ const createShareDbSocket = (): ShareDBSocket => {
     onclose: () => {},
     onerror: () => {},
     onopen: () => {},
+    getLastCloseReason() {
+      return lastCloseReason;
+    },
   };
 
   reconnectingSocket.onmessage = (event) => {
     socket.onmessage(event);
   };
   reconnectingSocket.onclose = (event) => {
+    const parsedReason = formatShareDbReason(event);
+    if (parsedReason) {
+      lastCloseReason = parsedReason;
+    }
     socket.onclose(event);
   };
   reconnectingSocket.onerror = (event) => {
@@ -488,8 +543,21 @@ function SpreadsheetPane({
   >(null);
   const [hasSeenShareDbConnected, setHasSeenShareDbConnected] =
     useState<boolean>(false);
+  const lastShareDbErrorToastRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const maybeToastShareDbIssue = (
+      normalizedState: ShareDbConnectionState,
+      message: string,
+    ) => {
+      const dedupeKey = `${normalizedState}:${message}`;
+      if (lastShareDbErrorToastRef.current === dedupeKey) {
+        return;
+      }
+      lastShareDbErrorToastRef.current = dedupeKey;
+      toast.error(`Live collaboration error: ${message}`);
+    };
+
     const handleStateChange = (state: unknown, reason?: unknown) => {
       const normalizedState = normalizeShareDbConnectionState(state);
       setShareDbConnectionState(normalizedState);
@@ -500,19 +568,22 @@ function SpreadsheetPane({
 
       if (normalizedState === "connected" || normalizedState === "connecting") {
         setShareDbConnectionReason(null);
+        lastShareDbErrorToastRef.current = null;
         return;
       }
 
-      const parsedReason = formatShareDbReason(reason);
-      if (parsedReason) {
-        setShareDbConnectionReason(parsedReason);
-      }
+      const parsedReason =
+        formatShareDbReason(reason) ?? socket.getLastCloseReason();
+      const finalReason = parsedReason ?? "Connection lost.";
+      setShareDbConnectionReason(finalReason);
+      maybeToastShareDbIssue(normalizedState, finalReason);
     };
 
     const handleConnectionError = (error: unknown) => {
       const parsedError = formatShareDbReason(error);
       if (parsedError) {
         setShareDbConnectionReason(parsedError);
+        maybeToastShareDbIssue("disconnected", parsedError);
       }
     };
 
