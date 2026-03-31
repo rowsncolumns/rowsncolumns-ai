@@ -33,6 +33,7 @@ import {
 import { getUserBillingEntitlement } from "@/lib/billing/repository";
 import { withOperationHistoryRuntimeContext } from "@/lib/operation-history/runtime-context";
 import { withShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
+import { issueMcpShareDbAccessToken } from "@/lib/sharedb/mcp-token";
 
 export type ChatProvider = "openai" | "anthropic";
 export type ChatMode = "action" | "plan" | "ask";
@@ -628,6 +629,8 @@ export const executeChatRunStream = async (input: {
 
     await withShareDbRuntimeContext(
       {
+        mcpTokenFactory: ({ docId, permission }) =>
+          issueMcpShareDbAccessToken({ docId, permission }),
         ...(input.shareDbWsHeaders ? { wsHeaders: input.shareDbWsHeaders } : {}),
       },
       async () =>

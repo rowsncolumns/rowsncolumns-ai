@@ -9,7 +9,8 @@ export type McpShareDbAccessClaims = {
 };
 
 const DEFAULT_TTL_SECONDS = 60 * 60;
-const MCP_TOKEN_SECRET = process.env.SHAREDB_MCP_TOKEN_SECRET?.trim() || null;
+const MCP_TOKEN_SECRET =
+  process.env.SHAREDB_MCP_TOKEN_SECRET?.trim() || null;
 const MCP_TOKEN_ISSUER =
   process.env.SHAREDB_MCP_TOKEN_ISSUER?.trim() || "rowsncolumns-mcp";
 const MCP_TOKEN_AUDIENCE =
