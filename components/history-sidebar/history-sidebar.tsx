@@ -77,7 +77,7 @@ export function HistorySidebar({
       )}
     >
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2.5 rounded-lg rounded-bl-none rounded-br-none">
+      <div className="sticky top-0 z-10 border-b border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2.5 rounded-tl-lg rounded-tr-lg">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold tracking-[-0.01em] text-[var(--foreground)]">
             Version History
