@@ -7,7 +7,9 @@ import type { ActivityItem as ActivityItemType } from "@/lib/operation-history/t
 
 interface ActivityItemProps {
   activity: ActivityItemType;
-  onUndo: (operationId: string) => Promise<{ success: boolean; error?: string }>;
+  onUndo: (
+    operationId: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   canUndo: boolean;
   actorNameById: Record<string, string>;
 }
@@ -183,9 +185,9 @@ function ActorIcon({ activity }: { activity: ActivityItemType }) {
 
   if (isAgent) {
     return (
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[color:color-mix(in_srgb,var(--card-border)_90%,transparent)] bg-[color:color-mix(in_srgb,var(--card-border)_18%,var(--card-bg))] text-[var(--muted-foreground)]">
         <svg
-          className="h-4 w-4"
+          className="h-3.5 w-3.5"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -203,9 +205,9 @@ function ActorIcon({ activity }: { activity: ActivityItemType }) {
 
   if (isUser) {
     return (
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color:color-mix(in_srgb,#2563eb_16%,var(--card-bg))] text-blue-600">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[color:color-mix(in_srgb,#2563eb_16%,var(--card-bg))] text-blue-600">
         <svg
-          className="h-4 w-4"
+          className="h-3.5 w-3.5"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -223,9 +225,9 @@ function ActorIcon({ activity }: { activity: ActivityItemType }) {
 
   // System/backend
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color:color-mix(in_srgb,var(--card-border)_28%,var(--card-bg))] text-[var(--muted-foreground)]">
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[color:color-mix(in_srgb,var(--card-border)_28%,var(--card-bg))] text-[var(--muted-foreground)]">
       <svg
-        className="h-4 w-4"
+        className="h-3.5 w-3.5"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -275,7 +277,7 @@ export function ActivityItem({
   return (
     <div
       className={cn(
-        "group rounded-2xl border px-3.5 py-3",
+        "group rounded-xl border px-2.5 py-2.5",
         "border-[color:color-mix(in_srgb,var(--card-border)_75%,transparent)]",
         "bg-[color:color-mix(in_srgb,var(--card-bg)_90%,transparent)]",
         "shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-150",
@@ -283,27 +285,27 @@ export function ActivityItem({
         isReverted && "opacity-70",
       )}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2.5">
         <ActorIcon activity={activity} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-[15px] font-semibold text-[var(--foreground)]">
+            <span className="truncate text-sm font-semibold text-[var(--foreground)]">
               {getActorDisplayName(activity, actorNameById)}
             </span>
             {activity.activityType === "rollback" && (
-              <span className="inline-flex items-center rounded-full border border-[color:color-mix(in_srgb,#d97706_35%,transparent)] bg-[color:color-mix(in_srgb,#f59e0b_18%,var(--card-bg))] px-2 py-0.5 text-[11px] font-semibold tracking-wide text-amber-700">
+              <span className="inline-flex items-center rounded-full border border-[color:color-mix(in_srgb,#d97706_35%,transparent)] bg-[color:color-mix(in_srgb,#f59e0b_18%,var(--card-bg))] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700">
                 Rollback
               </span>
             )}
             {isReverted && (
-              <span className="inline-flex items-center rounded-full border border-[color:color-mix(in_srgb,var(--card-border)_90%,transparent)] bg-[color:color-mix(in_srgb,var(--card-border)_22%,var(--card-bg))] px-2 py-0.5 text-[11px] font-semibold text-[var(--muted-foreground)]">
+              <span className="inline-flex items-center rounded-full border border-[color:color-mix(in_srgb,var(--card-border)_90%,transparent)] bg-[color:color-mix(in_srgb,var(--card-border)_22%,var(--card-bg))] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
                 Reverted
               </span>
             )}
           </div>
 
-          <p className="mt-0.5 truncate text-sm text-[var(--muted-foreground)]">
+          <p className="mt-0.5 truncate text-xs text-[var(--muted-foreground)]">
             {getActivityDescription(activity)}
           </p>
         </div>
@@ -314,7 +316,9 @@ export function ActivityItem({
             disabled={isUndoing}
             variant="secondary"
             size="sm"
-            className={cn("h-8 shrink-0 rounded-lg px-3 text-xs font-semibold")}
+            className={cn(
+              "h-7 shrink-0 rounded-md px-2.5 text-[11px] font-semibold",
+            )}
           >
             {isUndoing ? (
               <svg
@@ -346,29 +350,29 @@ export function ActivityItem({
       {(diffSummary.impactLine ||
         diffSummary.sheetLines.length > 0 ||
         diffSummary.structuralLine) && (
-        <div className="mt-2.5 rounded-xl border border-[color:color-mix(in_srgb,var(--card-border)_70%,transparent)] bg-[color:color-mix(in_srgb,var(--nav-hover)_38%,transparent)] px-2.5 py-2">
+        <div className="mt-2 rounded-lg border border-[color:color-mix(in_srgb,var(--card-border)_70%,transparent)] bg-[color:color-mix(in_srgb,var(--nav-hover)_38%,transparent)] px-2 py-1.5">
           {diffSummary.impactLine && (
-            <p className="text-xs font-medium text-[var(--foreground)]">
+            <p className="text-[11px] font-medium text-[var(--foreground)]">
               {diffSummary.impactLine}
             </p>
           )}
           {diffSummary.sheetLines.map((line) => (
             <p
               key={line}
-              className="mt-1 truncate font-mono text-[11px] text-[var(--muted-foreground)]"
+              className="mt-0.5 truncate font-mono text-[10px] text-[var(--muted-foreground)]"
             >
               {line}
             </p>
           ))}
           {diffSummary.structuralLine && (
-            <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+            <p className="mt-0.5 text-[10px] text-[var(--muted-foreground)]">
               {diffSummary.structuralLine}
             </p>
           )}
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
+      <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
         <span>{formatRelativeTime(activity.createdAt)}</span>
         <span>•</span>
         <span className="font-medium">

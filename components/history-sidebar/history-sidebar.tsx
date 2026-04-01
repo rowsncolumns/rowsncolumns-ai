@@ -70,7 +70,7 @@ export function HistorySidebar({
   return (
     <div
       className={cn(
-        "z-50 flex h-full w-[22rem] max-w-[calc(100%-1rem)] flex-col",
+        "z-50 flex h-full w-[20rem] max-w-[calc(100%-0.5rem)] flex-col",
         "border-r border-[var(--card-border)] bg-[var(--card-bg)]",
         "shadow-[0_8px_24px_rgba(0,0,0,0.05)]",
         "transform transition-transform duration-300 ease-in-out",
@@ -78,9 +78,9 @@ export function HistorySidebar({
       )}
     >
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[var(--card-border)] bg-[var(--card-bg)] px-4 py-3">
+      <div className="sticky top-0 z-10 border-b border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2.5">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-[-0.01em] text-[var(--foreground)]">
+          <h2 className="text-base font-semibold tracking-[-0.01em] text-[var(--foreground)]">
             Version History
           </h2>
           <IconButton
@@ -107,12 +107,12 @@ export function HistorySidebar({
       </div>
 
       {/* Filters */}
-      <div className="border-b border-[var(--card-border)] px-4 py-3">
+      <div className="border-b border-[var(--card-border)] px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
             Filter
           </span>
-          <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--card-border)] bg-[var(--nav-hover)] p-1">
+          <div className="inline-flex items-center gap-1 rounded-lg border border-[var(--card-border)] bg-[var(--nav-hover)] p-0.5">
             {(["all", "agent", "user"] as const).map((filter) => (
               <Button
                 key={filter}
@@ -120,7 +120,7 @@ export function HistorySidebar({
                 variant={sourceFilter === filter ? "primary" : "secondary"}
                 size="sm"
                 className={cn(
-                  "h-8 rounded-lg px-3 text-sm font-medium capitalize shadow-none",
+                  "h-7 rounded-md px-2.5 text-xs font-medium capitalize shadow-none",
                   sourceFilter === filter &&
                     "shadow-[0_1px_8px_rgba(0,0,0,0.12)]",
                 )}
@@ -138,11 +138,11 @@ export function HistorySidebar({
             disabled={isLoading}
             variant="secondary"
             size="sm"
-            className="ml-auto h-8 w-8 rounded-lg p-0"
+            className="ml-auto h-7 w-7 rounded-md p-0"
             title="Refresh"
           >
             <svg
-              className={cn("h-4 w-4", isLoading && "animate-spin")}
+              className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -159,7 +159,7 @@ export function HistorySidebar({
       </div>
 
       {/* Activity List */}
-      <div className="flex-1 overflow-y-auto px-3 py-3">
+      <div className="flex-1 overflow-y-auto px-2.5 py-2">
         {error && (
           <div className="p-1">
             <div className="rounded-xl border border-red-200/70 bg-red-50/80 p-3">
@@ -199,7 +199,7 @@ export function HistorySidebar({
         )}
 
         {!error && items.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {items.map((activity) => (
               <ActivityItem
                 key={activity.id}
@@ -214,13 +214,13 @@ export function HistorySidebar({
 
         {/* Load more */}
         {hasMore && items.length > 0 && (
-          <div className="pt-3">
+          <div className="pt-2">
             <Button
               onClick={fetchMore}
               disabled={isLoading}
               variant="secondary"
               size="sm"
-              className={cn("h-10 w-full rounded-xl text-sm font-medium")}
+              className={cn("h-8 w-full rounded-lg text-xs font-medium")}
             >
               {isLoading ? "Loading..." : "Load more"}
             </Button>
