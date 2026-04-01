@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,10 +34,13 @@ export function HistorySidebar({
 }: HistorySidebarProps) {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
-  const filters: ActivityFilters = {
-    sources:
-      sourceFilter === "all" ? undefined : [sourceFilter as OperationSource],
-  };
+  const filters: ActivityFilters = useMemo(
+    () => ({
+      sources:
+        sourceFilter === "all" ? undefined : [sourceFilter as OperationSource],
+    }),
+    [sourceFilter],
+  );
 
   const {
     items,

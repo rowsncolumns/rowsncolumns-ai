@@ -40,6 +40,7 @@ export function useActivityHistory({
   filters,
   autoFetch = true,
 }: UseActivityHistoryOptions): UseActivityHistoryResult {
+  const ACTIVITY_FETCH_TIMEOUT_MS = 15_000;
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -98,11 +99,16 @@ export function useActivityHistory({
 
       setIsLoading(true);
       setError(null);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, ACTIVITY_FETCH_TIMEOUT_MS);
 
       try {
         const queryString = buildQueryParams(append ? cursorValue : null);
         const response = await fetch(
           `/api/documents/${documentId}/activity?${queryString}`,
+          { signal: controller.signal },
         );
 
         if (!response.ok) {
@@ -121,9 +127,15 @@ export function useActivityHistory({
         setCursor(data.nextCursor);
         setHasMore(!!data.nextCursor);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown error";
+        const message =
+          err instanceof Error
+            ? err.name === "AbortError"
+              ? "Loading activity history timed out. Please retry."
+              : err.message
+            : "Unknown error";
         setError(message);
       } finally {
+        clearTimeout(timeoutId);
         setIsLoading(false);
       }
     },
