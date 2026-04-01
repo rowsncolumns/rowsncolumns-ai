@@ -9,6 +9,7 @@ import {
 } from "@/hooks/use-activity-history";
 import { ActivityItem } from "./activity-item";
 import type { OperationSource } from "@/lib/operation-history/types";
+import { LoadingIcon } from "@rowsncolumns/icons";
 import { IconButton } from "@rowsncolumns/ui";
 
 interface HistorySidebarProps {
@@ -70,15 +71,13 @@ export function HistorySidebar({
   return (
     <div
       className={cn(
-        "z-50 flex h-full w-[20rem] max-w-[calc(100%-0.5rem)] flex-col",
-        "border-r border-[var(--card-border)] bg-[var(--card-bg)]",
-        "shadow-[0_8px_24px_rgba(0,0,0,0.05)]",
-        "transform transition-transform duration-300 ease-in-out",
+        "z-50 flex h-full flex-col",
+        "border border-[var(--card-border)] bg-[var(--card-bg)] rounded-lg",
         isOpen ? "translate-x-0" : "-translate-x-full",
       )}
     >
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2.5">
+      <div className="sticky top-0 z-10 border-b border-[var(--card-border)] bg-[var(--card-bg)] px-3 py-2.5 rounded-lg rounded-bl-none rounded-br-none">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold tracking-[-0.01em] text-[var(--foreground)]">
             Version History
@@ -120,9 +119,7 @@ export function HistorySidebar({
                 variant={sourceFilter === filter ? "primary" : "secondary"}
                 size="sm"
                 className={cn(
-                  "h-7 rounded-md px-2.5 text-xs font-medium capitalize shadow-none",
-                  sourceFilter === filter &&
-                    "shadow-[0_1px_8px_rgba(0,0,0,0.12)]",
+                  "h-7 rounded-md px-2.5 text-xs font-medium capitalize shadow-none transition-none",
                 )}
               >
                 {filter === "all"
@@ -141,19 +138,23 @@ export function HistorySidebar({
             className="ml-auto h-7 w-7 rounded-md p-0"
             title="Refresh"
           >
-            <svg
-              className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
+            {isLoading ? (
+              <LoadingIcon className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <svg
+                className="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            )}
           </Button>
         </div>
       </div>
@@ -220,7 +221,7 @@ export function HistorySidebar({
               disabled={isLoading}
               variant="secondary"
               size="sm"
-              className={cn("h-8 w-full rounded-lg text-xs font-medium")}
+              className={cn("w-full")}
             >
               {isLoading ? "Loading..." : "Load more"}
             </Button>
@@ -230,25 +231,7 @@ export function HistorySidebar({
         {/* Loading state */}
         {isLoading && items.length === 0 && (
           <div className="flex items-center justify-center p-8">
-            <svg
-              className="h-6 w-6 animate-spin text-[var(--muted-foreground)]"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
+            <LoadingIcon className="h-6 w-6 animate-spin text-[var(--muted-foreground)]" />
           </div>
         )}
       </div>

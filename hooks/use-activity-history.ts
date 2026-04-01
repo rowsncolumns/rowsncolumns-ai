@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type {
   ActivityItem,
   OperationSource,
@@ -46,6 +46,11 @@ export function useActivityHistory({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const activeRequestRef = useRef<{
+    id: number;
+    controller: AbortController;
+  } | null>(null);
+  const requestIdRef = useRef(0);
   const sourcesFilterValue = filters?.sources?.join(",") ?? "";
   const activityTypesFilterValue = filters?.activityTypes?.join(",") ?? "";
   const fromFilterValue = filters?.from?.trim() ?? "";
@@ -97,10 +102,22 @@ export function useActivityHistory({
     } = {}) => {
       if (!documentId) return;
 
+      // Keep only one in-flight activity request at a time.
+      activeRequestRef.current?.controller.abort();
+
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      const controller = new AbortController();
+      activeRequestRef.current = {
+        id: requestId,
+        controller,
+      };
+      let timedOut = false;
+
       setIsLoading(true);
       setError(null);
-      const controller = new AbortController();
       const timeoutId = setTimeout(() => {
+        timedOut = true;
         controller.abort();
       }, ACTIVITY_FETCH_TIMEOUT_MS);
 
@@ -117,6 +134,9 @@ export function useActivityHistory({
         }
 
         const data = await response.json();
+        if (activeRequestRef.current?.id !== requestId) {
+          return;
+        }
 
         if (append) {
           setItems((prev) => [...prev, ...data.items]);
@@ -127,6 +147,12 @@ export function useActivityHistory({
         setCursor(data.nextCursor);
         setHasMore(!!data.nextCursor);
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError" && !timedOut) {
+          return;
+        }
+        if (activeRequestRef.current?.id !== requestId) {
+          return;
+        }
         const message =
           err instanceof Error
             ? err.name === "AbortError"
@@ -136,7 +162,10 @@ export function useActivityHistory({
         setError(message);
       } finally {
         clearTimeout(timeoutId);
-        setIsLoading(false);
+        if (activeRequestRef.current?.id === requestId) {
+          activeRequestRef.current = null;
+          setIsLoading(false);
+        }
       }
     },
     [documentId, buildQueryParams],
@@ -191,6 +220,12 @@ export function useActivityHistory({
       refresh();
     }
   }, [autoFetch, refresh]);
+
+  useEffect(() => {
+    return () => {
+      activeRequestRef.current?.controller.abort();
+    };
+  }, []);
 
   return {
     items,

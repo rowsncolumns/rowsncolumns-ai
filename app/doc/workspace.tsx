@@ -330,7 +330,9 @@ const createShareDbSocket = (
       reconnectingSocket.close(reason);
     },
     send(data: unknown) {
-      reconnectingSocket.send(data as Parameters<typeof reconnectingSocket.send>[0]);
+      reconnectingSocket.send(
+        data as Parameters<typeof reconnectingSocket.send>[0],
+      );
     },
     onmessage: () => {},
     onclose: () => {},
@@ -497,6 +499,7 @@ function SpreadsheetPane({
   canManageShare,
   canEdit,
   canUseAuditHistory,
+  onOpenHistorySidebar,
   locale,
   currency,
 }: {
@@ -506,6 +509,7 @@ function SpreadsheetPane({
   canManageShare: boolean;
   canEdit: boolean;
   canUseAuditHistory: boolean;
+  onOpenHistorySidebar: () => void;
   locale: string;
   currency: string;
 }) {
@@ -546,7 +550,6 @@ function SpreadsheetPane({
     defaultSpreadsheetTheme,
   );
   const [iterativeEnabled, setIterativeEnabled] = useState(false);
-  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
   const [shareDbConnectionState, setShareDbConnectionState] =
     useState<ShareDbConnectionState>("connecting");
   const [shareDbConnectionReason, setShareDbConnectionReason] = useState<
@@ -1101,7 +1104,7 @@ function SpreadsheetPane({
   );
   return (
     <div
-      className="rnc-workspace-spreadsheet-pane flex h-full min-h-0 flex-1 flex-col"
+      className="rnc-workspace-spreadsheet-pane flex h-full min-h-0 flex-1 flex-col min-w-0"
       data-locale={locale}
       data-currency={currency}
     >
@@ -1143,10 +1146,7 @@ function SpreadsheetPane({
           canManageShare={canManageShare}
         />
         {canUseAuditHistory ? (
-          <IconButton
-            onClick={() => setIsHistorySidebarOpen(true)}
-            tooltip="Version History"
-          >
+          <IconButton onClick={onOpenHistorySidebar} tooltip="Version History">
             <TimerIcon />
           </IconButton>
         ) : null}
@@ -1714,20 +1714,6 @@ function SpreadsheetPane({
           )}
           readonly={!canEdit}
         />
-
-        {canUseAuditHistory ? (
-          <HistorySidebar
-            documentId={documentId}
-            isOpen={isHistorySidebarOpen}
-            onClose={() => setIsHistorySidebarOpen(false)}
-            canEdit={canEdit}
-            currentUser={{
-              id: user.id,
-              name: user.name,
-              email: user.email,
-            }}
-          />
-        ) : null}
       </div>
 
       <BottomBar className="rnc-workspace-bottom-bar rounded-bl-xl rounded-br-xl">
@@ -2134,20 +2120,47 @@ export function SpreadsheetOnlyWorkspace({
   locale,
   currency,
 }: SpreadsheetOnlyWorkspaceProps) {
+  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
+
+  const activitySidebar =
+    canUseAuditHistory && isHistorySidebarOpen ? (
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-40">
+        <div className="pointer-events-auto h-full">
+          <HistorySidebar
+            documentId={documentId}
+            isOpen={isHistorySidebarOpen}
+            onClose={() => setIsHistorySidebarOpen(false)}
+            canEdit={canEdit}
+            currentUser={{
+              id: currentUser.id,
+              name: currentUser.name,
+              email: currentUser.email,
+            }}
+          />
+        </div>
+      </div>
+    ) : null;
+
+  const spreadsheetPane = (
+    <SpreadsheetPane
+      documentId={documentId}
+      currentUser={currentUser}
+      initialThemeMode={initialThemeMode}
+      canManageShare={canManageShare}
+      canEdit={canEdit}
+      canUseAuditHistory={canUseAuditHistory}
+      onOpenHistorySidebar={() => setIsHistorySidebarOpen(true)}
+      locale={locale}
+      currency={currency}
+    />
+  );
+
   return (
     <main className="flex h-[100svh] w-full flex-col overflow-hidden sm:h-dvh">
       <SpreadsheetProvider>
-        <div className="min-h-0 flex-1 flex flex-col">
-          <SpreadsheetPane
-            documentId={documentId}
-            currentUser={currentUser}
-            initialThemeMode={initialThemeMode}
-            canManageShare={canManageShare}
-            canEdit={canEdit}
-            canUseAuditHistory={canUseAuditHistory}
-            locale={locale}
-            currency={currency}
-          />
+        <div className="relative min-h-0 flex-1 flex flex-col">
+          {spreadsheetPane}
+          {activitySidebar}
         </div>
       </SpreadsheetProvider>
     </main>
@@ -2174,6 +2187,7 @@ export function NewWorkspace({
   );
   const [mobileTab, setMobileTab] = useState<"chat" | "sheet">("chat");
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
   const [showAssistantBubbleEntrance, setShowAssistantBubbleEntrance] =
     useState(false);
   // Create the assistant runtime at this level so both panes can use it
@@ -2233,10 +2247,28 @@ export function NewWorkspace({
       canManageShare={canManageShare}
       canEdit={canEdit}
       canUseAuditHistory={canUseAuditHistory}
+      onOpenHistorySidebar={() => setIsHistorySidebarOpen(true)}
       locale={locale}
       currency={currency}
     />
   );
+
+  const activitySidebar =
+    canUseAuditHistory && isHistorySidebarOpen ? (
+      <div className="h-full w-100 ml-4">
+        <HistorySidebar
+          documentId={documentId}
+          isOpen={isHistorySidebarOpen}
+          onClose={() => setIsHistorySidebarOpen(false)}
+          canEdit={canEdit}
+          currentUser={{
+            id: currentUser.id,
+            name: currentUser.name,
+            email: currentUser.email,
+          }}
+        />
+      </div>
+    ) : null;
 
   const assistantPane = (
     <WorkspaceAssistantUI
@@ -2290,7 +2322,7 @@ export function NewWorkspace({
         />
 
         <SpreadsheetProvider>
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col">
             {isMobileLayout ? (
               <Tabs
                 value={mobileTab}
@@ -2336,8 +2368,9 @@ export function NewWorkspace({
                         : "z-0 flex pointer-events-none select-none opacity-0"
                     }`}
                   >
-                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="relative flex min-h-0 flex-1 flex-row overflow-hidden">
                       {spreadsheetPane}
+                      {activitySidebar}
                     </div>
                   </TabsContent>
                 </div>
@@ -2354,9 +2387,10 @@ export function NewWorkspace({
                 >
                   <Panel
                     id={SPREADSHEET_PANEL_ID}
-                    className="rnc-workspace-spreadsheet-panel min-w-0 flex flex-col relative"
+                    className="rnc-workspace-spreadsheet-panel min-w-0 flex flex-row relative"
                   >
                     {spreadsheetPane}
+                    {activitySidebar}
                   </Panel>
                   {!isAssistantCollapsed && (
                     <>
