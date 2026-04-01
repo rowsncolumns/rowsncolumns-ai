@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import type { ActivityItem, OperationSource, ActivityType } from "@/lib/operation-history/types";
+import type {
+  ActivityItem,
+  OperationSource,
+  ActivityType,
+} from "@/lib/operation-history/types";
 
 export interface ActivityFilters {
   sources?: OperationSource[];
@@ -24,10 +28,10 @@ export interface UseActivityHistoryResult {
   hasMore: boolean;
   fetchMore: () => Promise<void>;
   refresh: () => Promise<void>;
-  undoOperation: (
-    operationId: string,
-    options?: { reason?: string }
-  ) => Promise<{ success: boolean; error?: string }>;
+  undoOperation: (operationId: string) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
 }
 
 export function useActivityHistory({
@@ -41,6 +45,10 @@ export function useActivityHistory({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const sourcesFilterValue = filters?.sources?.join(",") ?? "";
+  const activityTypesFilterValue = filters?.activityTypes?.join(",") ?? "";
+  const fromFilterValue = filters?.from?.trim() ?? "";
+  const toFilterValue = filters?.to?.trim() ?? "";
 
   const buildQueryParams = useCallback(
     (nextCursor?: string | null) => {
@@ -51,38 +59,50 @@ export function useActivityHistory({
         params.set("cursor", nextCursor);
       }
 
-      if (filters?.sources?.length) {
-        params.set("sources", filters.sources.join(","));
+      if (sourcesFilterValue) {
+        params.set("sources", sourcesFilterValue);
       }
 
-      if (filters?.activityTypes?.length) {
-        params.set("activityTypes", filters.activityTypes.join(","));
+      if (activityTypesFilterValue) {
+        params.set("activityTypes", activityTypesFilterValue);
       }
 
-      if (filters?.from) {
-        params.set("from", filters.from);
+      if (fromFilterValue) {
+        params.set("from", fromFilterValue);
       }
 
-      if (filters?.to) {
-        params.set("to", filters.to);
+      if (toFilterValue) {
+        params.set("to", toFilterValue);
       }
 
       return params.toString();
     },
-    [limit, filters]
+    [
+      limit,
+      sourcesFilterValue,
+      activityTypesFilterValue,
+      fromFilterValue,
+      toFilterValue,
+    ],
   );
 
   const fetchActivities = useCallback(
-    async (append = false) => {
+    async ({
+      append = false,
+      cursorValue = null,
+    }: {
+      append?: boolean;
+      cursorValue?: string | null;
+    } = {}) => {
       if (!documentId) return;
 
       setIsLoading(true);
       setError(null);
 
       try {
-        const queryString = buildQueryParams(append ? cursor : null);
+        const queryString = buildQueryParams(append ? cursorValue : null);
         const response = await fetch(
-          `/api/documents/${documentId}/activity?${queryString}`
+          `/api/documents/${documentId}/activity?${queryString}`,
         );
 
         if (!response.ok) {
@@ -107,28 +127,26 @@ export function useActivityHistory({
         setIsLoading(false);
       }
     },
-    [documentId, buildQueryParams, cursor]
+    [documentId, buildQueryParams],
   );
 
   const refresh = useCallback(async () => {
     setCursor(null);
     setHasMore(true);
-    await fetchActivities(false);
+    await fetchActivities({ append: false, cursorValue: null });
   }, [fetchActivities]);
 
   const fetchMore = useCallback(async () => {
     if (!hasMore || isLoading) return;
-    await fetchActivities(true);
-  }, [fetchActivities, hasMore, isLoading]);
+    await fetchActivities({ append: true, cursorValue: cursor });
+  }, [fetchActivities, hasMore, isLoading, cursor]);
 
   const undoOperation = useCallback(
-    async (operationId: string, options?: { reason?: string }) => {
+    async (operationId: string) => {
       try {
-        const reason = options?.reason?.trim();
         const payload = {
           operationId,
           confirm: true,
-          ...(reason ? { reason } : {}),
         };
 
         const response = await fetch(`/api/documents/${documentId}/undo`, {
@@ -152,7 +170,7 @@ export function useActivityHistory({
         return { success: false, error: message };
       }
     },
-    [documentId, refresh]
+    [documentId, refresh],
   );
 
   // Auto-fetch on mount and when filters change
@@ -160,7 +178,7 @@ export function useActivityHistory({
     if (autoFetch) {
       refresh();
     }
-  }, [autoFetch, documentId, filters?.sources?.join(","), filters?.activityTypes?.join(",")]);
+  }, [autoFetch, refresh]);
 
   return {
     items,

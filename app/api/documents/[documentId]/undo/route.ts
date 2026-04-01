@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
-import { documentExists, ensureDocumentAccess } from "@/lib/documents/repository";
+import {
+  documentExists,
+  ensureDocumentAccess,
+} from "@/lib/documents/repository";
 import { getFlags } from "@/lib/feature-flags";
 import { resolveAuditHistoryAccess } from "@/lib/operation-history/access";
+import { issueMcpShareDbAccessToken } from "@/lib/sharedb/mcp-token";
+import { withShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
 import {
   operationHistoryDocumentIdSchema,
   operationHistoryUndoRequestSchema,
@@ -24,6 +29,19 @@ type RouteContext = {
   params: Promise<{ documentId: string }>;
 };
 
+const buildShareDbWsHeaders = (request: Request): Record<string, string> => {
+  const headers: Record<string, string> = {};
+  const cookie = request.headers.get("cookie")?.trim();
+  if (cookie) {
+    headers.cookie = cookie;
+  }
+  const authorization = request.headers.get("authorization")?.trim();
+  if (authorization) {
+    headers.authorization = authorization;
+  }
+  return headers;
+};
+
 /**
  * POST /api/documents/[documentId]/undo
  *
@@ -42,7 +60,7 @@ export async function POST(request: Request, context: RouteContext) {
     if (!flags.enableRollbackApi) {
       return NextResponse.json(
         { error: "Rollback API is not enabled." },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -62,7 +80,7 @@ export async function POST(request: Request, context: RouteContext) {
           error:
             "Audit history is available only on the Max plan or for admin users.",
         },
-        { status: 403 }
+        { status: 403 },
       );
     }
     const userDisplayName =
@@ -70,7 +88,8 @@ export async function POST(request: Request, context: RouteContext) {
 
     // Validate documentId
     const { documentId: rawDocumentId } = await context.params;
-    const parsedDocumentId = operationHistoryDocumentIdSchema.safeParse(rawDocumentId);
+    const parsedDocumentId =
+      operationHistoryDocumentIdSchema.safeParse(rawDocumentId);
     if (!parsedDocumentId.success) {
       const message =
         parsedDocumentId.error.issues[0]?.message ?? "Invalid request.";
@@ -81,7 +100,7 @@ export async function POST(request: Request, context: RouteContext) {
     if (!(await documentExists(documentId))) {
       return NextResponse.json(
         { error: "Document not found." },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -93,13 +112,16 @@ export async function POST(request: Request, context: RouteContext) {
     if (!access.canAccess) {
       return NextResponse.json(
         { error: "Document not found." },
-        { status: 404 }
+        { status: 404 },
       );
     }
     if (access.permission !== "edit") {
       return NextResponse.json(
-        { error: "You do not have permission to undo changes for this document." },
-        { status: 403 }
+        {
+          error:
+            "You do not have permission to undo changes for this document.",
+        },
+        { status: 403 },
       );
     }
 
@@ -112,7 +134,12 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    const { operationId, preview, confirm, reason: undoReason } = parsedBody.data;
+    const {
+      operationId,
+      preview,
+      confirm,
+      reason: undoReason,
+    } = parsedBody.data;
 
     // If caller targets a specific operation, ensure it belongs to this document.
     if (operationId) {
@@ -120,7 +147,7 @@ export async function POST(request: Request, context: RouteContext) {
       if (!operation || operation.docId !== documentId) {
         return NextResponse.json(
           { error: "Operation not found." },
-          { status: 404 }
+          { status: 404 },
         );
       }
     }
@@ -158,16 +185,23 @@ export async function POST(request: Request, context: RouteContext) {
           error:
             "Explicit confirmation is required. Retry with confirm=true to proceed.",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     // Get ShareDB document
-    const shareDbResult = await getShareDBDocument(documentId);
+    const shareDbResult = await withShareDbRuntimeContext(
+      {
+        mcpTokenFactory: ({ docId, permission }) =>
+          issueMcpShareDbAccessToken({ docId, permission }),
+        wsHeaders: buildShareDbWsHeaders(request),
+      },
+      async () => getShareDBDocument(documentId),
+    );
     if (!shareDbResult) {
       return NextResponse.json(
         { error: "Document not found." },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -185,11 +219,12 @@ export async function POST(request: Request, context: RouteContext) {
       let result;
       if (operationId) {
         // Check if operation can be undone
-        const { canUndo, reason: canUndoReason } = await canUndoOperation(operationId);
+        const { canUndo, reason: canUndoReason } =
+          await canUndoOperation(operationId);
         if (!canUndo) {
           return NextResponse.json(
             { error: canUndoReason ?? "Cannot undo this operation." },
-            { status: 400 }
+            { status: 400 },
           );
         }
 
@@ -211,7 +246,7 @@ export async function POST(request: Request, context: RouteContext) {
       if (!result.success) {
         return NextResponse.json(
           { error: result.error ?? "Undo failed." },
-          { status: 400 }
+          { status: 400 },
         );
       }
 
@@ -245,7 +280,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (!flags.enableRollbackApi) {
       return NextResponse.json(
         { error: "Rollback API is not enabled." },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -265,13 +300,14 @@ export async function GET(request: Request, context: RouteContext) {
           error:
             "Audit history is available only on the Max plan or for admin users.",
         },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     // Validate documentId and access (edit permission required to query undo status)
     const { documentId: rawDocumentId } = await context.params;
-    const parsedDocumentId = operationHistoryDocumentIdSchema.safeParse(rawDocumentId);
+    const parsedDocumentId =
+      operationHistoryDocumentIdSchema.safeParse(rawDocumentId);
     if (!parsedDocumentId.success) {
       const message =
         parsedDocumentId.error.issues[0]?.message ?? "Invalid request.";
@@ -281,7 +317,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (!(await documentExists(documentId))) {
       return NextResponse.json(
         { error: "Document not found." },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -292,13 +328,16 @@ export async function GET(request: Request, context: RouteContext) {
     if (!access.canAccess) {
       return NextResponse.json(
         { error: "Document not found." },
-        { status: 404 }
+        { status: 404 },
       );
     }
     if (access.permission !== "edit") {
       return NextResponse.json(
-        { error: "You do not have permission to undo changes for this document." },
-        { status: 403 }
+        {
+          error:
+            "You do not have permission to undo changes for this document.",
+        },
+        { status: 403 },
       );
     }
 
@@ -309,7 +348,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (!operationId) {
       return NextResponse.json(
         { error: "operationId query parameter is required." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -317,7 +356,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (!operation || operation.docId !== documentId) {
       return NextResponse.json(
         { error: "Operation not found." },
-        { status: 404 }
+        { status: 404 },
       );
     }
 

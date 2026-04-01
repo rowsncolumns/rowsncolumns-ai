@@ -7,10 +7,7 @@ import type { ActivityItem as ActivityItemType } from "@/lib/operation-history/t
 
 interface ActivityItemProps {
   activity: ActivityItemType;
-  onUndo: (
-    operationId: string,
-    options?: { reason?: string },
-  ) => Promise<{ success: boolean; error?: string }>;
+  onUndo: (operationId: string) => Promise<{ success: boolean; error?: string }>;
   canUndo: boolean;
   actorNameById: Record<string, string>;
 }
@@ -260,26 +257,10 @@ export function ActivityItem({
   const [undoError, setUndoError] = useState<string | null>(null);
 
   const handleUndo = async () => {
-    const confirmation = window.prompt(
-      "Type UNDO to confirm rollback of this activity.",
-    );
-    if (confirmation === null) {
-      return;
-    }
-    if (confirmation.trim().toUpperCase() !== "UNDO") {
-      setUndoError("Undo cancelled: confirmation phrase did not match.");
-      return;
-    }
-
-    const reasonInput = window.prompt(
-      "Optional rollback reason for audit logs (leave blank to skip).",
-    );
-
     setIsUndoing(true);
     setUndoError(null);
 
-    const reason = reasonInput?.trim();
-    const result = await onUndo(activity.id, reason ? { reason } : undefined);
+    const result = await onUndo(activity.id);
 
     if (!result.success) {
       setUndoError(result.error || "Undo failed");
