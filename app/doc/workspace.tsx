@@ -129,6 +129,11 @@ import {
 import { FileMenu } from "@/components/file-menu";
 import { ShareDocumentButton } from "@/components/share-document-button";
 import { SiteHeader } from "@/components/site-header";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HistorySidebar } from "@/components/history-sidebar";
 import { authClient } from "@/lib/auth/client";
@@ -639,8 +644,7 @@ function SpreadsheetPane({
 
       const parsedReason =
         formatShareDbReason(reason) ?? socket.getLastCloseReason();
-      const finalReason = parsedReason ?? "Connection lost.";
-      setShareDbConnectionReason(finalReason);
+      setShareDbConnectionReason(parsedReason);
     };
 
     const handleConnectionError = (error: unknown) => {
@@ -664,16 +668,32 @@ function SpreadsheetPane({
   }, [connection, socket]);
 
   const isShareDbConnected = shareDbConnectionState === "connected";
-  const shouldShowShareDbStatus =
-    !isShareDbConnected &&
-    (shareDbConnectionState !== "connecting" || hasSeenShareDbConnected);
-  const shareDbStatusLabel =
-    shareDbConnectionState === "connecting"
-      ? "Reconnecting..."
+  const isShareDbConnecting =
+    shareDbConnectionState === "connecting" ||
+    (!hasSeenShareDbConnected && !isShareDbConnected);
+  const shareDbStatusLabel = isShareDbConnected
+    ? "Connected"
+    : isShareDbConnecting
+      ? hasSeenShareDbConnected
+        ? "Reconnecting..."
+        : "Connecting..."
       : "Connection lost";
   const shareDbStatusTitle = shareDbConnectionReason
     ? `${shareDbStatusLabel}: ${shareDbConnectionReason}`
     : shareDbStatusLabel;
+  const shareDbIndicatorClass = isShareDbConnected
+    ? "bg-emerald-500"
+    : isShareDbConnecting
+      ? "bg-amber-500 animate-pulse"
+      : "bg-red-500";
+  const shareDbServerUrl = useMemo(() => getShareDbBaseUrl(), []);
+  const shareDbServerHost = useMemo(() => {
+    try {
+      return new URL(shareDbServerUrl).host;
+    } catch {
+      return shareDbServerUrl;
+    }
+  }, [shareDbServerUrl]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -973,6 +993,7 @@ function SpreadsheetPane({
     enqueueGraphOperation,
     onChangeIterativeCalculation: setIterativeEnabled,
   });
+  const connectedClientCount = Math.max(1, users.length);
 
   // sycjed
   useIsomorphicLayoutEffect(() => {
@@ -1751,19 +1772,63 @@ function SpreadsheetPane({
           columnCount={columnCount}
           merges={merges}
         />
-        {shouldShowShareDbStatus && (
-          <span
-            className={`inline-flex h-8 items-center rounded-lg border px-2.5 text-[11px] font-semibold ${
-              shareDbConnectionState === "connecting"
-                ? "border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground)"
-                : "border-(--panel-border) bg-(--assistant-stop-bg) text-(--assistant-stop-fg)"
-            }`}
-            title={shareDbStatusTitle}
-            aria-live="polite"
-          >
-            {shareDbStatusLabel}
-          </span>
-        )}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 shrink-0 items-center gap-2 rounded-full border border-(--panel-border) bg-(--assistant-chip-bg) px-2 text-[11px] font-semibold text-(--muted-foreground) hover:bg-(--assistant-chip-hover)"
+              title={shareDbStatusTitle}
+              aria-label={shareDbStatusTitle}
+              aria-live="polite"
+            >
+              <span
+                className={`h-2.5 w-2.5 rounded-full ${shareDbIndicatorClass}`}
+                aria-hidden="true"
+              />
+              <span className="sr-only">{shareDbStatusTitle}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 p-3">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-(--muted-foreground)">
+                  Status
+                </span>
+                <span className="inline-flex items-center gap-2 text-xs font-semibold">
+                  <span
+                    className={`h-2 w-2 rounded-full ${shareDbIndicatorClass}`}
+                    aria-hidden="true"
+                  />
+                  {shareDbStatusLabel}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-(--muted-foreground)">
+                  Server
+                </span>
+                <span
+                  className="max-w-[11rem] truncate text-xs font-medium"
+                  title={shareDbServerUrl}
+                >
+                  {shareDbServerHost}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-(--muted-foreground)">
+                  Connected Clients
+                </span>
+                <span className="text-xs font-semibold tabular-nums">
+                  {connectedClientCount}
+                </span>
+              </div>
+              {shareDbConnectionReason ? (
+                <div className="rounded-md border border-(--panel-border) bg-(--assistant-chip-bg) px-2 py-1.5 text-[11px] text-(--muted-foreground)">
+                  {shareDbConnectionReason}
+                </div>
+              ) : null}
+            </div>
+          </PopoverContent>
+        </Popover>
       </BottomBar>
 
       <ConditionalFormatDialog>
