@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Star, Trash2 } from "lucide-react";
+import { Copy, Loader2, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import type { DocumentListFilter } from "@/lib/documents/repository";
+import { IconButton } from "@rowsncolumns/ui";
 
 type SheetListItem = {
   docId: string;
@@ -43,6 +44,11 @@ type DeleteDocumentResponse = {
 
 type FavoriteDocumentResponse = {
   favorite?: boolean;
+  error?: string;
+};
+
+type DuplicateDocumentResponse = {
+  documentId?: string;
   error?: string;
 };
 
@@ -100,6 +106,7 @@ export function SheetsTable({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [favoritingDocId, setFavoritingDocId] = useState<string | null>(null);
+  const [duplicatingDocId, setDuplicatingDocId] = useState<string | null>(null);
   const [hasMounted, setHasMounted] = useState(false);
   const dateFormatter = useMemo(
     () =>
@@ -171,7 +178,7 @@ export function SheetsTable({
   };
 
   const handleToggleFavorite = async (document: SheetListItem) => {
-    if (isDeleting || favoritingDocId) {
+    if (isDeleting || favoritingDocId || duplicatingDocId) {
       return;
     }
 
@@ -208,6 +215,42 @@ export function SheetsTable({
     }
   };
 
+  const handleDuplicate = async (document: SheetListItem) => {
+    if (isDeleting || favoritingDocId || duplicatingDocId) {
+      return;
+    }
+
+    setDuplicatingDocId(document.docId);
+
+    try {
+      const response = await fetch(
+        `/api/documents/${encodeURIComponent(document.docId)}/duplicate`,
+        {
+          method: "POST",
+        },
+      );
+      const payload = (await response
+        .json()
+        .catch(() => null)) as DuplicateDocumentResponse | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to duplicate sheet.");
+      }
+
+      if (!payload?.documentId) {
+        throw new Error("Failed to duplicate sheet.");
+      }
+
+      toast.success("Sheet duplicated.");
+      router.push(`/sheets/${payload.documentId}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to duplicate sheet.";
+      toast.error(message);
+    } finally {
+      setDuplicatingDocId(null);
+    }
+  };
+
   return (
     <>
       <div className="overflow-hidden rounded-2xl border border-(--card-border) bg-(--card-bg-solid)">
@@ -222,6 +265,7 @@ export function SheetsTable({
                 const isRowDeleting =
                   isDeleting && deletingDocId === document.docId;
                 const isRowFavoriting = favoritingDocId === document.docId;
+                const isRowDuplicating = duplicatingDocId === document.docId;
 
                 return (
                   <li key={document.docId} className="space-y-3 px-4 py-4">
@@ -275,7 +319,11 @@ export function SheetsTable({
                         size="sm"
                         variant="ghost"
                         className="h-9 rounded-lg px-3 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
-                        disabled={isDeleting || favoritingDocId !== null}
+                        disabled={
+                          isDeleting ||
+                          favoritingDocId !== null ||
+                          duplicatingDocId !== null
+                        }
                         onClick={() => {
                           void handleToggleFavorite(document);
                         }}
@@ -298,8 +346,34 @@ export function SheetsTable({
                         type="button"
                         size="sm"
                         variant="ghost"
+                        className="h-9 rounded-lg px-3 text-sky-600 hover:bg-sky-50 hover:text-sky-700"
+                        disabled={
+                          isDeleting ||
+                          favoritingDocId !== null ||
+                          duplicatingDocId !== null
+                        }
+                        onClick={() => {
+                          void handleDuplicate(document);
+                        }}
+                        aria-label={`Duplicate ${document.title}`}
+                      >
+                        {isRowDuplicating ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                        Duplicate
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
                         className="h-9 rounded-lg px-3 text-red-500 hover:bg-red-50 hover:text-red-600"
-                        disabled={isDeleting || favoritingDocId !== null}
+                        disabled={
+                          isDeleting ||
+                          favoritingDocId !== null ||
+                          duplicatingDocId !== null
+                        }
                         onClick={() => {
                           setDeleteTarget(document);
                         }}
@@ -356,6 +430,7 @@ export function SheetsTable({
                   const isRowDeleting =
                     isDeleting && deletingDocId === document.docId;
                   const isRowFavoriting = favoritingDocId === document.docId;
+                  const isRowDuplicating = duplicatingDocId === document.docId;
 
                   return (
                     <tr
@@ -398,12 +473,14 @@ export function SheetsTable({
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 rounded-lg px-2 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
-                            disabled={isDeleting || favoritingDocId !== null}
+                          <IconButton
+                            tooltip="Favorite"
+                            className=" text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                            disabled={
+                              isDeleting ||
+                              favoritingDocId !== null ||
+                              duplicatingDocId !== null
+                            }
                             onClick={() => {
                               void handleToggleFavorite(document);
                             }}
@@ -420,13 +497,34 @@ export function SheetsTable({
                                 }`}
                               />
                             )}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 rounded-lg px-2 text-red-500 hover:bg-red-50 hover:text-red-600"
-                            disabled={isDeleting || favoritingDocId !== null}
+                          </IconButton>
+                          <IconButton
+                            tooltip="Duplicate"
+                            className=" text-sky-600 hover:bg-sky-50 hover:text-sky-700"
+                            disabled={
+                              isDeleting ||
+                              favoritingDocId !== null ||
+                              duplicatingDocId !== null
+                            }
+                            onClick={() => {
+                              void handleDuplicate(document);
+                            }}
+                            aria-label={`Duplicate ${document.title}`}
+                          >
+                            {isRowDuplicating ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </IconButton>
+                          <IconButton
+                            tooltip="Delete"
+                            className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                            disabled={
+                              isDeleting ||
+                              favoritingDocId !== null ||
+                              duplicatingDocId !== null
+                            }
                             onClick={() => {
                               setDeleteTarget(document);
                             }}
@@ -437,7 +535,7 @@ export function SheetsTable({
                             ) : (
                               <Trash2 className="h-4 w-4" />
                             )}
-                          </Button>
+                          </IconButton>
                         </div>
                       </td>
                     </tr>

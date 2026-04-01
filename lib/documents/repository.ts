@@ -34,6 +34,11 @@ type OwnedDocumentRow = {
   is_favorite: boolean;
 };
 
+type SourceDocumentForDuplicateRow = {
+  doc_id: string;
+  source_title: string | null;
+};
+
 export type DocumentOwnerRecord = {
   docId: string;
   userId: string;
@@ -92,6 +97,12 @@ export type ListOwnedDocumentsResult = {
 
 export type DocumentListFilter = "owned" | "shared" | "my_shared";
 
+export type DuplicateDocumentResult = {
+  docId: string;
+  title: string;
+  snapshotCopied: boolean;
+};
+
 const mapRow = (row: DocumentOwnerRow): DocumentOwnerRecord => ({
   docId: row.doc_id,
   userId: row.user_id,
@@ -132,6 +143,7 @@ const SHAREDB_COLLECTION =
 
 const DEFAULT_TITLE_PREFIX = "Document";
 const MAX_TITLE_LENGTH = 160;
+const DUPLICATE_TITLE_SUFFIX = " (Copy)";
 
 export const getDefaultDocumentTitle = (docId: string): string => {
   const shortId = docId.slice(0, 8);
@@ -144,6 +156,21 @@ const normalizeDocumentTitle = (docId: string, title: string): string => {
     return getDefaultDocumentTitle(docId);
   }
   return normalized.slice(0, MAX_TITLE_LENGTH);
+};
+
+const buildDuplicateDocumentTitle = (
+  sourceDocId: string,
+  sourceTitle: string | null,
+): string => {
+  const normalizedSourceTitle = sourceTitle?.trim().replace(/\s+/g, " ");
+  const fallbackTitle = getDefaultDocumentTitle(sourceDocId);
+  const baseTitle = normalizedSourceTitle || fallbackTitle;
+  const maxBaseLength = Math.max(
+    1,
+    MAX_TITLE_LENGTH - DUPLICATE_TITLE_SUFFIX.length,
+  );
+  const truncatedBaseTitle = baseTitle.slice(0, maxBaseLength).trimEnd();
+  return `${truncatedBaseTitle || fallbackTitle.slice(0, maxBaseLength)}${DUPLICATE_TITLE_SUFFIX}`;
 };
 
 const isMissingRelationError = (error: unknown): boolean =>
@@ -654,6 +681,128 @@ export async function updateDocumentTitle({
   }
 }
 
+export async function duplicateDocument({
+  sourceDocId,
+  duplicatedDocId,
+  userId,
+}: {
+  sourceDocId: string;
+  duplicatedDocId: string;
+  userId: string;
+}): Promise<DuplicateDocumentResult | null> {
+  return db.begin(async (tx) => {
+    const sourceRows = await tx.unsafe<SourceDocumentForDuplicateRow[]>(
+      `
+        WITH accessible_documents AS (
+          SELECT owners.doc_id
+          FROM public.document_owners AS owners
+          WHERE owners.doc_id = $1
+            AND owners.user_id = $2
+          UNION
+          SELECT grants.doc_id
+          FROM public.document_access_grants AS grants
+          WHERE grants.doc_id = $1
+            AND grants.user_id = $2
+        )
+        SELECT
+          accessible_documents.doc_id,
+          metadata.title AS source_title
+        FROM accessible_documents
+        LEFT JOIN public.document_metadata AS metadata
+          ON metadata.doc_id = accessible_documents.doc_id
+        LIMIT 1
+      `,
+      [sourceDocId, userId],
+    );
+
+    const sourceRow = sourceRows[0];
+    if (!sourceRow) {
+      return null;
+    }
+
+    const duplicatedTitle = buildDuplicateDocumentTitle(
+      sourceDocId,
+      sourceRow.source_title,
+    );
+
+    await tx.unsafe(
+      `
+        INSERT INTO public.document_owners (doc_id, user_id)
+        VALUES ($1, $2)
+      `,
+      [duplicatedDocId, userId],
+    );
+
+    await tx.unsafe(
+      `
+        INSERT INTO public.document_metadata (doc_id, title)
+        VALUES ($1, $2)
+      `,
+      [duplicatedDocId, duplicatedTitle],
+    );
+
+    let snapshotCopied = false;
+
+    try {
+      const nowMs = Date.now();
+      const copiedSnapshotRows = await tx.unsafe<{ doc_id: string }[]>(
+        `
+          WITH source_snapshot AS (
+            SELECT
+              doc_type,
+              data,
+              metadata
+            FROM public.snapshots
+            WHERE collection = $1
+              AND doc_id = $2
+            LIMIT 1
+          )
+          INSERT INTO public.snapshots (
+            collection,
+            doc_id,
+            doc_type,
+            version,
+            data,
+            metadata
+          )
+          SELECT
+            $1,
+            $3,
+            source_snapshot.doc_type,
+            1,
+            source_snapshot.data,
+            CASE
+              WHEN source_snapshot.metadata IS NULL
+                OR jsonb_typeof(source_snapshot.metadata) <> 'object'
+              THEN jsonb_build_object('mtime', $4::bigint)
+              ELSE jsonb_set(
+                source_snapshot.metadata,
+                '{mtime}',
+                to_jsonb($4::bigint),
+                true
+              )
+            END
+          FROM source_snapshot
+          RETURNING doc_id
+        `,
+        [SHAREDB_COLLECTION, sourceDocId, duplicatedDocId, nowMs],
+      );
+
+      snapshotCopied = copiedSnapshotRows.length > 0;
+    } catch (error) {
+      if (!isMissingRelationError(error)) {
+        throw error;
+      }
+    }
+
+    return {
+      docId: duplicatedDocId,
+      title: duplicatedTitle,
+      snapshotCopied,
+    };
+  });
+}
+
 export async function deleteOwnedDocument({
   docId,
   userId,
@@ -699,6 +848,112 @@ export async function deleteOwnedDocument({
             AND doc_id = $2
         `,
         [SHAREDB_COLLECTION, docId],
+      );
+    } catch (error) {
+      if (!isMissingRelationError(error)) {
+        throw error;
+      }
+    }
+
+    try {
+      await tx.unsafe(
+        `
+          DELETE FROM public.agent_operation_history
+          WHERE collection = $1
+            AND doc_id = $2
+        `,
+        [SHAREDB_COLLECTION, docId],
+      );
+    } catch (error) {
+      if (!isMissingRelationError(error)) {
+        throw error;
+      }
+    }
+
+    let threadIdsForDocument: string[] = [];
+    try {
+      const threadRows = await tx.unsafe<{ thread_id: string }[]>(
+        `
+          SELECT thread_id
+          FROM public.assistant_sessions
+          WHERE doc_id = $1
+        `,
+        [docId],
+      );
+      threadIdsForDocument = threadRows
+        .map((row) => row.thread_id)
+        .filter((threadId) => typeof threadId === "string" && threadId.length > 0);
+    } catch (error) {
+      if (!isMissingRelationError(error)) {
+        throw error;
+      }
+    }
+
+    if (threadIdsForDocument.length > 0) {
+      try {
+        await tx.unsafe(
+          `
+            DELETE FROM public.chat_runs
+            WHERE thread_id = ANY($1::text[])
+          `,
+          [threadIdsForDocument],
+        );
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+      }
+
+      try {
+        await tx.unsafe(
+          `
+            DELETE FROM public.checkpoint_writes
+            WHERE thread_id = ANY($1::text[])
+          `,
+          [threadIdsForDocument],
+        );
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+      }
+
+      try {
+        await tx.unsafe(
+          `
+            DELETE FROM public.checkpoint_blobs
+            WHERE thread_id = ANY($1::text[])
+          `,
+          [threadIdsForDocument],
+        );
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+      }
+
+      try {
+        await tx.unsafe(
+          `
+            DELETE FROM public.checkpoints
+            WHERE thread_id = ANY($1::text[])
+          `,
+          [threadIdsForDocument],
+        );
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    try {
+      await tx.unsafe(
+        `
+          DELETE FROM public.assistant_sessions
+          WHERE doc_id = $1
+        `,
+        [docId],
       );
     } catch (error) {
       if (!isMissingRelationError(error)) {

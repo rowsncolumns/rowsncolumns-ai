@@ -2,6 +2,7 @@ import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
 import type { Metadata } from "next";
 
 import { PostHogIdentify } from "@/components/posthog-identify";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const metadata: Metadata = {
   title: "Sheets",
@@ -20,7 +21,7 @@ export default function SheetsLayout({
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <PostHogIdentify />
-      {children}
+      <TooltipProvider>{children}</TooltipProvider>
     </div>
   );
 }

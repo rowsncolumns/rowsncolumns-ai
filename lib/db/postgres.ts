@@ -15,7 +15,8 @@ for (const envPath of envPaths) {
   });
 }
 
-const databaseUrl = process.env.DATABASE_URL ?? process.env.SHAREDB_DATABASE_URL;
+const databaseUrl =
+  process.env.DATABASE_URL ?? process.env.SHAREDB_DATABASE_URL;
 
 if (!databaseUrl) {
   throw new Error(
@@ -39,9 +40,6 @@ export const db: PostgresClient =
   postgres(databaseUrl, {
     prepare: false,
     ssl: "require",
-    connection: {
-      search_path: "public",
-    },
     onnotice: () => {}, // Suppress NOTICE messages (e.g., "relation already exists")
   });
 
