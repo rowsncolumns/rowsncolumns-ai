@@ -136,6 +136,10 @@ import {
 } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HistorySidebar } from "@/components/history-sidebar";
+import {
+  useShareDbConnectionStatus,
+  type ShareDbConnectionState,
+} from "@/hooks/use-sharedb-connection-status";
 import { authClient } from "@/lib/auth/client";
 import {
   getThemeModeFromBodyClass,
@@ -215,12 +219,6 @@ type ShareDBSocketWithDiagnostics = ShareDBSocket & {
   connect: () => void;
   getLastCloseReason: () => string | null;
 };
-type ShareDbConnectionState =
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "stopped"
-  | "closed";
 
 const normalizeShareDbConnectionState = (
   state: unknown,
@@ -321,6 +319,9 @@ const createShareDbSocket = (
   // Keep socket closed during render; open it from a committed effect only.
   const reconnectingSocket = new ReconnectingWebSocket(urlProvider, [], {
     startClosed: true,
+    connectionTimeout: 10000, // 10s timeout - fail fast on bad connections
+    minReconnectionDelay: 1000, // 1s initial retry delay
+    maxReconnectionDelay: 30000, // 30s max backoff
   });
   let lastCloseReason: string | null = null;
 
@@ -629,6 +630,45 @@ function SpreadsheetPane({
   }, [connection, socket]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const triggerReconnect = () => {
+      setShareDbConnectionState("connecting");
+      setShareDbConnectionReason(null);
+      try {
+        socket.connect();
+      } catch {
+        // Ignore connect errors and allow socket listeners to report details.
+      }
+    };
+
+    const handleOffline = () => {
+      // Close the socket when going offline to kill any zombie connections.
+      // This forces ReconnectingWebSocket into a clean disconnected state.
+      setShareDbConnectionState("disconnected");
+      try {
+        socket.close();
+      } catch {
+        // Ignore close errors.
+      }
+    };
+
+    const handleOnline = () => {
+      // Reconnect when coming back online.
+      triggerReconnect();
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [socket]);
+
+  useEffect(() => {
     const handleStateChange = (state: unknown, reason?: unknown) => {
       const normalizedState = normalizeShareDbConnectionState(state);
       setShareDbConnectionState(normalizedState);
@@ -667,33 +707,21 @@ function SpreadsheetPane({
     };
   }, [connection, socket]);
 
-  const isShareDbConnected = shareDbConnectionState === "connected";
-  const isShareDbConnecting =
-    shareDbConnectionState === "connecting" ||
-    (!hasSeenShareDbConnected && !isShareDbConnected);
-  const shareDbStatusLabel = isShareDbConnected
-    ? "Connected"
-    : isShareDbConnecting
-      ? hasSeenShareDbConnected
-        ? "Reconnecting..."
-        : "Connecting..."
-      : "Connection lost";
-  const shareDbStatusTitle = shareDbConnectionReason
-    ? `${shareDbStatusLabel}: ${shareDbConnectionReason}`
-    : shareDbStatusLabel;
-  const shareDbIndicatorClass = isShareDbConnected
-    ? "bg-emerald-500"
-    : isShareDbConnecting
-      ? "bg-amber-500 animate-pulse"
-      : "bg-red-500";
   const shareDbServerUrl = useMemo(() => getShareDbBaseUrl(), []);
-  const shareDbServerHost = useMemo(() => {
-    try {
-      return new URL(shareDbServerUrl).host;
-    } catch {
-      return shareDbServerUrl;
-    }
-  }, [shareDbServerUrl]);
+  const {
+    statusLabel: shareDbStatusLabel,
+    statusTitle: shareDbStatusTitle,
+    indicatorClass: shareDbIndicatorClass,
+    effectiveReason: effectiveShareDbReason,
+    serverHost: shareDbServerHost,
+    socketStateLabel: shareDbSocketStateLabel,
+  } = useShareDbConnectionStatus({
+    connectionState: shareDbConnectionState,
+    connectionReason: shareDbConnectionReason,
+    hasSeenConnected: hasSeenShareDbConnected,
+    serverUrl: shareDbServerUrl,
+    socketReadyState: socket.readyState,
+  });
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -1821,9 +1849,25 @@ function SpreadsheetPane({
                   {connectedClientCount}
                 </span>
               </div>
-              {shareDbConnectionReason ? (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-(--muted-foreground)">
+                  ShareDB State
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wide">
+                  {shareDbConnectionState}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-(--muted-foreground)">
+                  Socket State
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wide">
+                  {shareDbSocketStateLabel}
+                </span>
+              </div>
+              {effectiveShareDbReason ? (
                 <div className="rounded-md border border-(--panel-border) bg-(--assistant-chip-bg) px-2 py-1.5 text-[11px] text-(--muted-foreground)">
-                  {shareDbConnectionReason}
+                  {effectiveShareDbReason}
                 </div>
               ) : null}
             </div>
