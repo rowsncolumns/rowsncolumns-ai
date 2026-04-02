@@ -98,9 +98,9 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     failed: "Failed to capture your answers",
   },
   assistant_confirmPlanExecution: {
-    running: "Waiting for plan approval",
-    success: "Captured plan approval",
-    failed: "Failed to capture plan approval",
+    running: "Waiting for your plan decision",
+    success: "Captured your plan decision",
+    failed: "Failed to capture your plan decision",
   },
 };
 

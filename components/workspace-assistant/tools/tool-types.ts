@@ -16,6 +16,11 @@ export type ConfirmPlanExecutionItem = {
   steps: string[];
   risks: string[];
   reason?: string;
+  reviewHeader?: string;
+  approveButtonLabel?: string;
+  requestChangesButtonLabel?: string;
+  submitChangesButtonLabel?: string;
+  feedbackPrompt?: string;
 };
 
 export type ParsedToolResult = {

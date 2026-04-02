@@ -225,11 +225,36 @@ export const parseConfirmPlanExecutionFromArgs = (
   const summary =
     typeof source.summary === "string" && source.summary.trim().length > 0
       ? source.summary.trim()
-      : "Review and approve this plan before execution.";
+      : "Review and approve this plan before applying changes.";
 
   const reason =
     typeof source.reason === "string" && source.reason.trim().length > 0
       ? source.reason.trim()
+      : undefined;
+  const reviewHeader =
+    typeof source.reviewHeader === "string" &&
+    source.reviewHeader.trim().length > 0
+      ? source.reviewHeader.trim()
+      : undefined;
+  const approveButtonLabel =
+    typeof source.approveButtonLabel === "string" &&
+    source.approveButtonLabel.trim().length > 0
+      ? source.approveButtonLabel.trim()
+      : undefined;
+  const requestChangesButtonLabel =
+    typeof source.requestChangesButtonLabel === "string" &&
+    source.requestChangesButtonLabel.trim().length > 0
+      ? source.requestChangesButtonLabel.trim()
+      : undefined;
+  const submitChangesButtonLabel =
+    typeof source.submitChangesButtonLabel === "string" &&
+    source.submitChangesButtonLabel.trim().length > 0
+      ? source.submitChangesButtonLabel.trim()
+      : undefined;
+  const feedbackPrompt =
+    typeof source.feedbackPrompt === "string" &&
+    source.feedbackPrompt.trim().length > 0
+      ? source.feedbackPrompt.trim()
       : undefined;
 
   // Try to get steps from array first, then fall back to numbered properties (step1, step2, ...)
@@ -256,5 +281,16 @@ export const parseConfirmPlanExecutionFromArgs = (
 
   // Always return a valid item - no strict validation required
   // The UI will display whatever data is available
-  return { title, summary, steps, risks, ...(reason ? { reason } : {}) };
+  return {
+    title,
+    summary,
+    steps,
+    risks,
+    ...(reason ? { reason } : {}),
+    ...(reviewHeader ? { reviewHeader } : {}),
+    ...(approveButtonLabel ? { approveButtonLabel } : {}),
+    ...(requestChangesButtonLabel ? { requestChangesButtonLabel } : {}),
+    ...(submitChangesButtonLabel ? { submitChangesButtonLabel } : {}),
+    ...(feedbackPrompt ? { feedbackPrompt } : {}),
+  };
 };

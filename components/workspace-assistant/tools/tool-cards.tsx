@@ -1,6 +1,8 @@
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import { Check, X } from "lucide-react";
 import * as React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,6 +16,34 @@ import {
   DEFAULT_CUSTOM_ANSWER_PLACEHOLDER,
   isCustomAnswerOptionLabel,
 } from "./tool-utils";
+
+const TOOL_CARD_MARKDOWN_PLUGINS = [remarkGfm];
+
+function ToolCardMarkdown({
+  children,
+  className,
+}: {
+  children: string;
+  className?: string;
+}) {
+  const content = children.trim();
+  if (!content) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "prose prose-sm max-w-none text-inherit [&_p]:my-0 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5",
+        className,
+      )}
+    >
+      <ReactMarkdown remarkPlugins={TOOL_CARD_MARKDOWN_PLUGINS}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 export function AskUserQuestionToolCard({
   toolCallId,
@@ -69,9 +99,9 @@ export function AskUserQuestionToolCard({
   const isCurrentQuestionCustomOnly = currentQuestion
     ? isCustomOnlyQuestion(currentQuestion)
     : false;
-  const currentHasCustomSelection = currentSelectedLabels.some(
-    isCustomAnswerOptionLabel,
-  ) || isCurrentQuestionCustomOnly;
+  const currentHasCustomSelection =
+    currentSelectedLabels.some(isCustomAnswerOptionLabel) ||
+    isCurrentQuestionCustomOnly;
   const currentCustomAnswerText =
     customAnswersByIndex[currentQuestionIndex] ?? "";
 
@@ -164,7 +194,9 @@ export function AskUserQuestionToolCard({
       const rawSelectedLabels = answersByIndex[questionIndex] ?? [];
       const selectedLabels = isCustomOnly
         ? []
-        : rawSelectedLabels.filter((label) => !isCustomAnswerOptionLabel(label));
+        : rawSelectedLabels.filter(
+            (label) => !isCustomAnswerOptionLabel(label),
+          );
       const hasCustomAnswer =
         isCustomOnly || rawSelectedLabels.some(isCustomAnswerOptionLabel);
       const customAnswerText = hasCustomAnswer
@@ -278,7 +310,9 @@ export function AskUserQuestionToolCard({
                     >
                       <input
                         id={inputId}
-                        type={currentQuestion.multiSelect ? "checkbox" : "radio"}
+                        type={
+                          currentQuestion.multiSelect ? "checkbox" : "radio"
+                        }
                         name={`${toolCallId}-${currentQuestionIndex}`}
                         checked={checked}
                         onChange={() =>
@@ -437,54 +471,56 @@ export function ConfirmPlanExecutionToolCard({
   return (
     <div className="w-full max-w-2xl ">
       <div className="mb-2 text-xs font-semibold text-foreground">
-        Review Plan Before Execution
+        Review Plan Before Applying Changes
       </div>
 
       <div className="rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-3">
         <div className="text-sm font-semibold text-foreground">
           {plan.title}
         </div>
-        <div className="mt-1 text-xs text-(--muted-foreground)">
+        <ToolCardMarkdown className="mt-1 text-xs text-(--muted-foreground)">
           {plan.summary}
-        </div>
+        </ToolCardMarkdown>
         {plan.reason ? (
           <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
-            {plan.reason}
+            <ToolCardMarkdown>{plan.reason}</ToolCardMarkdown>
           </div>
         ) : null}
 
-        <div className="mt-3 space-y-1.5">
-          {plan.steps.map((step, index) => (
-            <div
-              key={`${toolCallId}-step-${index}`}
-              className="text-xs text-foreground"
-            >
-              {index + 1}. {step}
+        <div className="prose prose-sm py-2 text-xs text-(--muted-foreground)">
+          <p>
+            <strong>Steps</strong>
+          </p>
+          <ol className="ml-2 list-decimal">
+            {plan.steps.map((step, index) => (
+              <li key={`${toolCallId}-step-${index}`}>{step}</li>
+            ))}
+          </ol>
+
+          {plan.risks.length > 0 ? (
+            <div className="mt-3 rounded border border-red-200 bg-red-50 px-2 py-2">
+              <div className="text-[11px] font-semibold text-red-700">
+                Risks
+              </div>
+              <ol className="ml-2 list-decimal">
+                {plan.risks.map((risk, index) => (
+                  <li
+                    key={`${toolCallId}-risk-${index}`}
+                    className="pb-1 text-red-700"
+                  >
+                    {risk}
+                  </li>
+                ))}
+              </ol>
             </div>
-          ))}
+          ) : null}
         </div>
-
-        {plan.risks.length > 0 ? (
-          <div className="mt-3 rounded border border-red-200 bg-red-50 px-2 py-2">
-            <div className="text-[11px] font-semibold text-red-700">Risks</div>
-            <div className="mt-1 space-y-1">
-              {plan.risks.map((risk, index) => (
-                <div
-                  key={`${toolCallId}-risk-${index}`}
-                  className="text-xs text-red-700"
-                >
-                  - {risk}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </div>
 
       {isRequestingChanges && !isSubmitted ? (
         <div className="mt-3 rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2">
           <div className="text-xs font-medium text-foreground">
-            What should be changed?
+            What would you like adjusted?
           </div>
           <Textarea
             value={feedback}
@@ -492,7 +528,7 @@ export function ConfirmPlanExecutionToolCard({
               setValidationError(null);
               setFeedback(event.target.value);
             }}
-            placeholder="Describe changes needed before execution."
+            placeholder="Describe what to adjust before I apply changes."
             className="mt-2 min-h-[84px] text-xs"
             disabled={isSubmitted}
           />
@@ -511,9 +547,10 @@ export function ConfirmPlanExecutionToolCard({
           size="sm"
           onClick={handleApprove}
           disabled={isSubmitted}
+          className="rounded-md"
         >
-          <Check className="mr-1.5 h-3.5 w-3.5" />
-          {isSubmitted ? "Submitted" : "Approve & Execute"}
+          <Check className="h-3.5 w-3.5" />
+          {isSubmitted ? "Submitted" : "Approve & Apply"}
         </Button>
 
         {!isRequestingChanges ? (
@@ -527,8 +564,8 @@ export function ConfirmPlanExecutionToolCard({
             }}
             disabled={isSubmitted}
           >
-            <X className="mr-1.5 h-3.5 w-3.5" />
-            Request Changes
+            <X className="h-3.5 w-3.5" />
+            Suggest Edits
           </Button>
         ) : (
           <Button
@@ -537,8 +574,9 @@ export function ConfirmPlanExecutionToolCard({
             variant="secondary"
             onClick={handleSubmitChangesRequest}
             disabled={isSubmitted}
+            className="rounded-md"
           >
-            Submit Changes Request
+            Submit Edits
           </Button>
         )}
       </div>

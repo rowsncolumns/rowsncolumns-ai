@@ -6165,7 +6165,7 @@ const confirmPlanExecutionSchema = z.object({
     .min(1)
     .max(12)
     .describe(
-      'Array of execution steps. Example: ["Create headers in row 1", "Add sample data rows", "Apply formatting"]',
+      'Array of plan steps. Example: ["Create headers in row 1", "Add sample data rows", "Apply formatting"]',
     ),
   risks: z
     .array(z.string().min(1))
@@ -6179,7 +6179,7 @@ const confirmPlanExecutionSchema = z.object({
     .min(1)
     .max(600)
     .optional()
-    .describe("Optional reason why confirmation is needed before execution."),
+    .describe("Optional reason why confirmation is needed before applying changes."),
 });
 
 type ConfirmPlanExecutionInput = z.infer<typeof confirmPlanExecutionSchema>;
@@ -6200,13 +6200,13 @@ const handleConfirmPlanExecution = async (
       typeof input.reason === "string" && input.reason.trim().length > 0
         ? input.reason.trim()
         : null,
-    message: "Waiting for user approval before executing this plan.",
+    message: "Waiting for user decision before applying this plan.",
   });
 };
 
 export const confirmPlanExecutionTool = tool(handleConfirmPlanExecution, {
   name: "assistant_confirmPlanExecution",
-  description: `Ask the user to review and approve a plan before execution.
+  description: `Ask the user to review and approve a plan before applying changes.
 
 Use this when the action is high-impact, destructive, expensive, or ambiguous.
 The UI will show the plan and return approval or requested changes.`,
