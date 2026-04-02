@@ -15,6 +15,7 @@ import type {
   NamedRange,
   PivotTable,
   ProtectedRange,
+  SelectionTitleProps,
   Sheet,
   Slicer,
   SlicerComponentProps,
@@ -77,6 +78,8 @@ import {
   useLoadingIndicator,
   useIsomorphicLayoutEffect,
   useGetViewPort,
+  SelectionTitle,
+  StyledFakeTriggerButton,
 } from "@rowsncolumns/spreadsheet";
 import type {
   CellXfs,
@@ -179,6 +182,7 @@ import ReconnectingWebSocket from "reconnecting-websocket";
 import { selectionFromActiveCell } from "@rowsncolumns/grid";
 import { ChevronRight, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
+import { useCitations } from "@/hooks/use-citations";
 
 const appendShareDbQueryParam = (
   url: string,
@@ -1088,6 +1092,18 @@ function SpreadsheetPane({
     getFormattedValue,
   });
 
+  // Citation border styles
+  const { citationBorderStyles, citationsById } = useCitations({
+    citations,
+    sheetId: activeSheetId,
+  });
+
+  // Final border styles
+  const finalBorderStyles = useMemo(
+    () => [...borderStyles, ...citationBorderStyles],
+    [borderStyles, citationBorderStyles],
+  );
+
   const currentCellFormat = useMemo(
     () =>
       getEffectiveFormat(
@@ -1096,6 +1112,43 @@ function SpreadsheetPane({
         activeCell.columnIndex,
       ),
     [activeCell, activeSheetId, getEffectiveFormat],
+  );
+
+  // Selection title render
+  const selectionTitleRenderer = useCallback(
+    (props: SelectionTitleProps) => {
+      if (!props.title) {
+        return null;
+      }
+      return (
+        <div
+          className="absolute left-0 top-0 pointer-events-auto "
+          style={{
+            top: props.y + props.height,
+            left: props.x,
+            transform: `translateZ(0)`,
+          }}
+          onMouseMove={(e) => e.stopPropagation()}
+        >
+          <Popover open>
+            <PopoverTrigger asChild>
+              <StyledFakeTriggerButton className="left-0 bottom-0" />
+            </PopoverTrigger>
+            <PopoverContent
+              className="border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs"
+              align="start"
+              side="bottom"
+              sideOffset={0}
+            >
+              {props.type === "citation"
+                ? citationsById[props.title].citation_string
+                : props.title}
+            </PopoverContent>
+          </Popover>
+        </div>
+      );
+    },
+    [citationsById],
   );
 
   // Spreadsheet Api
@@ -1604,6 +1657,7 @@ function SpreadsheetPane({
       <div className="rnc-workspace-grid-frame min-h-0 flex-1 flex relative overflow-hidden">
         <CanvasGrid
           {...spreadsheetColors}
+          SelectionTitleComponent={selectionTitleRenderer}
           enableQuickEdit={false}
           enableMagicFill={false}
           locale={locale}
@@ -1637,7 +1691,7 @@ function SpreadsheetPane({
           showSelectionResizeHandles
           stickyEditor={true}
           showGridLines={showGridLines}
-          borderStyles={borderStyles}
+          borderStyles={finalBorderStyles}
           scale={scale}
           conditionalFormats={conditionalFormats}
           sheetId={activeSheetId}
