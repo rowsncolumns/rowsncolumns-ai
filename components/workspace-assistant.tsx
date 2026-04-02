@@ -1214,9 +1214,26 @@ const parsePersistedThreadHistoryMessage = (
     return null;
   }
 
+  const hasPendingHumanToolCall =
+    role === "assistant" &&
+    contentParts.some(
+      (part) =>
+        part.type === "tool-call" &&
+        part.result === undefined &&
+        isHumanInTheLoopToolName(part.toolName),
+    );
+
   return {
     role,
     content: contentParts,
+    ...(hasPendingHumanToolCall
+      ? {
+          status: {
+            type: "requires-action" as const,
+            reason: "tool-calls" as const,
+          } satisfies MessageStatus,
+        }
+      : {}),
   };
 };
 
