@@ -397,17 +397,18 @@ export function ConfirmPlanExecutionToolCard({
       return;
     }
 
+    const trimmedFeedback = feedback.trim();
     addResult({
       success: true,
       approved: true,
       decision: "approved",
-      feedback: null,
+      feedback: trimmedFeedback.length > 0 ? trimmedFeedback : null,
       answeredAt: new Date().toISOString(),
       title: plan.title,
     });
     setValidationError(null);
     setIsSubmitted(true);
-  }, [addResult, plan.title]);
+  }, [addResult, feedback, plan.title]);
 
   const handleSubmitChangesRequest = React.useCallback(() => {
     if (!addResult) {
