@@ -36,10 +36,6 @@ import { withShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
 import { issueMcpShareDbAccessToken } from "@/lib/sharedb/mcp-token";
 
 export type ChatProvider = "openai" | "anthropic";
-export type ChatMode = "action" | "plan" | "ask";
-
-export const DEFAULT_CHAT_MODE: ChatMode = "action";
-export const CHAT_MODE_VALUES = new Set<ChatMode>(["action", "plan", "ask"]);
 
 export type ChatImageInput = {
   url: string;
@@ -49,10 +45,11 @@ export type ChatImageInput = {
 export type ChatRequestBody = {
   threadId?: string;
   docId?: string;
+  docuId?: string;
   message?: string;
   images?: unknown;
+  toolResponses?: unknown;
   model?: string;
-  mode?: string;
   provider?: string;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
@@ -61,7 +58,6 @@ export type ChatRequestBody = {
 
 export type ChatRequestDefaults = {
   model?: string;
-  mode?: ChatMode;
   provider?: ChatProvider;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
@@ -72,12 +68,19 @@ export type ResolvedChatRequest = {
   docId?: string;
   message: string;
   images: ChatImageInput[];
+  toolResponses: ChatToolResponseInput[];
   model?: string;
-  mode: ChatMode;
   provider?: ChatProvider;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
   context?: SpreadsheetAssistantContext;
+};
+
+export type ChatToolResponseInput = {
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  isError?: boolean;
 };
 
 export type ChatErrorResponse = {
@@ -134,6 +137,7 @@ const parseAllowedModelsFromEnv = () => {
 const ALLOWED_MODELS = parseAllowedModelsFromEnv();
 const ALLOW_ANY_MODEL = ALLOWED_MODELS.has("*");
 const MAX_CHAT_IMAGES = 8;
+const MAX_TOOL_RESPONSES = 8;
 
 const isAllowedModel = (model: string) =>
   ALLOW_ANY_MODEL || ALLOWED_MODELS.has(model);
@@ -162,7 +166,9 @@ const parseChatImages = (
       ok: false,
       error: {
         status: 400,
-        payload: { error: `A maximum of ${MAX_CHAT_IMAGES} images is allowed.` },
+        payload: {
+          error: `A maximum of ${MAX_CHAT_IMAGES} images is allowed.`,
+        },
       },
     };
   }
@@ -180,7 +186,8 @@ const parseChatImages = (
     }
 
     const candidate = item as { url?: unknown; filename?: unknown };
-    const rawUrl = typeof candidate.url === "string" ? candidate.url.trim() : "";
+    const rawUrl =
+      typeof candidate.url === "string" ? candidate.url.trim() : "";
     if (!rawUrl) {
       return {
         ok: false,
@@ -228,6 +235,105 @@ const parseChatImages = (
   return { ok: true, images };
 };
 
+const parseToolResponses = (
+  value: unknown,
+):
+  | { ok: true; toolResponses: ChatToolResponseInput[] }
+  | { ok: false; error: ChatErrorResponse } => {
+  if (value === undefined || value === null) {
+    return { ok: true, toolResponses: [] };
+  }
+
+  if (!Array.isArray(value)) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        payload: { error: "toolResponses must be an array." },
+      },
+    };
+  }
+
+  if (value.length > MAX_TOOL_RESPONSES) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        payload: {
+          error: `A maximum of ${MAX_TOOL_RESPONSES} toolResponses is allowed.`,
+        },
+      },
+    };
+  }
+
+  const toolResponses: ChatToolResponseInput[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Each tool response must be an object." },
+        },
+      };
+    }
+
+    const candidate = item as {
+      toolCallId?: unknown;
+      toolName?: unknown;
+      result?: unknown;
+      isError?: unknown;
+    };
+    const toolCallId =
+      typeof candidate.toolCallId === "string"
+        ? candidate.toolCallId.trim()
+        : "";
+    const toolName =
+      typeof candidate.toolName === "string" ? candidate.toolName.trim() : "";
+
+    if (!toolCallId) {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Each tool response requires toolCallId." },
+        },
+      };
+    }
+
+    if (!toolName) {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Each tool response requires toolName." },
+        },
+      };
+    }
+
+    if (!("result" in candidate)) {
+      return {
+        ok: false,
+        error: {
+          status: 400,
+          payload: { error: "Each tool response requires result." },
+        },
+      };
+    }
+
+    toolResponses.push({
+      toolCallId,
+      toolName,
+      result: candidate.result,
+      ...(typeof candidate.isError === "boolean"
+        ? { isError: candidate.isError }
+        : {}),
+    });
+  }
+
+  return { ok: true, toolResponses };
+};
+
 const parseProvider = (
   value: string | undefined | null,
 ): ChatProvider | undefined | null => {
@@ -235,17 +341,6 @@ const parseProvider = (
   if (!normalized) return undefined;
   if (normalized === "openai") return "openai";
   if (normalized === "anthropic") return "anthropic";
-  return null;
-};
-
-export const parseChatMode = (
-  value: string | undefined | null,
-): ChatMode | undefined | null => {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return undefined;
-  if (CHAT_MODE_VALUES.has(normalized as ChatMode)) {
-    return normalized as ChatMode;
-  }
   return null;
 };
 
@@ -293,13 +388,24 @@ export const resolveChatRequest = (
       error: parsedImages.error,
     };
   }
+  const parsedToolResponses = parseToolResponses(body.toolResponses);
+  if (!parsedToolResponses.ok) {
+    return {
+      ok: false,
+      error: parsedToolResponses.error,
+    };
+  }
 
-  if (!message && parsedImages.images.length === 0) {
+  if (
+    !message &&
+    parsedImages.images.length === 0 &&
+    parsedToolResponses.toolResponses.length === 0
+  ) {
     return {
       ok: false,
       error: {
         status: 400,
-        payload: { error: "message or images are required." },
+        payload: { error: "message, images, or toolResponses are required." },
       },
     };
   }
@@ -325,19 +431,6 @@ export const resolveChatRequest = (
       },
     };
   }
-
-  const parsedMode = parseChatMode(body.mode);
-  if (parsedMode === null) {
-    return {
-      ok: false,
-      error: {
-        status: 400,
-        payload: { error: "mode must be 'action', 'plan', or 'ask'." },
-      },
-    };
-  }
-
-  const mode = parsedMode ?? defaults.mode ?? DEFAULT_CHAT_MODE;
 
   const parsedProvider = parseProvider(body.provider);
   if (parsedProvider === null) {
@@ -375,16 +468,18 @@ export const resolveChatRequest = (
     normalizeInstructionText(defaults.systemInstructions),
   );
   const context = sanitizeSpreadsheetAssistantContext(body.context);
+  const docId =
+    body.docId?.trim() || body.docuId?.trim() || undefined;
 
   return {
     ok: true,
     value: {
       threadId,
-      docId: body.docId?.trim() || undefined,
+      docId,
       message,
       images: parsedImages.images,
+      toolResponses: parsedToolResponses.toolResponses,
       model,
-      mode,
       provider,
       reasoningEnabled,
       systemInstructions,
@@ -522,7 +617,11 @@ export const executeChatRunStream = async (input: {
 
   const combinedAbortSignal = localAbortController.signal;
   const checkCancellationAtCheckpoint = async () => {
-    if (!shouldPersistEvents || cancellationCheckInFlight || combinedAbortSignal.aborted) {
+    if (
+      !shouldPersistEvents ||
+      cancellationCheckInFlight ||
+      combinedAbortSignal.aborted
+    ) {
       return;
     }
 
@@ -624,14 +723,15 @@ export const executeChatRunStream = async (input: {
     const billingEntitlement = input.isAdmin
       ? null
       : await getUserBillingEntitlement(input.userId);
-    const trackingAllowed =
-      input.isAdmin || billingEntitlement?.plan === "max";
+    const trackingAllowed = input.isAdmin || billingEntitlement?.plan === "max";
 
     await withShareDbRuntimeContext(
       {
         mcpTokenFactory: ({ docId, permission }) =>
           issueMcpShareDbAccessToken({ docId, permission }),
-        ...(input.shareDbWsHeaders ? { wsHeaders: input.shareDbWsHeaders } : {}),
+        ...(input.shareDbWsHeaders
+          ? { wsHeaders: input.shareDbWsHeaders }
+          : {}),
       },
       async () =>
         withOperationHistoryRuntimeContext(
@@ -647,8 +747,8 @@ export const executeChatRunStream = async (input: {
               docId: input.request.docId,
               message: input.request.message,
               images: input.request.images,
+              toolResponses: input.request.toolResponses,
               model: input.request.model,
-              mode: input.request.mode,
               provider: input.request.provider,
               reasoningEnabled: input.request.reasoningEnabled,
               systemInstructions: input.request.systemInstructions,
@@ -729,7 +829,6 @@ export const executeChatRunStream = async (input: {
             threadId: input.request.threadId,
             docId: input.request.docId,
             model: input.request.model,
-            mode: input.request.mode,
             provider: input.request.provider,
             outputChars,
             toolCallCount,
@@ -754,8 +853,7 @@ export const executeChatRunStream = async (input: {
           ? combinedAbortSignal.reason
           : undefined;
         const wasClientAbort =
-          isChatAbortReason(abortReason) &&
-          abortReason.code === "CLIENT_ABORT";
+          isChatAbortReason(abortReason) && abortReason.code === "CLIENT_ABORT";
         await completeChatRun({
           runId,
           status: wasClientAbort

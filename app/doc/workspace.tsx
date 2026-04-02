@@ -44,7 +44,6 @@ import {
   SheetStatus,
   SheetSwitcher,
   SheetTabs,
-  SpreadsheetProvider,
   TextColorSelector,
   TextFormatSelector,
   TextHorizontalAlignSelector,
@@ -110,16 +109,20 @@ import {
 import {
   CircularLoader,
   IconButton,
+  ModalProvider,
   Separator as UiSeparator,
+  TooltipProvider,
 } from "@rowsncolumns/ui";
 import {
   Suspense,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { Provider as JotaiProvider } from "jotai";
 import {
   Group,
   Panel,
@@ -219,6 +222,16 @@ type ShareDBSocketWithDiagnostics = ShareDBSocket & {
   connect: () => void;
   getLastCloseReason: () => string | null;
 };
+
+function SpreadsheetRootProvider({ children }: { children: ReactNode }) {
+  return (
+    <JotaiProvider>
+      <ModalProvider>
+        <TooltipProvider>{children}</TooltipProvider>
+      </ModalProvider>
+    </JotaiProvider>
+  );
+}
 
 const normalizeShareDbConnectionState = (
   state: unknown,
@@ -2250,28 +2263,24 @@ export function SpreadsheetOnlyWorkspace({
       </div>
     ) : null;
 
-  const spreadsheetPane = (
-    <SpreadsheetPane
-      documentId={documentId}
-      currentUser={currentUser}
-      initialThemeMode={initialThemeMode}
-      canManageShare={canManageShare}
-      canEdit={canEdit}
-      canUseAuditHistory={canUseAuditHistory}
-      onOpenHistorySidebar={() => setIsHistorySidebarOpen(true)}
-      locale={locale}
-      currency={currency}
-    />
-  );
-
   return (
     <main className="flex h-[100svh] w-full flex-col overflow-hidden sm:h-dvh">
-      <SpreadsheetProvider>
+      <SpreadsheetRootProvider>
         <div className="relative min-h-0 flex-1 flex flex-col">
-          {spreadsheetPane}
+          <SpreadsheetPane
+            documentId={documentId}
+            currentUser={currentUser}
+            initialThemeMode={initialThemeMode}
+            canManageShare={canManageShare}
+            canEdit={canEdit}
+            canUseAuditHistory={canUseAuditHistory}
+            onOpenHistorySidebar={() => setIsHistorySidebarOpen(true)}
+            locale={locale}
+            currency={currency}
+          />
           {activitySidebar}
         </div>
-      </SpreadsheetProvider>
+      </SpreadsheetRootProvider>
     </main>
   );
 }
@@ -2398,11 +2407,6 @@ export function NewWorkspace({
       isModelPickerOpen={assistantRuntime.isModelPickerOpen}
       setIsModelPickerOpen={assistantRuntime.setIsModelPickerOpen}
       setSelectedModel={assistantRuntime.setSelectedModel}
-      selectedMode={assistantRuntime.selectedMode}
-      selectedModeLabel={assistantRuntime.selectedModeLabel}
-      isModePickerOpen={assistantRuntime.isModePickerOpen}
-      setIsModePickerOpen={assistantRuntime.setIsModePickerOpen}
-      setSelectedMode={assistantRuntime.setSelectedMode}
       reasoningEnabled={assistantRuntime.reasoningEnabled}
       setReasoningEnabled={assistantRuntime.setReasoningEnabled}
       reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
@@ -2430,7 +2434,7 @@ export function NewWorkspace({
           canEdit={canManageShare}
         />
 
-        <SpreadsheetProvider>
+        <SpreadsheetRootProvider>
           <div className="relative flex min-h-0 flex-1 flex-col">
             {isMobileLayout ? (
               <Tabs
@@ -2533,7 +2537,7 @@ export function NewWorkspace({
               </>
             )}
           </div>
-        </SpreadsheetProvider>
+        </SpreadsheetRootProvider>
       </main>
     </AssistantRuntimeProvider>
   );

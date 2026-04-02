@@ -7,16 +7,21 @@ import {
 } from "@langchain/core/messages";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import {
+  Command,
   END,
   MemorySaver,
   MessagesAnnotation,
   START,
   StateGraph,
+  interrupt,
 } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
+import path from "node:path";
+import { readFile } from "node:fs/promises";
 
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
+import { isHumanInTheLoopToolName } from "@/lib/chat/hitl-tools";
 import type { ChatStreamEvent } from "@/lib/chat/protocol";
 import {
   buildContextUsageSnapshot,
@@ -30,7 +35,7 @@ import {
   listAssistantSessions,
   upsertAssistantSession,
 } from "@/lib/chat/sessions-repository";
-import { assistantControlTools, spreadsheetTools } from "@/lib/chat/tools";
+import { spreadsheetTools } from "@/lib/chat/tools";
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.2-chat-latest";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929";
@@ -42,7 +47,6 @@ const DEFAULT_GRAPH_RECURSION_LIMIT = 150;
 const DEFAULT_LANGGRAPH_CHECKPOINT_SCHEMA = "public";
 const CLAUDE_MODEL_PATTERN = /^claude/i;
 const REASONING_MODEL_PATTERN = /^(o\d|gpt-5|codex)/i;
-type AssistantRunMode = "action" | "plan" | "ask";
 const SESSION_TITLE_SYSTEM_PROMPT = `You generate concise session titles for spreadsheet assistant conversations.
 
 Rules:
@@ -52,12 +56,19 @@ Rules:
 - Use title case.
 `;
 const MAX_SESSION_TITLE_LENGTH = 80;
-const DEFAULT_ASSISTANT_RUN_MODE: AssistantRunMode = "action";
-const ASSISTANT_RUN_MODE_VALUES = new Set<AssistantRunMode>([
-  "action",
-  "plan",
-  "ask",
-]);
+const SYSTEM_PROMPT_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "lib/chat/prompt-v2.md",
+);
+const DOC_CONTEXT_PLACEHOLDER = "{{DOC_CONTEXT}}";
+const ADDITIONAL_INSTRUCTIONS_PLACEHOLDER = "{{ADDITIONAL_INSTRUCTIONS}}";
+const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `You are an expert Excel and spreadsheet assistant.
+
+${DOC_CONTEXT_PLACEHOLDER}
+
+${ADDITIONAL_INSTRUCTIONS_PLACEHOLDER}`;
+let systemPromptTemplatePromise: Promise<string> | null = null;
+const runtimeSystemInstructionsByRef = new Map<string, string>();
 
 const isReasoningModel = (model: string) =>
   REASONING_MODEL_PATTERN.test(model.trim());
@@ -169,19 +180,6 @@ const parseAnthropicThinkingMode = (
   return "enabled";
 };
 
-const resolveAssistantRunMode = (value: unknown): AssistantRunMode => {
-  if (typeof value !== "string") {
-    return DEFAULT_ASSISTANT_RUN_MODE;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (ASSISTANT_RUN_MODE_VALUES.has(normalized as AssistantRunMode)) {
-    return normalized as AssistantRunMode;
-  }
-
-  return DEFAULT_ASSISTANT_RUN_MODE;
-};
-
 const resolveProviderConfig = (override?: {
   model?: string;
   provider?: Provider;
@@ -227,165 +225,78 @@ const resolveProviderConfig = (override?: {
   };
 };
 
-const buildSystemPrompt = (options?: {
+const loadSystemPromptTemplate = async () => {
+  if (!systemPromptTemplatePromise) {
+    systemPromptTemplatePromise = readFile(SYSTEM_PROMPT_TEMPLATE_PATH, "utf8")
+      .then((value) => value)
+      .catch((error) => {
+        console.error("[graph] Failed to load prompt-v2.md, using fallback", {
+          path: SYSTEM_PROMPT_TEMPLATE_PATH,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return DEFAULT_SYSTEM_PROMPT_TEMPLATE;
+      });
+  }
+
+  return systemPromptTemplatePromise;
+};
+
+const buildSystemPrompt = async (options?: {
   docId?: string;
-  mode?: AssistantRunMode;
   systemInstructions?: string;
 }) => {
-  const {
-    docId,
-    mode = DEFAULT_ASSISTANT_RUN_MODE,
-    systemInstructions,
-  } = options ?? {};
+  const { docId, systemInstructions } = options ?? {};
+  const template = await loadSystemPromptTemplate();
 
   const docContext = docId
-    ? `\n\nYou are working on document ID: ${docId}. When calling tools that modify the spreadsheet, always include this docId in the tool arguments.`
+    ? `You are working on document ID: ${docId}. When calling tools that modify the spreadsheet, always include this docId in the tool arguments.`
     : "";
+  const additionalInstructions = systemInstructions?.trim() ?? "";
+  const hasDocPlaceholder = template.includes(DOC_CONTEXT_PLACEHOLDER);
+  const hasAdditionalInstructionsPlaceholder = template.includes(
+    ADDITIONAL_INSTRUCTIONS_PLACEHOLDER,
+  );
 
-  const additionalInstructions = systemInstructions
-    ? `\n\n${systemInstructions}`
-    : "";
-  const modeBehaviorInstructions =
-    mode === "plan"
-      ? `\n\n## Mode Override (Highest Priority)
-You are in plan mode.
-- Do not call spreadsheet mutation/read tools.
-- Do not execute spreadsheet changes.
-- Provide a concise, ordered implementation plan that you would run in action mode.
-- If assumptions are needed, list them explicitly and keep them minimal.
-- If the user asks you to execute now, or explicitly indicates approval to proceed (for example: "yes", "go ahead", "build it", "run it"), call the tool "assistant_requestModeSwitch" with targetMode="action" and a short reason.
-- Never render fake approval UI in plain text (no checkbox/bullet "Approve/Reject" blocks). Approval must be requested via the tool call.
-- Call that tool at most once per user request, then briefly state you are waiting for approval.`
-      : mode === "ask"
-        ? `\n\n## Mode Override (Highest Priority)
-You are in ask-only mode.
-- Do not call any tools.
-- Do not execute spreadsheet changes.
-- Answer the user's question directly and concisely using available context.`
-        : `\n\n## Mode Override (Highest Priority)
-You are in action mode.
-- Execute safe, non-destructive steps directly when tools are needed to fulfill the request.`;
+  let rendered = template
+    .replace(DOC_CONTEXT_PLACEHOLDER, docContext)
+    .replace(ADDITIONAL_INSTRUCTIONS_PLACEHOLDER, additionalInstructions);
 
-  return `You are an expert Excel and spreadsheet assistant. You help users create, modify, analyze, and improve spreadsheets that are accurate, maintainable, and easy to understand.
+  // Guard against template drift: still inject runtime context if placeholders are missing.
+  if (!hasDocPlaceholder && docContext) {
+    rendered = `${docContext}\n\n${rendered}`;
+  }
+  if (!hasAdditionalInstructionsPlaceholder && additionalInstructions) {
+    rendered = `${rendered}\n\n${additionalInstructions}`;
+  }
 
-## Priorities
-1. Correctness first
-2. Clarity over complexity
-3. Maintainable structure over clever formulas
-4. Fast execution with sensible defaults
-5. Professional, presentable formatting by default
+  return rendered.trim();
+};
 
-## General behavior
-- Understand the user’s goal before making spreadsheet changes.
-- Adapt the spreadsheet structure to the task instead of forcing a fixed layout.
-- Prefer simple, auditable formulas and consistent patterns.
-- Keep inputs, calculations, and outputs clearly separated whenever the model or workflow is non-trivial.
-- Avoid unnecessary complexity, excessive styling, or brittle formulas.
-- Default to action over clarification: make reasonable assumptions and execute.
-- If information is missing but common defaults are possible, proceed with those defaults and state assumptions briefly.
-- Never stop at a question when a safe, non-destructive next step is available.
+const registerRuntimeSystemInstructions = (
+  systemInstructions: string | undefined,
+) => {
+  const normalized = systemInstructions?.trim();
+  if (!normalized) {
+    return undefined;
+  }
 
-## Coordinate System (Critical)
-- Treat spreadsheet row/column indexes as 1-based unless a tool explicitly states otherwise.
-- A1 corresponds to rowIndex=1 and columnIndex=1.
-- When uncertain, prefer explicit A1 notation to avoid off-by-one mistakes.
+  const ref = crypto.randomUUID();
+  runtimeSystemInstructionsByRef.set(ref, normalized);
+  return ref;
+};
 
-## Spreadsheet design principles
-- Create clear headers and labels.
-- Group related content logically.
-- Keep assumptions and editable inputs in clearly marked areas when relevant.
-- Make formulas easy to trace and copy across rows or columns.
-- Use helper columns instead of deeply nested formulas when that improves clarity.
-- Freeze panes, filters, tables, and conditional formatting when they materially improve navigation or usability.
-- Size columns and format numbers appropriately for the content.
+const resolveRuntimeSystemInstructions = (ref: string | undefined) => {
+  if (!ref) {
+    return undefined;
+  }
+  return runtimeSystemInstructionsByRef.get(ref);
+};
 
-## Formula safety and repair
-- Prevent circular references by default.
-- Before writing a formula, ensure its referenced cells do not depend on the destination cell.
-- If circular logic is intentional (for example LBO/goal-seeking models), enable iterative calculation mode before writing circular formulas.
-- On tool results, proactively scan for formula errors (#CIRC!, #REF!, #VALUE!, #DIV/0!, #NAME?, #N/A, #NUM!, #NULL!, #SPILL!).
-- If an error is fixable from available context, repair it in the same run and verify by re-querying the affected range.
-- Prefer root-cause fixes over masking with IFERROR unless the error is expected behavior.
-- If a fix is ambiguous, choose the safest reasonable repair and state the assumption briefly.
-- If a limit prevents full repair, report unresolved cells/ranges and the exact next repair action.
-- Avoid volatile functions (INDIRECT, OFFSET) unless necessary.
-- Use absolute ($B$4) vs relative (B4) references appropriately for copy/paste behavior.
-- No magic numbers in formulas. Use cell references: "=H6*(1+$B$3)" not "=H6*1.04".
-- Check for off-by-one errors in ranges and cell references.
-
-## Formatting standards
-- Use professional, restrained formatting.
-- Distinguish inputs, calculated cells, headers, and totals when useful.
-- Apply appropriate number formats for currency, percentages, dates, and large numbers.
-- Use borders, fill, and emphasis sparingly.
-- Add whitespace between sections for visual clarity.
-- Use bold selectively (headers, section labels, totals). Keep regular data cells non-bold by default.
-- Avoid merged cells unless they genuinely improve presentation and won’t interfere with sorting, filtering, or downstream use.
-- Auto-format by default to keep outputs presentable (clear headers, sensible alignment, and appropriate number/date/percent/currency formats).
-- For small edits in existing sheets, avoid broad cosmetic reformatting unless the user requests it.
-- Keep data writes and visual styling separate: write values/formulas first, then apply presentation updates in a follow-up step.
-
-## Financial model conventions
-When building financial models (LBO, DCF, 3-statement, valuation, etc.):
-- Display zeros as "-".
-- Negative numbers should be red and in parentheses; (500), not -500. In Excel this might be "$#,##0.00_);[Red] ($#,##0.00)"
-- Format multiples as "5.2x".
-- Include units in headers: "Revenue ($mm)".
-- Use blue text for hardcoded inputs, black for formulas, green for cross-sheet links.
-- Cite sources for raw inputs in cell notes.
-
-## When creating a new spreadsheet or sheet
-- Start with a structure that matches the user’s objective.
-- Include titles, headers, summaries, and assumptions only when they are useful.
-- Make the result usable immediately, not just technically complete.
-- Default to a clean, business-friendly layout.
-- Do not leave newly created structures visually raw when basic formatting would improve readability.
-- If the workbook/sheet is empty and the user asks for a report/summary/model, scaffold a practical starter layout immediately (headers, formulas, totals, and sensible placeholders) instead of asking for schema first.
-
-## When editing an existing spreadsheet
-- Respect the existing structure unless it is clearly broken or the user asks for improvement.
-- Avoid unnecessary reformatting.
-- Preserve formulas, references, and sheet logic.
-- Make targeted changes and keep them consistent with the workbook.
-
-## Execution plans
-For non-trivial tasks (3+ steps or multiple tool calls), output a brief execution plan before starting work:
-
-**Format:**
-\`\`\`
-**Execution Plan** (N steps)
-1. [First action]
-2. [Second action]
-...
-\`\`\`
-
-Then immediately execute the plan - do not wait for confirmation. As you complete each step, briefly note progress (e.g., "✓ Step 1 complete").
-
-**When to show a plan:**
-- Multi-step data entry or restructuring
-- Building models, reports, or dashboards
-- Batch formatting or formula updates
-- Any task requiring 3+ tool calls
-
-**When to skip the plan:**
-- Single-cell edits or simple queries
-- Answering questions about the spreadsheet
-- Tasks with only 1-2 obvious steps
-
-Keep plans concise (max 7 steps shown). If a task has more steps, group related actions.
-
-## Communication style
-- Be concise, direct, and practical.
-- Briefly explain important design or formula choices when they are not obvious.
-- Ask for clarification only when absolutely required to avoid a likely wrong or destructive result.
-- If clarification is needed, ask at most one short question and include what was already done.
-- After making changes, summarize what was done and note anything the user should review.
-
-${docContext}
-
-${modeBehaviorInstructions}
-
-${additionalInstructions}`;
+const releaseRuntimeSystemInstructions = (ref: string | undefined) => {
+  if (!ref) {
+    return;
+  }
+  runtimeSystemInstructionsByRef.delete(ref);
 };
 
 const getModel = (override?: {
@@ -492,6 +403,11 @@ const getModel = (override?: {
 };
 
 const shouldContinue = (state: typeof MessagesAnnotation.State) => {
+  const pendingHumanToolCall = getPendingHumanToolCall(state.messages);
+  if (pendingHumanToolCall) {
+    return "human";
+  }
+
   const lastMessage = state.messages[state.messages.length - 1];
 
   // If the last message has tool calls, route to tools node
@@ -506,6 +422,189 @@ const shouldContinue = (state: typeof MessagesAnnotation.State) => {
 
   // Otherwise, end the graph
   return END;
+};
+
+/**
+ * Routing function for after the human node completes.
+ * Handles multiple HITL tool calls in sequence.
+ */
+const shouldContinueAfterHuman = (
+  state: typeof MessagesAnnotation.State,
+): "human" | "call-model" => {
+  const pendingHumanToolCall = getPendingHumanToolCall(state.messages);
+  if (pendingHumanToolCall) {
+    // More HITL tool calls to handle - loop back to human node
+    return "human";
+  }
+  // All HITL calls handled - continue to call-model
+  return "call-model";
+};
+
+type PendingHumanToolCall = {
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+};
+
+type HumanToolInterruptPayload = {
+  kind: "human_tool_call";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+};
+
+type ResumeToolResponseLike = {
+  toolCallId?: string;
+  toolName?: string;
+  result?: unknown;
+  isError?: boolean;
+};
+
+const getToolCallArgs = (toolCall: unknown): unknown => {
+  if (!toolCall || typeof toolCall !== "object") {
+    return {};
+  }
+
+  if ("args" in toolCall) {
+    return (toolCall as { args?: unknown }).args ?? {};
+  }
+
+  return {};
+};
+
+const parseResumeToolResponseLike = (
+  value: unknown,
+): ResumeToolResponseLike | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as {
+    toolCallId?: unknown;
+    toolName?: unknown;
+    result?: unknown;
+    isError?: unknown;
+  };
+
+  const hasShape =
+    "result" in candidate ||
+    "toolCallId" in candidate ||
+    "toolName" in candidate ||
+    "isError" in candidate;
+  if (!hasShape) {
+    return null;
+  }
+
+  const toolCallId =
+    typeof candidate.toolCallId === "string" ? candidate.toolCallId : undefined;
+  const toolName =
+    typeof candidate.toolName === "string" ? candidate.toolName : undefined;
+  const isError =
+    typeof candidate.isError === "boolean" ? candidate.isError : undefined;
+
+  return {
+    ...(toolCallId ? { toolCallId } : {}),
+    ...(toolName ? { toolName } : {}),
+    ...(isError !== undefined ? { isError } : {}),
+    ...(Object.prototype.hasOwnProperty.call(candidate, "result")
+      ? { result: candidate.result }
+      : {}),
+  };
+};
+
+const resolveInterruptedToolResponse = (
+  resumeValue: unknown,
+  pendingToolCall: PendingHumanToolCall,
+): { result: unknown; isError: boolean } => {
+  const resumeEntries = Array.isArray(resumeValue)
+    ? resumeValue
+    : [resumeValue];
+  const parsedEntries = resumeEntries
+    .map(parseResumeToolResponseLike)
+    .filter((entry): entry is ResumeToolResponseLike => entry !== null);
+
+  const byToolCallId = parsedEntries.find(
+    (entry) => entry.toolCallId === pendingToolCall.toolCallId,
+  );
+  const byToolName = parsedEntries.find(
+    (entry) => entry.toolName === pendingToolCall.toolName,
+  );
+  const matchedEntry = byToolCallId ?? byToolName ?? parsedEntries[0];
+
+  if (matchedEntry) {
+    if (Object.prototype.hasOwnProperty.call(matchedEntry, "result")) {
+      return {
+        result: matchedEntry.result,
+        isError: matchedEntry.isError === true,
+      };
+    }
+
+    return {
+      result: matchedEntry,
+      isError: matchedEntry.isError === true,
+    };
+  }
+
+  return {
+    result: resumeValue,
+    isError: false,
+  };
+};
+
+const getPendingHumanToolCall = (
+  messages: (typeof MessagesAnnotation.State)["messages"],
+): PendingHumanToolCall | null => {
+  for (
+    let messageIndex = messages.length - 1;
+    messageIndex >= 0;
+    messageIndex--
+  ) {
+    const message = messages[messageIndex];
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !("tool_calls" in message) ||
+      !Array.isArray(message.tool_calls) ||
+      message.tool_calls.length === 0
+    ) {
+      continue;
+    }
+
+    const respondedToolCallIds = collectRespondedToolCallIds(
+      messages,
+      messageIndex + 1,
+    );
+    for (const toolCall of message.tool_calls) {
+      const maybeToolCall = toolCall as {
+        id?: unknown;
+        name?: unknown;
+      };
+      const toolCallId =
+        typeof maybeToolCall.id === "string" ? maybeToolCall.id : "";
+      const toolName =
+        typeof maybeToolCall.name === "string" ? maybeToolCall.name : "";
+      if (!toolCallId || !toolName) {
+        continue;
+      }
+      if (!isHumanInTheLoopToolName(toolName)) {
+        continue;
+      }
+      if (respondedToolCallIds.has(toolCallId)) {
+        continue;
+      }
+
+      return {
+        toolCallId,
+        toolName,
+        args: getToolCallArgs(toolCall),
+      };
+    }
+
+    // Only inspect the latest assistant tool-call message.
+    break;
+  }
+
+  return null;
 };
 
 /**
@@ -581,12 +680,96 @@ const getCheckpointer = async () => {
   return checkpointerPromise;
 };
 
+/**
+ * Creates a tool node that handles AbortErrors gracefully.
+ * When a tool is aborted mid-execution, we still need to create a ToolMessage
+ * to avoid leaving the graph in an invalid state (tool_use without tool_result).
+ */
+const createSafeToolNode = (tools: typeof spreadsheetTools) => {
+  const baseToolNode = new ToolNode(tools);
+
+  return async (state: typeof MessagesAnnotation.State) => {
+    try {
+      return await baseToolNode.invoke(state);
+    } catch (error) {
+      // If the error is an AbortError, create error ToolMessages for pending tool calls
+      if (isAbortError(error)) {
+        const lastMessage = state.messages[state.messages.length - 1];
+        if (
+          lastMessage &&
+          "tool_calls" in lastMessage &&
+          Array.isArray(lastMessage.tool_calls)
+        ) {
+          const errorToolMessages = lastMessage.tool_calls
+            .filter(
+              (tc): tc is { id: string; name: string } =>
+                tc &&
+                typeof tc === "object" &&
+                typeof tc.id === "string" &&
+                typeof tc.name === "string",
+            )
+            .map(
+              (tc) =>
+                new ToolMessage({
+                  tool_call_id: tc.id,
+                  name: tc.name,
+                  content: JSON.stringify({
+                    success: false,
+                    error: "Tool execution was aborted. Please retry.",
+                  }),
+                  status: "error" as const,
+                }),
+            );
+
+          if (errorToolMessages.length > 0) {
+            console.warn(
+              "[graph] Created error ToolMessages for aborted tools:",
+              {
+                count: errorToolMessages.length,
+                toolCallIds: errorToolMessages.map((m) => m.tool_call_id),
+              },
+            );
+            return { messages: errorToolMessages };
+          }
+        }
+      }
+      // Re-throw non-abort errors
+      throw error;
+    }
+  };
+};
+
 const createGraph = async () => {
   const checkpointer = await getCheckpointer();
-  const toolNode = new ToolNode([
-    ...spreadsheetTools,
-    ...assistantControlTools,
-  ]);
+  const toolNode = createSafeToolNode(spreadsheetTools);
+  const humanNode = (state: typeof MessagesAnnotation.State) => {
+    const pendingHumanToolCall = getPendingHumanToolCall(state.messages);
+    if (!pendingHumanToolCall) {
+      return { messages: [] };
+    }
+
+    const resumeValue = interrupt({
+      kind: "human_tool_call",
+      toolCallId: pendingHumanToolCall.toolCallId,
+      toolName: pendingHumanToolCall.toolName,
+      args: pendingHumanToolCall.args,
+    } satisfies HumanToolInterruptPayload);
+    const resolvedResponse = resolveInterruptedToolResponse(
+      resumeValue,
+      pendingHumanToolCall,
+    );
+
+    return {
+      messages: [
+        new ToolMessage({
+          tool_call_id: pendingHumanToolCall.toolCallId,
+          name: pendingHumanToolCall.toolName,
+          content: stringifyUnknown(resolvedResponse.result),
+          ...(resolvedResponse.isError ? { status: "error" as const } : {}),
+        }),
+      ],
+    };
+  };
 
   return new StateGraph(MessagesAnnotation)
     .addNode(
@@ -597,10 +780,9 @@ const createGraph = async () => {
           configurable?: {
             model?: string;
             provider?: string;
-            mode?: string;
             reasoningEnabled?: boolean;
             docId?: string;
-            systemInstructions?: string;
+            systemInstructionsRef?: string;
           };
         },
       ) => {
@@ -610,26 +792,19 @@ const createGraph = async () => {
             ? providerCandidate
             : undefined;
         const modelOverride = runtimeConfig?.configurable?.model;
-        const mode = resolveAssistantRunMode(runtimeConfig?.configurable?.mode);
         const reasoningEnabled = runtimeConfig?.configurable?.reasoningEnabled;
         const docId = runtimeConfig?.configurable?.docId;
-        const systemInstructions =
-          runtimeConfig?.configurable?.systemInstructions;
-        const availableTools =
-          mode === "action"
-            ? spreadsheetTools
-            : mode === "plan"
-              ? assistantControlTools
-              : [];
+        const systemInstructions = resolveRuntimeSystemInstructions(
+          runtimeConfig?.configurable?.systemInstructionsRef,
+        );
         const baseModel = getModel({
           model: modelOverride,
           provider: providerOverride,
           reasoningEnabled,
         });
-        const model =
-          availableTools.length > 0
-            ? baseModel.bindTools(availableTools, { parallel_tool_calls: true })
-            : baseModel;
+        const model = baseModel.bindTools(spreadsheetTools, {
+          parallel_tool_calls: true,
+        });
 
         // Sanitize messages for OpenAI (remove unsupported content types like 'reasoning')
         const { provider } = resolveProviderConfig({
@@ -641,37 +816,32 @@ const createGraph = async () => {
             ? sanitizeMessagesForOpenAI(state.messages)
             : state.messages;
 
+        const finalSystemPrompt = await buildSystemPrompt({
+          docId,
+          systemInstructions,
+        });
+
         const response = await model.invoke([
-          new SystemMessage(
-            buildSystemPrompt({ docId, mode, systemInstructions }),
-          ),
+          new SystemMessage(finalSystemPrompt),
           ...messagesToSend,
         ]);
-
-        if (mode === "ask") {
-          const toolCalls = (response as { tool_calls?: unknown }).tool_calls;
-          if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-            const fallbackText = contentToText(response.content).trim();
-            return {
-              messages: [
-                new AIMessage(
-                  fallbackText || "Answer prepared without running tools.",
-                ),
-              ],
-            };
-          }
-        }
 
         return {
           messages: [response],
         };
       },
     )
+    .addNode("human", humanNode)
     .addNode("tools", toolNode)
     .addEdge(START, "call-model")
     .addConditionalEdges("call-model", shouldContinue, {
+      human: "human",
       tools: "tools",
       [END]: END,
+    })
+    .addConditionalEdges("human", shouldContinueAfterHuman, {
+      human: "human",
+      "call-model": "call-model",
     })
     .addEdge("tools", "call-model")
     .compile({
@@ -704,10 +874,9 @@ const getThreadConfig = (
   override?: {
     model?: string;
     provider?: Provider;
-    mode?: AssistantRunMode;
     reasoningEnabled?: boolean;
     docId?: string;
-    systemInstructions?: string;
+    systemInstructionsRef?: string;
     userId?: string;
     sessionTitle?: string;
   },
@@ -716,13 +885,12 @@ const getThreadConfig = (
     thread_id: buildCheckpointThreadId(threadId),
     ...(override?.model ? { model: override.model } : {}),
     ...(override?.provider ? { provider: override.provider } : {}),
-    ...(override?.mode ? { mode: override.mode } : {}),
     ...(typeof override?.reasoningEnabled === "boolean"
       ? { reasoningEnabled: override.reasoningEnabled }
       : {}),
     ...(override?.docId ? { docId: override.docId } : {}),
-    ...(override?.systemInstructions
-      ? { systemInstructions: override.systemInstructions }
+    ...(override?.systemInstructionsRef
+      ? { systemInstructionsRef: override.systemInstructionsRef }
       : {}),
   },
   // LangSmith tracing config
@@ -733,7 +901,6 @@ const getThreadConfig = (
     ...(override?.userId ? { userId: override.userId } : {}),
     ...(override?.model ? { model: override.model } : {}),
     ...(override?.provider ? { provider: override.provider } : {}),
-    ...(override?.mode ? { mode: override.mode } : {}),
     ...(typeof override?.reasoningEnabled === "boolean"
       ? { reasoningEnabled: override.reasoningEnabled }
       : {}),
@@ -2283,7 +2450,8 @@ const repairOrphanedToolCalls = async (input: {
 
     // Find orphaned tool calls (no response)
     const missingResponses = orphanedToolCalls.filter(
-      (tc) => !respondedToolCallIds.has(tc.id),
+      (tc) =>
+        !respondedToolCallIds.has(tc.id) && !isHumanInTheLoopToolName(tc.name),
     );
 
     if (missingResponses.length === 0) {
@@ -2367,399 +2535,449 @@ export async function* streamSpreadsheetAssistant(input: {
   sessionTitle?: string;
   message: string;
   images?: ChatImageInput[];
+  toolResponses?: Array<{
+    toolCallId: string;
+    toolName: string;
+    result: unknown;
+    isError?: boolean;
+  }>;
   model?: string;
-  mode?: AssistantRunMode;
   provider?: Provider;
   reasoningEnabled?: boolean;
   systemInstructions?: string;
   abortSignal?: AbortSignal;
 }): AsyncGenerator<ChatStreamEvent, void, unknown> {
-  // Repair any orphaned tool calls from previous failed requests
-  await repairOrphanedToolCalls({
-    threadId: input.threadId,
-    userId: input.userId,
-  });
+  const systemInstructionsRef = registerRuntimeSystemInstructions(
+    input.systemInstructions,
+  );
+  try {
+    // Repair any orphaned tool calls from previous failed requests
+    await repairOrphanedToolCalls({
+      threadId: input.threadId,
+      userId: input.userId,
+    });
 
-  yield {
-    type: "message.start",
-    threadId: input.threadId,
-  };
+    yield {
+      type: "message.start",
+      threadId: input.threadId,
+    };
 
-  const runMode = resolveAssistantRunMode(input.mode);
+    const config = getThreadConfig(input.threadId, "stream-assistant", {
+      model: input.model,
+      provider: input.provider,
+      reasoningEnabled: input.reasoningEnabled,
+      docId: input.docId,
+      sessionTitle: input.sessionTitle,
+      systemInstructionsRef,
+      userId: input.userId,
+    });
+    const { model: resolvedModel } = resolveProviderConfig({
+      model: input.model,
+      provider: input.provider,
+    });
 
-  const config = getThreadConfig(input.threadId, "stream-assistant", {
-    model: input.model,
-    mode: runMode,
-    provider: input.provider,
-    reasoningEnabled: input.reasoningEnabled,
-    docId: input.docId,
-    sessionTitle: input.sessionTitle,
-    systemInstructions: input.systemInstructions,
-    userId: input.userId,
-  });
-
-  // Use streamEvents to get proper LangSmith tracing with the thread
-  const eventStream = (await getGraph()).streamEvents(
-    {
-      messages: [
-        new HumanMessage(
-          buildUserMessageContent({
-            message: input.message,
-            images: input.images,
-          }),
-        ),
-      ],
-    },
-    {
+    const toolResponses = Array.isArray(input.toolResponses)
+      ? input.toolResponses
+      : [];
+    const hasToolResponses = toolResponses.length > 0;
+    // Use streamEvents to get proper LangSmith tracing with the thread
+    const graph = await getGraph();
+    const streamOptions = {
       ...config,
-      version: "v2",
-      durability: "async",
+      version: "v2" as const,
+      durability: "async" as const,
       recursionLimit: parsePositiveInt(
         getEnv("LANGGRAPH_RECURSION_LIMIT"),
         DEFAULT_GRAPH_RECURSION_LIMIT,
       ),
       signal: input.abortSignal,
-    },
-  );
-
-  let assistantMessage = "";
-  const { model: resolvedModel } = resolveProviderConfig({
-    model: input.model,
-    provider: input.provider,
-  });
-  let contextUsagePeakInputTokens = 0;
-  let latestContextUsage: ContextUsageSnapshot | null = null;
-  const buildContextUsageEvent = () => {
-    if (!input.runId || !latestContextUsage) {
-      return null;
-    }
-
-    return {
-      type: "context.usage" as const,
-      runId: input.runId,
-      ...latestContextUsage,
     };
-  };
-  const emittedToolResultKeys = new Set<string>();
-  const observedToolCallKeys = new Set<string>();
-  const currentRunToolCallIds = new Set<string>();
-  const pendingToolArgsByCallId = new Map<string, unknown>();
-  const pendingToolArgsByName = new Map<
-    string,
-    Array<{ args: unknown; toolCallId?: string }>
-  >();
-  const TOOL_INPUT_UNAVAILABLE_MARKER = "__rnc_tool_input_unavailable__";
-  const createUnavailableToolArgs = () => ({
-    [TOOL_INPUT_UNAVAILABLE_MARKER]: true,
-  });
 
-  const getToolArgsSpecificity = (value: unknown): number => {
-    if (value === undefined || value === null) {
-      return 0;
-    }
+    // Build the resume command for HITL tool responses.
+    // Use `resume` only - the humanNode will handle creating the ToolMessage
+    // after interrupt() returns. Using Command.update would cause DUPLICATE
+    // ToolMessages (one from update, one from humanNode return).
+    type ResumeCommandGoto = "__start__" | "call-model" | "human" | "tools";
+    const buildResumeCommand = (): Command<
+      unknown,
+      Record<string, never>,
+      ResumeCommandGoto
+    > =>
+      new Command({
+        resume: toolResponses.length === 1 ? toolResponses[0] : toolResponses,
+      });
 
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (trimmed.length === 0) {
-        return 1;
+    const eventStream = hasToolResponses
+      ? graph.streamEvents(buildResumeCommand(), streamOptions)
+      : graph.streamEvents(
+          {
+            messages: [
+              new HumanMessage(
+                buildUserMessageContent({
+                  message: input.message,
+                  images: input.images,
+                }),
+              ),
+            ],
+          },
+          streamOptions,
+        );
+
+    let assistantMessage = "";
+    let contextUsagePeakInputTokens = 0;
+    let latestContextUsage: ContextUsageSnapshot | null = null;
+    const buildContextUsageEvent = () => {
+      if (!input.runId || !latestContextUsage) {
+        return null;
       }
-      if (trimmed === "{}" || trimmed === "[]") {
-        return 2;
+
+      return {
+        type: "context.usage" as const,
+        runId: input.runId,
+        ...latestContextUsage,
+      };
+    };
+    const emittedToolResultKeys = new Set<string>();
+    const emittedHumanToolCallArgsById = new Map<string, unknown>();
+    const emittedHumanToolCallArgsBySyntheticKey = new Map<string, unknown>();
+    const submittedToolResponseIds = new Set(
+      (input.toolResponses ?? []).map((response) => response.toolCallId),
+    );
+    const observedToolCallKeys = new Set<string>();
+    const currentRunToolCallIds = new Set<string>();
+    const pendingToolArgsByCallId = new Map<string, unknown>();
+    const pendingToolArgsByName = new Map<
+      string,
+      Array<{ args: unknown; toolCallId?: string }>
+    >();
+    const TOOL_INPUT_UNAVAILABLE_MARKER = "__rnc_tool_input_unavailable__";
+    const createUnavailableToolArgs = () => ({
+      [TOOL_INPUT_UNAVAILABLE_MARKER]: true,
+    });
+
+    const getToolArgsSpecificity = (value: unknown): number => {
+      if (value === undefined || value === null) {
+        return 0;
       }
-      return 3 + Math.min(trimmed.length, 2000);
-    }
 
-    if (Array.isArray(value)) {
-      return value.length === 0 ? 2 : 20 + value.length;
-    }
-
-    if (typeof value === "object") {
-      const keyCount = Object.keys(value as Record<string, unknown>).length;
-      return keyCount === 0 ? 2 : 30 + keyCount;
-    }
-
-    return 10;
-  };
-
-  const shouldReplacePendingToolArgs = (next: unknown, current: unknown) =>
-    getToolArgsSpecificity(next) > getToolArgsSpecificity(current);
-
-  const enqueuePendingToolArgs = (toolCall: StreamedToolCall) => {
-    // Tool call IDs can appear many times as streaming argument chunks arrive.
-    // Keep upgrading to the most informative args instead of freezing on "{}".
-    if (!toolCall.toolCallId) {
-      const key = `name:${toolCall.toolName}:${stringifyUnknown(toolCall.args)}`;
-      if (observedToolCallKeys.has(key)) {
-        return;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed.length === 0) {
+          return 1;
+        }
+        if (trimmed === "{}" || trimmed === "[]") {
+          return 2;
+        }
+        return 3 + Math.min(trimmed.length, 2000);
       }
-      observedToolCallKeys.add(key);
-    }
 
-    if (toolCall.toolCallId) {
-      currentRunToolCallIds.add(toolCall.toolCallId);
-      const existingById = pendingToolArgsByCallId.get(toolCall.toolCallId);
+      if (Array.isArray(value)) {
+        return value.length === 0 ? 2 : 20 + value.length;
+      }
+
+      if (typeof value === "object") {
+        const keyCount = Object.keys(value as Record<string, unknown>).length;
+        return keyCount === 0 ? 2 : 30 + keyCount;
+      }
+
+      return 10;
+    };
+
+    const shouldReplacePendingToolArgs = (next: unknown, current: unknown) =>
+      getToolArgsSpecificity(next) > getToolArgsSpecificity(current);
+
+    const hasRenderableAskUserQuestionArgs = (args: unknown) => {
+      if (!args || typeof args !== "object") {
+        return false;
+      }
+
+      const record = args as Record<string, unknown>;
+      const source =
+        record.input && typeof record.input === "object"
+          ? (record.input as Record<string, unknown>)
+          : record;
+
+      return Array.isArray(source.questions) && source.questions.length > 0;
+    };
+
+    const hasRenderableConfirmPlanExecutionArgs = (args: unknown) => {
+      if (!args || typeof args !== "object") {
+        return false;
+      }
+
+      const record = args as Record<string, unknown>;
+      const source =
+        record.input && typeof record.input === "object"
+          ? (record.input as Record<string, unknown>)
+          : record;
+
+      const title = typeof source.title === "string" ? source.title.trim() : "";
+      const summary =
+        typeof source.summary === "string" ? source.summary.trim() : "";
+      const steps = Array.isArray(source.steps) ? source.steps : [];
+
+      return Boolean(title && summary && steps.length > 0);
+    };
+
+    const shouldEmitHumanToolCall = (toolCall: StreamedToolCall) => {
+      if (!isHumanInTheLoopToolName(toolCall.toolName)) {
+        return false;
+      }
+
       if (
-        existingById === undefined ||
-        shouldReplacePendingToolArgs(toolCall.args, existingById)
+        toolCall.toolName === "assistant_askUserQuestion" &&
+        !hasRenderableAskUserQuestionArgs(toolCall.args)
       ) {
-        pendingToolArgsByCallId.set(toolCall.toolCallId, toolCall.args);
+        return false;
       }
-    }
+      if (
+        toolCall.toolName === "assistant_confirmPlanExecution" &&
+        !hasRenderableConfirmPlanExecutionArgs(toolCall.args)
+      ) {
+        return false;
+      }
 
-    const existingQueue = pendingToolArgsByName.get(toolCall.toolName) ?? [];
-    if (toolCall.toolCallId) {
-      const existingEntry = existingQueue.find(
-        (entry) => entry.toolCallId === toolCall.toolCallId,
-      );
-      if (existingEntry) {
-        if (shouldReplacePendingToolArgs(toolCall.args, existingEntry.args)) {
-          existingEntry.args = toolCall.args;
+      if (toolCall.toolCallId) {
+        if (submittedToolResponseIds.has(toolCall.toolCallId)) {
+          return false;
+        }
+        const previousArgs = emittedHumanToolCallArgsById.get(
+          toolCall.toolCallId,
+        );
+        if (
+          previousArgs === undefined ||
+          shouldReplacePendingToolArgs(toolCall.args, previousArgs)
+        ) {
+          emittedHumanToolCallArgsById.set(toolCall.toolCallId, toolCall.args);
+          return true;
+        }
+        return false;
+      }
+
+      const syntheticKey = `${toolCall.toolName}:${stringifyUnknown(toolCall.args)}`;
+      const previousArgs =
+        emittedHumanToolCallArgsBySyntheticKey.get(syntheticKey);
+      if (
+        previousArgs === undefined ||
+        shouldReplacePendingToolArgs(toolCall.args, previousArgs)
+      ) {
+        emittedHumanToolCallArgsBySyntheticKey.set(syntheticKey, toolCall.args);
+        return true;
+      }
+
+      return false;
+    };
+
+    const enqueuePendingToolArgs = (toolCall: StreamedToolCall) => {
+      // Tool call IDs can appear many times as streaming argument chunks arrive.
+      // Keep upgrading to the most informative args instead of freezing on "{}".
+      if (!toolCall.toolCallId) {
+        const key = `name:${toolCall.toolName}:${stringifyUnknown(toolCall.args)}`;
+        if (observedToolCallKeys.has(key)) {
+          return;
+        }
+        observedToolCallKeys.add(key);
+      }
+
+      if (toolCall.toolCallId) {
+        currentRunToolCallIds.add(toolCall.toolCallId);
+        const existingById = pendingToolArgsByCallId.get(toolCall.toolCallId);
+        if (
+          existingById === undefined ||
+          shouldReplacePendingToolArgs(toolCall.args, existingById)
+        ) {
+          pendingToolArgsByCallId.set(toolCall.toolCallId, toolCall.args);
+        }
+      }
+
+      const existingQueue = pendingToolArgsByName.get(toolCall.toolName) ?? [];
+      if (toolCall.toolCallId) {
+        const existingEntry = existingQueue.find(
+          (entry) => entry.toolCallId === toolCall.toolCallId,
+        );
+        if (existingEntry) {
+          if (shouldReplacePendingToolArgs(toolCall.args, existingEntry.args)) {
+            existingEntry.args = toolCall.args;
+          }
+        } else {
+          existingQueue.push({
+            toolCallId: toolCall.toolCallId,
+            args: toolCall.args,
+          });
         }
       } else {
-        existingQueue.push({
-          toolCallId: toolCall.toolCallId,
-          args: toolCall.args,
-        });
+        existingQueue.push({ args: toolCall.args });
       }
-    } else {
-      existingQueue.push({ args: toolCall.args });
-    }
 
-    if (!pendingToolArgsByName.has(toolCall.toolName)) {
-      pendingToolArgsByName.set(toolCall.toolName, existingQueue);
-    }
-  };
+      if (!pendingToolArgsByName.has(toolCall.toolName)) {
+        pendingToolArgsByName.set(toolCall.toolName, existingQueue);
+      }
+    };
 
-  const resolveToolArgs = (
-    toolName: string,
-    toolCallId?: string,
-    args?: unknown,
-  ): unknown => {
-    if (args !== undefined) {
-      return args;
-    }
+    const resolveToolArgs = (
+      toolName: string,
+      toolCallId?: string,
+      args?: unknown,
+    ): unknown => {
+      if (args !== undefined) {
+        return args;
+      }
 
-    if (toolCallId) {
-      const byId = pendingToolArgsByCallId.get(toolCallId);
-      if (byId !== undefined) {
-        pendingToolArgsByCallId.delete(toolCallId);
-        const byNameQueue = pendingToolArgsByName.get(toolName);
-        if (byNameQueue) {
-          const remaining = byNameQueue.filter(
-            (entry) => entry.toolCallId !== toolCallId,
-          );
-          if (remaining.length > 0) {
-            pendingToolArgsByName.set(toolName, remaining);
-          } else {
-            pendingToolArgsByName.delete(toolName);
+      if (toolCallId) {
+        const byId = pendingToolArgsByCallId.get(toolCallId);
+        if (byId !== undefined) {
+          pendingToolArgsByCallId.delete(toolCallId);
+          const byNameQueue = pendingToolArgsByName.get(toolName);
+          if (byNameQueue) {
+            const remaining = byNameQueue.filter(
+              (entry) => entry.toolCallId !== toolCallId,
+            );
+            if (remaining.length > 0) {
+              pendingToolArgsByName.set(toolName, remaining);
+            } else {
+              pendingToolArgsByName.delete(toolName);
+            }
+          }
+          return byId;
+        }
+      }
+
+      const byNameQueue = pendingToolArgsByName.get(toolName);
+      if (byNameQueue && byNameQueue.length > 0) {
+        const next = byNameQueue.shift();
+        if (next?.toolCallId) {
+          pendingToolArgsByCallId.delete(next.toolCallId);
+        }
+        if (byNameQueue.length === 0) {
+          pendingToolArgsByName.delete(toolName);
+        }
+        return next?.args;
+      }
+
+      return undefined;
+    };
+
+    try {
+      for await (const event of eventStream) {
+        if (
+          event.event === "on_chat_model_stream" ||
+          event.event === "on_chat_model_end"
+        ) {
+          const observedToolCalls = collectStreamedToolCalls(event.data);
+          for (const toolCall of observedToolCalls) {
+            enqueuePendingToolArgs(toolCall);
+            if (shouldEmitHumanToolCall(toolCall)) {
+              yield {
+                type: "tool.call",
+                toolName: toolCall.toolName,
+                ...(toolCall.toolCallId
+                  ? { toolCallId: toolCall.toolCallId }
+                  : {}),
+                args: toolCall.args ?? createUnavailableToolArgs(),
+              };
+            }
           }
         }
-        return byId;
-      }
-    }
 
-    const byNameQueue = pendingToolArgsByName.get(toolName);
-    if (byNameQueue && byNameQueue.length > 0) {
-      const next = byNameQueue.shift();
-      if (next?.toolCallId) {
-        pendingToolArgsByCallId.delete(next.toolCallId);
-      }
-      if (byNameQueue.length === 0) {
-        pendingToolArgsByName.delete(toolName);
-      }
-      return next?.args;
-    }
-
-    return undefined;
-  };
-
-  try {
-    for await (const event of eventStream) {
-      const observedToolCalls = collectStreamedToolCalls(event.data);
-      for (const toolCall of observedToolCalls) {
-        enqueuePendingToolArgs(toolCall);
-      }
-
-      // Handle model start - emit reasoning.start so UI can show thinking indicator
-      if (event.event === "on_chat_model_start") {
-        yield {
-          type: "reasoning.start",
-        };
-        continue;
-      }
-
-      // Handle streaming tokens from the LLM
-      if (event.event === "on_chat_model_stream") {
-        const chunk = event.data?.chunk;
-        if (!chunk) continue;
-
-        const reasoningDelta =
-          contentToReasoning(chunk.content) ||
-          additionalKwargsToReasoning(chunk.additional_kwargs);
-
-        if (reasoningDelta) {
+        // Handle model start - emit reasoning.start so UI can show thinking indicator
+        if (event.event === "on_chat_model_start") {
           yield {
-            type: "reasoning.delta",
-            delta: reasoningDelta,
+            type: "reasoning.start",
           };
-        }
-
-        const delta = contentToText(chunk.content);
-
-        if (!delta) {
           continue;
         }
 
-        assistantMessage += delta;
+        // Handle streaming tokens from the LLM
+        if (event.event === "on_chat_model_stream") {
+          const chunk = event.data?.chunk;
+          if (!chunk) continue;
 
-        yield {
-          type: "message.delta",
-          delta,
-        };
-        continue;
-      }
+          const reasoningDelta =
+            contentToReasoning(chunk.content) ||
+            additionalKwargsToReasoning(chunk.additional_kwargs);
 
-      // Handle model end usage metadata for context tracking.
-      if (event.event === "on_chat_model_end") {
-        const nextContextUsage = getNextContextUsageSnapshot({
-          model: resolvedModel,
-          modelEndEventData: event.data,
-          currentPeakInputTokens: contextUsagePeakInputTokens,
-        });
-        contextUsagePeakInputTokens = nextContextUsage.nextPeakInputTokens;
-        if (nextContextUsage.snapshot) {
-          latestContextUsage = nextContextUsage.snapshot;
-          const contextUsageEvent = buildContextUsageEvent();
-          if (contextUsageEvent) {
-            yield contextUsageEvent;
+          if (reasoningDelta) {
+            yield {
+              type: "reasoning.delta",
+              delta: reasoningDelta,
+            };
           }
-        }
-        continue;
-      }
 
-      // Handle tool calls
-      if (event.event === "on_tool_start") {
-        const toolName = event.name;
-        const toolInput = event.data?.input;
-        const runId = event.run_id;
-        if (runId) {
-          currentRunToolCallIds.add(runId);
-        }
-        const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
+          const delta = contentToText(chunk.content);
 
-        yield {
-          type: "tool.call",
-          toolName,
-          toolCallId: runId,
-          args: resolvedArgs ?? createUnavailableToolArgs(),
-        };
-        continue;
-      }
-
-      // Handle tool results
-      if (event.event === "on_tool_end") {
-        const toolName = event.name;
-        const toolOutput = event.data?.output;
-        const toolInput =
-          event.data &&
-          typeof event.data === "object" &&
-          "input" in event.data &&
-          (event.data as { input?: unknown }).input !== undefined
-            ? (event.data as { input?: unknown }).input
-            : undefined;
-        const runId = event.run_id;
-        if (runId) {
-          currentRunToolCallIds.add(runId);
-        }
-        const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
-        const normalized = normalizeToolResult(toolOutput);
-        const dedupKey = getToolResultDedupKey({
-          toolName,
-          ...(runId ? { toolCallId: runId } : {}),
-          result: normalized.result,
-          isError: normalized.isError,
-        });
-        if (emittedToolResultKeys.has(dedupKey)) {
-          continue;
-        }
-        emittedToolResultKeys.add(dedupKey);
-
-        yield {
-          type: "tool.result",
-          toolName,
-          toolCallId: runId,
-          ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
-          result: normalized.result,
-          isError: normalized.isError,
-        };
-        continue;
-      }
-
-      // Handle tool errors
-      if (event.event === "on_tool_error") {
-        const toolName = event.name;
-        const error = event.data?.error as unknown;
-        const toolInput =
-          event.data &&
-          typeof event.data === "object" &&
-          "input" in event.data &&
-          (event.data as { input?: unknown }).input !== undefined
-            ? (event.data as { input?: unknown }).input
-            : undefined;
-        const runId = event.run_id;
-        if (runId) {
-          currentRunToolCallIds.add(runId);
-        }
-        const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
-        const result = {
-          success: false,
-          error:
-            error && typeof error === "object" && "message" in error
-              ? String(error.message)
-              : stringifyUnknown(error),
-        };
-        const dedupKey = getToolResultDedupKey({
-          toolName,
-          ...(runId ? { toolCallId: runId } : {}),
-          result,
-          isError: true,
-        });
-        if (emittedToolResultKeys.has(dedupKey)) {
-          continue;
-        }
-        emittedToolResultKeys.add(dedupKey);
-
-        yield {
-          type: "tool.result",
-          toolName,
-          toolCallId: runId,
-          ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
-          result,
-          isError: true,
-        };
-        continue;
-      }
-
-      // Handle ToolMessage errors emitted via chain events (for example,
-      // schema validation failures that don't always surface as on_tool_error).
-      if (event.event === "on_chain_stream" || event.event === "on_chain_end") {
-        const chainToolResults = collectStreamedToolResults(event.data);
-        for (const chainToolResult of chainToolResults) {
-          // Ignore historical ToolMessages from thread state. We only want
-          // chain-emitted tool errors tied to tool calls observed in this run.
-          if (
-            !chainToolResult.toolCallId ||
-            !currentRunToolCallIds.has(chainToolResult.toolCallId)
-          ) {
+          if (!delta) {
             continue;
           }
 
-          const resolvedArgs = resolveToolArgs(
-            chainToolResult.toolName,
-            chainToolResult.toolCallId,
-            chainToolResult.args,
-          );
-          const dedupKey = getToolResultDedupKey(chainToolResult);
+          assistantMessage += delta;
+
+          yield {
+            type: "message.delta",
+            delta,
+          };
+          continue;
+        }
+
+        // Handle model end usage metadata for context tracking.
+        if (event.event === "on_chat_model_end") {
+          const nextContextUsage = getNextContextUsageSnapshot({
+            model: resolvedModel,
+            modelEndEventData: event.data,
+            currentPeakInputTokens: contextUsagePeakInputTokens,
+          });
+          contextUsagePeakInputTokens = nextContextUsage.nextPeakInputTokens;
+          if (nextContextUsage.snapshot) {
+            latestContextUsage = nextContextUsage.snapshot;
+            const contextUsageEvent = buildContextUsageEvent();
+            if (contextUsageEvent) {
+              yield contextUsageEvent;
+            }
+          }
+          continue;
+        }
+
+        // Handle tool calls
+        if (event.event === "on_tool_start") {
+          const toolName = event.name;
+          const toolInput = event.data?.input;
+          const runId = event.run_id;
+          if (runId) {
+            currentRunToolCallIds.add(runId);
+          }
+          const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
+
+          yield {
+            type: "tool.call",
+            toolName,
+            toolCallId: runId,
+            args: resolvedArgs ?? createUnavailableToolArgs(),
+          };
+          continue;
+        }
+
+        // Handle tool results
+        if (event.event === "on_tool_end") {
+          const toolName = event.name;
+          const toolOutput = event.data?.output;
+          const toolInput =
+            event.data &&
+            typeof event.data === "object" &&
+            "input" in event.data &&
+            (event.data as { input?: unknown }).input !== undefined
+              ? (event.data as { input?: unknown }).input
+              : undefined;
+          const runId = event.run_id;
+          if (runId) {
+            currentRunToolCallIds.add(runId);
+          }
+          const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
+          const normalized = normalizeToolResult(toolOutput);
+          const dedupKey = getToolResultDedupKey({
+            toolName,
+            ...(runId ? { toolCallId: runId } : {}),
+            result: normalized.result,
+            isError: normalized.isError,
+          });
           if (emittedToolResultKeys.has(dedupKey)) {
             continue;
           }
@@ -2767,35 +2985,221 @@ export async function* streamSpreadsheetAssistant(input: {
 
           yield {
             type: "tool.result",
-            toolName: chainToolResult.toolName,
-            toolCallId: chainToolResult.toolCallId,
+            toolName,
+            toolCallId: runId,
             ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
-            result: chainToolResult.result,
-            isError: chainToolResult.isError,
+            result: normalized.result,
+            isError: normalized.isError,
           };
+          continue;
         }
-        continue;
+
+        // Handle tool errors
+        if (event.event === "on_tool_error") {
+          const toolName = event.name;
+          const error = event.data?.error as unknown;
+          const toolInput =
+            event.data &&
+            typeof event.data === "object" &&
+            "input" in event.data &&
+            (event.data as { input?: unknown }).input !== undefined
+              ? (event.data as { input?: unknown }).input
+              : undefined;
+          const runId = event.run_id;
+          if (runId) {
+            currentRunToolCallIds.add(runId);
+          }
+          const resolvedArgs = resolveToolArgs(toolName, runId, toolInput);
+          const result = {
+            success: false,
+            error:
+              error && typeof error === "object" && "message" in error
+                ? String(error.message)
+                : stringifyUnknown(error),
+          };
+          const dedupKey = getToolResultDedupKey({
+            toolName,
+            ...(runId ? { toolCallId: runId } : {}),
+            result,
+            isError: true,
+          });
+          if (emittedToolResultKeys.has(dedupKey)) {
+            continue;
+          }
+          emittedToolResultKeys.add(dedupKey);
+
+          yield {
+            type: "tool.result",
+            toolName,
+            toolCallId: runId,
+            ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
+            result,
+            isError: true,
+          };
+          continue;
+        }
+
+        // Handle ToolMessage errors emitted via chain events (for example,
+        // schema validation failures that don't always surface as on_tool_error).
+        if (
+          event.event === "on_chain_stream" ||
+          event.event === "on_chain_end"
+        ) {
+          const chainToolResults = collectStreamedToolResults(event.data);
+          for (const chainToolResult of chainToolResults) {
+            // Ignore historical ToolMessages from thread state. We only want
+            // chain-emitted tool errors tied to tool calls observed in this run.
+            if (
+              !chainToolResult.toolCallId ||
+              !currentRunToolCallIds.has(chainToolResult.toolCallId)
+            ) {
+              continue;
+            }
+
+            const resolvedArgs = resolveToolArgs(
+              chainToolResult.toolName,
+              chainToolResult.toolCallId,
+              chainToolResult.args,
+            );
+            const dedupKey = getToolResultDedupKey(chainToolResult);
+            if (emittedToolResultKeys.has(dedupKey)) {
+              continue;
+            }
+            emittedToolResultKeys.add(dedupKey);
+
+            yield {
+              type: "tool.result",
+              toolName: chainToolResult.toolName,
+              toolCallId: chainToolResult.toolCallId,
+              ...(resolvedArgs !== undefined ? { args: resolvedArgs } : {}),
+              result: chainToolResult.result,
+              isError: chainToolResult.isError,
+            };
+          }
+          continue;
+        }
+
+        // Handle chain/graph errors (e.g., invalid tool arguments from LLM)
+        if (event.event === "on_chain_error") {
+          const error = event.data?.error as unknown;
+          const rawErrorMessage =
+            error && typeof error === "object" && "message" in error
+              ? String(error.message)
+              : String(error);
+          const errorMessage = normalizeAssistantErrorMessage(
+            rawErrorMessage,
+            "Unable to process this request. Please retry.",
+          );
+
+          console.error("[graph] Chain error:", rawErrorMessage);
+          await persistAssistantMessageToCheckpoint({
+            threadId: input.threadId,
+            userId: input.userId,
+            message: errorMessage,
+          });
+
+          const contextUsageEvent = buildContextUsageEvent();
+          if (contextUsageEvent) {
+            yield contextUsageEvent;
+          }
+          yield {
+            type: "error",
+            error: errorMessage,
+          };
+          return;
+        }
+
+        // Handle LLM errors
+        if (event.event === "on_llm_error") {
+          const error = event.data?.error as unknown;
+          const rawErrorMessage =
+            error && typeof error === "object" && "message" in error
+              ? String(error.message)
+              : String(error);
+          const errorMessage = normalizeAssistantErrorMessage(
+            rawErrorMessage,
+            "The model request failed. Please retry.",
+          );
+
+          console.error("[graph] LLM error:", rawErrorMessage);
+          await persistAssistantMessageToCheckpoint({
+            threadId: input.threadId,
+            userId: input.userId,
+            message: errorMessage,
+          });
+
+          const contextUsageEvent = buildContextUsageEvent();
+          if (contextUsageEvent) {
+            yield contextUsageEvent;
+          }
+          yield {
+            type: "error",
+            error: errorMessage,
+          };
+          return;
+        }
+      }
+    } catch (error) {
+      const abortReason = input.abortSignal?.aborted
+        ? input.abortSignal.reason
+        : undefined;
+      const abortReasonCode = getAbortReasonCode(abortReason);
+      if (isAbortError(error) || input.abortSignal?.aborted) {
+        if (abortReasonCode === "SERVER_TIMEOUT") {
+          const partialMessage = assistantMessage.trim();
+          const timeoutMessage = getServerTimeoutMessage(
+            getAbortReasonTimeoutMs(abortReason),
+          );
+          const finalMessage = partialMessage
+            ? `${partialMessage}\n\n${timeoutMessage}`
+            : timeoutMessage;
+
+          console.warn("[graph] Streaming aborted by server timeout");
+          await persistAssistantMessageToCheckpoint({
+            threadId: input.threadId,
+            userId: input.userId,
+            message: finalMessage,
+          });
+
+          latestContextUsage = buildContextUsageSnapshot({
+            model: resolvedModel,
+            inputTokensPeak: contextUsagePeakInputTokens,
+            contextWindowTokens: resolveModelContextWindowTokens(resolvedModel),
+          });
+          const contextUsageEvent = buildContextUsageEvent();
+          if (contextUsageEvent) {
+            yield contextUsageEvent;
+          }
+          yield {
+            type: "message.complete",
+            threadId: input.threadId,
+            message: finalMessage,
+          };
+          return;
+        }
+
+        if (abortReasonCode === "CLIENT_ABORT") {
+          console.warn("[graph] Streaming aborted by client");
+          return;
+        }
       }
 
-      // Handle chain/graph errors (e.g., invalid tool arguments from LLM)
-      if (event.event === "on_chain_error") {
-        const error = event.data?.error as unknown;
+      if (!isGraphRecursionLimitError(error)) {
         const rawErrorMessage =
           error && typeof error === "object" && "message" in error
             ? String(error.message)
-            : String(error);
+            : String(error ?? "");
         const errorMessage = normalizeAssistantErrorMessage(
           rawErrorMessage,
-          "Unable to process this request. Please retry.",
+          "Assistant request failed. Please retry.",
         );
 
-        console.error("[graph] Chain error:", rawErrorMessage);
+        console.error("[graph] Streaming error:", rawErrorMessage);
         await persistAssistantMessageToCheckpoint({
           threadId: input.threadId,
           userId: input.userId,
           message: errorMessage,
         });
-
         const contextUsageEvent = buildContextUsageEvent();
         if (contextUsageEvent) {
           yield contextUsageEvent;
@@ -2807,117 +3211,79 @@ export async function* streamSpreadsheetAssistant(input: {
         return;
       }
 
-      // Handle LLM errors
-      if (event.event === "on_llm_error") {
-        const error = event.data?.error as unknown;
-        const rawErrorMessage =
-          error && typeof error === "object" && "message" in error
-            ? String(error.message)
-            : String(error);
-        const errorMessage = normalizeAssistantErrorMessage(
-          rawErrorMessage,
-          "The model request failed. Please retry.",
-        );
-
-        console.error("[graph] LLM error:", rawErrorMessage);
-        await persistAssistantMessageToCheckpoint({
-          threadId: input.threadId,
-          userId: input.userId,
-          message: errorMessage,
-        });
-
-        const contextUsageEvent = buildContextUsageEvent();
-        if (contextUsageEvent) {
-          yield contextUsageEvent;
-        }
-        yield {
-          type: "error",
-          error: errorMessage,
-        };
-        return;
-      }
-    }
-  } catch (error) {
-    const abortReason = input.abortSignal?.aborted
-      ? input.abortSignal.reason
-      : undefined;
-    const abortReasonCode = getAbortReasonCode(abortReason);
-    if (isAbortError(error) || input.abortSignal?.aborted) {
-      if (abortReasonCode === "SERVER_TIMEOUT") {
-        const partialMessage = assistantMessage.trim();
-        const timeoutMessage = getServerTimeoutMessage(
-          getAbortReasonTimeoutMs(abortReason),
-        );
-        const finalMessage = partialMessage
-          ? `${partialMessage}\n\n${timeoutMessage}`
-          : timeoutMessage;
-
-        console.warn("[graph] Streaming aborted by server timeout");
-        await persistAssistantMessageToCheckpoint({
-          threadId: input.threadId,
-          userId: input.userId,
-          message: finalMessage,
-        });
-
-        latestContextUsage = buildContextUsageSnapshot({
-          model: resolvedModel,
-          inputTokensPeak: contextUsagePeakInputTokens,
-          contextWindowTokens: resolveModelContextWindowTokens(resolvedModel),
-        });
-        const contextUsageEvent = buildContextUsageEvent();
-        if (contextUsageEvent) {
-          yield contextUsageEvent;
-        }
-        yield {
-          type: "message.complete",
-          threadId: input.threadId,
-          message: finalMessage,
-        };
-        return;
-      }
-
-      if (abortReasonCode === "CLIENT_ABORT") {
-        console.warn("[graph] Streaming aborted by client");
-        return;
-      }
-    }
-
-    if (!isGraphRecursionLimitError(error)) {
-      const rawErrorMessage =
-        error && typeof error === "object" && "message" in error
-          ? String(error.message)
-          : String(error ?? "");
-      const errorMessage = normalizeAssistantErrorMessage(
-        rawErrorMessage,
-        "Assistant request failed. Please retry.",
-      );
-
-      console.error("[graph] Streaming error:", rawErrorMessage);
+      const partialMessage = assistantMessage.trim();
+      const fallbackMessage = partialMessage
+        ? `${partialMessage}\n\nI hit the tool-iteration limit before finishing. Ask me to continue and I will proceed from here.`
+        : "I hit the tool-iteration limit before finishing this request. Ask me to continue and I will proceed.";
       await persistAssistantMessageToCheckpoint({
         threadId: input.threadId,
         userId: input.userId,
-        message: errorMessage,
+        message: fallbackMessage,
+      });
+
+      latestContextUsage = buildContextUsageSnapshot({
+        model: resolvedModel,
+        inputTokensPeak: contextUsagePeakInputTokens,
+        contextWindowTokens: resolveModelContextWindowTokens(resolvedModel),
       });
       const contextUsageEvent = buildContextUsageEvent();
       if (contextUsageEvent) {
         yield contextUsageEvent;
       }
       yield {
-        type: "error",
-        error: errorMessage,
+        type: "message.complete",
+        threadId: input.threadId,
+        message: fallbackMessage,
       };
       return;
     }
 
-    const partialMessage = assistantMessage.trim();
-    const fallbackMessage = partialMessage
-      ? `${partialMessage}\n\nI hit the tool-iteration limit before finishing. Ask me to continue and I will proceed from here.`
-      : "I hit the tool-iteration limit before finishing this request. Ask me to continue and I will proceed.";
-    await persistAssistantMessageToCheckpoint({
-      threadId: input.threadId,
-      userId: input.userId,
-      message: fallbackMessage,
-    });
+    try {
+      const graphState = await (await getGraph()).getState(config);
+      const stateValues = graphState.values as
+        | { messages?: unknown }
+        | undefined;
+      const stateMessages = stateValues?.messages;
+      if (Array.isArray(stateMessages)) {
+        const pendingHumanToolCall = getPendingHumanToolCall(
+          stateMessages as (typeof MessagesAnnotation.State)["messages"],
+        );
+        if (
+          pendingHumanToolCall &&
+          !submittedToolResponseIds.has(pendingHumanToolCall.toolCallId)
+        ) {
+          const previousArgs = emittedHumanToolCallArgsById.get(
+            pendingHumanToolCall.toolCallId,
+          );
+          if (
+            previousArgs === undefined ||
+            shouldReplacePendingToolArgs(
+              pendingHumanToolCall.args,
+              previousArgs,
+            )
+          ) {
+            emittedHumanToolCallArgsById.set(
+              pendingHumanToolCall.toolCallId,
+              pendingHumanToolCall.args,
+            );
+            yield {
+              type: "tool.call",
+              toolName: pendingHumanToolCall.toolName,
+              toolCallId: pendingHumanToolCall.toolCallId,
+              args: pendingHumanToolCall.args ?? createUnavailableToolArgs(),
+            };
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[graph] Failed to inspect pending human tool calls:", {
+        threadId: input.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const finalMessage =
+      assistantMessage.trim() || "I do not have a response yet.";
 
     latestContextUsage = buildContextUsageSnapshot({
       model: resolvedModel,
@@ -2931,28 +3297,11 @@ export async function* streamSpreadsheetAssistant(input: {
     yield {
       type: "message.complete",
       threadId: input.threadId,
-      message: fallbackMessage,
+      message: finalMessage,
     };
-    return;
+  } finally {
+    releaseRuntimeSystemInstructions(systemInstructionsRef);
   }
-
-  const finalMessage =
-    assistantMessage.trim() || "I do not have a response yet.";
-
-  latestContextUsage = buildContextUsageSnapshot({
-    model: resolvedModel,
-    inputTokensPeak: contextUsagePeakInputTokens,
-    contextWindowTokens: resolveModelContextWindowTokens(resolvedModel),
-  });
-  const contextUsageEvent = buildContextUsageEvent();
-  if (contextUsageEvent) {
-    yield contextUsageEvent;
-  }
-  yield {
-    type: "message.complete",
-    threadId: input.threadId,
-    message: finalMessage,
-  };
 }
 
 export async function invokeSpreadsheetAssistant(input: {
@@ -2960,7 +3309,6 @@ export async function invokeSpreadsheetAssistant(input: {
   userId?: string;
   message: string;
   model?: string;
-  mode?: AssistantRunMode;
   provider?: Provider;
   reasoningEnabled?: boolean;
 }) {

@@ -399,10 +399,7 @@ export const buildSpreadsheetContextInstructions = (
 
   if (context.documentId) {
     lines.push(
-      instructionLine(
-        `You are helping the user edit a spreadsheet. \nDocument ID\n`,
-        context.documentId,
-      ),
+      instructionLine(`User is working on \nDocument ID\n`, context.documentId),
     );
   }
 

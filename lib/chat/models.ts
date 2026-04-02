@@ -581,7 +581,7 @@ export const SpreadsheetApplyFillSchema = z.object({
   fillRange: z
     .string()
     .describe(
-      "The target fill range in A1 notation (INCLUSIVE of source range). This defines the entire area to fill (e.g., 'A1:A10' to fill A3:A10 from pattern in A1:A2).",
+      "The destination fill range in A1 notation, excluding sourceRange (e.g., sourceRange 'A1:A2' with fillRange 'A3:A10').",
     ),
   ...ToolExplanationSchemaShape,
 });
@@ -1690,10 +1690,11 @@ export const SpreadsheetClearCellsSchema = z.object({
   ranges: z
     .array(z.string())
     .describe("List of A1 notation ranges (e.g., ['A1:B5', 'D3:F10'])"),
-  clear: z
-    .enum(["values", "formatting", "all"])
+  clearType: z
+    .enum(["contents", "formats", "all"])
+    .default("contents")
     .describe(
-      "'values' to clear cell contents only, 'formatting' to clear formatting only, 'all' to clear both",
+      "'contents' (default) to clear values/formulas but preserve formatting, 'formats' to clear only formatting and preserve content, 'all' to clear both content and formatting",
     ),
   ...ToolExplanationSchemaShape,
 });

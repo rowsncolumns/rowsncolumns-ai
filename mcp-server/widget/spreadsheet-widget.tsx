@@ -29,7 +29,6 @@ import {
   SheetStatus,
   SheetSwitcher,
   SheetTabs,
-  SpreadsheetProvider,
   Toolbar,
   ToolbarSeparator,
   createNewSheet,
@@ -128,9 +127,12 @@ import { Citation } from "@rowsncolumns/common-types";
 import {
   CircularLoader,
   IconButton,
+  ModalProvider,
   Separator,
+  TooltipProvider,
   useIsomorphicLayoutEffect,
 } from "@rowsncolumns/ui";
+import { Provider as JotaiProvider } from "jotai";
 import { FileMenu } from "@/components/file-menu";
 import { toggleThemeMode } from "@/lib/theme-preference";
 import { MagnifyingGlassIcon } from "@radix-ui/react-icons";
@@ -197,6 +199,20 @@ const initialSheets = [
   createNewSheet(1, "Sheet1"),
   createNewSheet(2, "Sheet2"),
 ];
+
+function SpreadsheetRootProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <JotaiProvider>
+      <ModalProvider>
+        <TooltipProvider>{children}</TooltipProvider>
+      </ModalProvider>
+    </JotaiProvider>
+  );
+}
 
 const readString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -2045,7 +2061,7 @@ function App() {
   }
 
   return (
-    <SpreadsheetProvider>
+    <SpreadsheetRootProvider>
       <SpreadsheetDocumentView
         key={`${docId}-${locale}-${currency}`}
         docId={docId}
@@ -2056,7 +2072,7 @@ function App() {
         onSyncUiState={onSyncUiState}
         onHostDownload={onHostDownload}
       />
-    </SpreadsheetProvider>
+    </SpreadsheetRootProvider>
   );
 }
 

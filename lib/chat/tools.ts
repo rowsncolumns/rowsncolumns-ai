@@ -116,6 +116,14 @@ const failTool = (
     ...(errorDetails ? { errorDetails } : {}),
   });
 
+const getHostname = (rawUrl: string) => {
+  try {
+    return new URL(rawUrl).hostname.replace(/^www\./i, "");
+  } catch {
+    return rawUrl;
+  }
+};
+
 /**
  * Parse and validate cells input - handles JSON string and validates 2D array structure
  */
@@ -2605,13 +2613,6 @@ Use this approach:
   2. applyFill: Extend to remaining cells (sourceRange: "B5:C5", fillRange: "D5:M5")
 
 CRITICAL:
-- SERIES FILL (incrementing numbers/dates) REQUIRES 2+ SOURCE CELLS IN THE FILL DIRECTION:
-  • Fill DOWN (vertical): sourceRange must span at least 2 ROWS (e.g., "A1:A2" not "A1:N1")
-  • Fill RIGHT (horizontal): sourceRange must span at least 2 COLUMNS (e.g., "A1:B1" not "A1:A10")
-  • With only 1 cell/row/column in the fill direction, values are COPIED, not incremented
-  • Example: To fill rows 3-100 with incrementing values, sourceRange must be "A1:A2" (2 rows), not "A1" (1 row)
-- FORMULA FILL only needs 1 source row/column - formulas auto-adjust relative references when filled
-  • Example: Formula "=B15-C16" in row 16, when filled to row 17, becomes "=B16-C17"
 - fillRange must NOT include sourceRange.
 - fillRange specifies ONLY the destination cells to be filled
 - For fill DOWN: fillRange starts at the row AFTER sourceRange ends
@@ -3569,7 +3570,12 @@ const mapConditionalFormatCondition = (
 const handleSpreadsheetClearCells = async (
   input: SpreadsheetClearCellsInput,
 ): Promise<string> => {
-  const { docId, sheetId: inputSheetId, ranges, clear } = input;
+  const {
+    docId,
+    sheetId: inputSheetId,
+    ranges,
+    clearType = "contents",
+  } = input;
 
   if (!docId) {
     return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
@@ -3588,7 +3594,7 @@ const handleSpreadsheetClearCells = async (
       docId,
       sheetId: defaultSheetId,
       rangeCount: ranges.length,
-      clear,
+      clearType,
     });
 
     try {
@@ -3631,13 +3637,12 @@ const handleSpreadsheetClearCells = async (
               { range: rangeParsed.selection.range },
             ];
 
-            if (clear === "values" || clear === "all") {
-              spreadsheet.deleteCells(rangeSheetId, activeCell, selections);
-              modifiedSheetIds.add(rangeSheetId);
-            }
-            if (clear === "formatting" || clear === "all") {
-              spreadsheet.clearFormatting(rangeSheetId, activeCell, selections);
-            }
+            spreadsheet.deleteCells(
+              rangeSheetId,
+              activeCell,
+              selections,
+              clearType,
+            );
 
             processedRanges.push(rangeStr);
           } catch (itemError) {
@@ -3648,10 +3653,10 @@ const handleSpreadsheetClearCells = async (
           }
         }
 
-        // Evaluate formulas for all modified sheets if values were cleared
+        // Evaluate formulas for all modified sheets if contents were cleared
         let formulaResults;
         if (
-          (clear === "values" || clear === "all") &&
+          (clearType === "contents" || clearType === "all") &&
           modifiedSheetIds.size > 0
         ) {
           // Evaluate formulas for the first modified sheet (most common case)
@@ -3664,14 +3669,14 @@ const handleSpreadsheetClearCells = async (
         console.log("[spreadsheet_clearCells] Completed:", {
           docId,
           sheetId: defaultSheetId,
-          clear,
+          clearType,
           processedCount: processedRanges.length,
           patchCount: patchTuples.length,
         });
 
         return JSON.stringify({
           success: true,
-          message: `Successfully cleared ${clear} from ${processedRanges.length} range(s)`,
+          message: `Successfully cleared ${clearType} from ${processedRanges.length} range(s)`,
           processedRanges,
           ...(formulaResults ? { formulaResults } : {}),
           ...(errors.length > 0 ? { errors } : {}),
@@ -3691,42 +3696,47 @@ const handleSpreadsheetClearCells = async (
 
 export const spreadsheetClearCellsTool = tool(handleSpreadsheetClearCells, {
   name: "spreadsheet_clearCells",
-  description: `Clear cell values, formatting, or both from specified ranges.
+  description: `Clear cell contents, formatting, or both from specified ranges.
 
 OVERVIEW:
-This tool clears contents and/or formatting from cells without deleting rows or columns. Choose what to clear: values only, formatting only, or both.
+This tool clears content and/or formatting from cells without deleting rows or columns. Use the clearType parameter to control what gets cleared.
+
+CLEAR TYPE OPTIONS:
+- clearType: "contents" (default): Clears values/formulas but preserves formatting
+- clearType: "formats": Clears only formatting, preserves content
+- clearType: "all": Clears both content and formatting
 
 WHEN TO USE:
-- Deleting data while preserving formatting (clear: "values")
-- Resetting formatting while keeping values (clear: "formatting")
-- Completely clearing ranges including both (clear: "all")
+- Deleting data while preserving formatting (clearType: "contents")
+- Resetting formatting while keeping values (clearType: "formats")
+- Completely clearing ranges including both (clearType: "all")
 - Removing unwanted formatting from imported data
 - Preparing cells before writing new data
 
 IMPORTANT:
 - This clears cell contents, not the cells themselves (use delete rows/columns for structural changes)
-- Cell values and formulas are removed when clearing "values" or "all"
-- Cell formatting (colors, borders, fonts, number formats) is removed when clearing "formatting" or "all"
+- Cell values and formulas are removed when clearing "contents" or "all"
+- Cell formatting (colors, borders, fonts, number formats) is removed when clearing "formats" or "all"
 
 PARAMETERS:
 - docId: The document ID (required)
 - sheetId: The sheet ID (required)
 - ranges: Array of A1 notation ranges (e.g., ['A1:B5', 'D3:F10'])
-- clear: 'values' | 'formatting' | 'all'
+- clearType: 'contents' (default) | 'formats' | 'all'
 
 EXAMPLES:
 
-Example 1 — Clear values only (keep formatting):
-  sheetId: 1, ranges: ["A1:C10"], clear: "values"
+Example 1 — Clear contents only (keep formatting):
+  sheetId: 1, ranges: ["A1:C10"], clearType: "contents"
 
 Example 2 — Clear formatting only (keep values):
-  sheetId: 1, ranges: ["A1:B5"], clear: "formatting"
+  sheetId: 1, ranges: ["A1:B5"], clearType: "formats"
 
 Example 3 — Clear everything:
-  sheetId: 1, ranges: ["A1:Z100"], clear: "all"
+  sheetId: 1, ranges: ["A1:Z100"], clearType: "all"
 
-Example 4 — Clear multiple ranges:
-  sheetId: 1, ranges: ["A1:B5", "D3:F10", "H1:H20"], clear: "values"`,
+Example 4 — Clear multiple ranges (default clearType):
+  sheetId: 1, ranges: ["A1:B5", "D3:F10", "H1:H20"]`,
   schema: SpreadsheetClearCellsSchema,
 });
 
@@ -5882,45 +5892,326 @@ Example 2 — Audit specific sheet:
   },
 );
 
-const assistantRequestModeSwitchSchema = z.object({
-  targetMode: z
-    .enum(["action"])
-    .describe("Target mode to switch to after user approval."),
-  reason: z
+const webSearchSchema = z.object({
+  query: z
     .string()
+    .min(2)
+    .describe("Search query text describing what to find on the web."),
+  maxResults: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
     .optional()
-    .describe("Short reason for why execution should start now."),
+    .describe("Maximum number of source links to return (default: 5)."),
+  includeDomains: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Optional domain allowlist. Example: ['sec.gov', 'investor.apple.com']",
+    ),
+  excludeDomains: z
+    .array(z.string())
+    .optional()
+    .describe("Optional domain blocklist to exclude from results."),
 });
 
-type AssistantRequestModeSwitchInput = z.infer<
-  typeof assistantRequestModeSwitchSchema
->;
+type WebSearchInput = z.infer<typeof webSearchSchema>;
 
-const handleAssistantRequestModeSwitch = async (
-  input: AssistantRequestModeSwitchInput,
+type OpenAIResponsesOutputTextAnnotation = {
+  type?: string;
+  title?: string;
+  url?: string;
+};
+
+type OpenAIResponsesOutputTextPart = {
+  type?: string;
+  text?: string;
+  annotations?: OpenAIResponsesOutputTextAnnotation[];
+};
+
+type OpenAIResponsesOutputItem = {
+  type?: string;
+  content?: OpenAIResponsesOutputTextPart[];
+};
+
+type OpenAIResponsesPayload = {
+  output_text?: string;
+  output?: OpenAIResponsesOutputItem[];
+};
+
+type WebSearchSnippet = {
+  text: string;
+  citationUrls: string[];
+};
+
+const handleWebSearch = async (input: WebSearchInput): Promise<string> => {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    return failTool(
+      "MISSING_OPENAI_API_KEY",
+      "OPENAI_API_KEY is not configured, so web search cannot run.",
+      undefined,
+      false,
+    );
+  }
+
+  const maxResults = input.maxResults ?? 5;
+  const model = process.env.OPENAI_WEBSEARCH_MODEL?.trim() || "gpt-4.1-mini";
+
+  const instructions: string[] = [
+    `Find up-to-date information for this query: ${input.query}`,
+  ];
+
+  if ((input.includeDomains?.length ?? 0) > 0) {
+    instructions.push(
+      `Prefer and limit results to these domains when possible: ${input.includeDomains!.join(", ")}`,
+    );
+  }
+
+  if ((input.excludeDomains?.length ?? 0) > 0) {
+    instructions.push(
+      `Exclude these domains: ${input.excludeDomains!.join(", ")}`,
+    );
+  }
+
+  instructions.push(
+    "Return a concise factual answer and include source citations.",
+  );
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        tools: [{ type: "web_search_preview" }],
+        input: instructions.join("\n"),
+      }),
+    });
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      return failTool(
+        "WEB_SEARCH_REQUEST_FAILED",
+        `Web search request failed with status ${response.status}.`,
+        {
+          status: response.status,
+          statusText: response.statusText,
+          responseBody: responseText.slice(0, 1200),
+        },
+      );
+    }
+
+    const payload = (await response.json()) as OpenAIResponsesPayload;
+    const outputText =
+      typeof payload.output_text === "string" ? payload.output_text : "";
+
+    const sourceMap = new Map<
+      string,
+      { url: string; title: string | null; domain: string }
+    >();
+    const snippets: WebSearchSnippet[] = [];
+    const outputItems = Array.isArray(payload.output) ? payload.output : [];
+    const textSegments: string[] = [];
+
+    for (const item of outputItems) {
+      const contentParts = Array.isArray(item.content) ? item.content : [];
+      for (const part of contentParts) {
+        const partText =
+          typeof part.text === "string" ? part.text.trim() : undefined;
+        const partCitationUrls: string[] = [];
+        const annotations = Array.isArray(part.annotations)
+          ? part.annotations
+          : [];
+
+        for (const annotation of annotations) {
+          const url =
+            annotation.type === "url_citation" &&
+            typeof annotation.url === "string"
+              ? annotation.url
+              : null;
+          if (!url || sourceMap.has(url)) {
+            continue;
+          }
+
+          sourceMap.set(url, {
+            url,
+            title:
+              typeof annotation.title === "string" ? annotation.title : null,
+            domain: getHostname(url),
+          });
+          partCitationUrls.push(url);
+        }
+
+        if (partText && partText.length > 0) {
+          textSegments.push(partText);
+          snippets.push({
+            text: partText,
+            citationUrls: Array.from(new Set(partCitationUrls)),
+          });
+        }
+      }
+    }
+
+    const sources = Array.from(sourceMap.values()).slice(0, maxResults);
+    const synthesizedAnswer =
+      outputText.trim().length > 0
+        ? outputText.trim()
+        : textSegments.join("\n\n").trim();
+
+    return JSON.stringify({
+      success: true,
+      query: input.query,
+      answer: synthesizedAnswer.length > 0 ? synthesizedAnswer : null,
+      sourceCount: sources.length,
+      sources,
+      snippets: snippets.slice(0, 8),
+    });
+  } catch (error) {
+    return failTool(
+      "WEB_SEARCH_FAILED",
+      error instanceof Error ? error.message : "Web search failed.",
+    );
+  }
+};
+
+export const webSearchTool = tool(handleWebSearch, {
+  name: "web_search",
+  description: `Search the public web and return a concise answer with citations.
+
+Use this for current information, facts, or references that require internet access.
+Supports optional include/exclude domain filtering.`,
+  schema: webSearchSchema,
+});
+
+const askUserQuestionSchema = z.object({
+  questions: z
+    .array(
+      z.object({
+        question: z
+          .string()
+          .min(1)
+          .describe("Question text shown to the user."),
+        header: z
+          .string()
+          .min(1)
+          .describe("Short section header for the question."),
+        options: z
+          .array(
+            z.object({
+              label: z.string().min(1).describe("Option label"),
+              description: z
+                .string()
+                .min(1)
+                .describe("One-sentence option explanation"),
+            }),
+          )
+          .min(1)
+          .max(8)
+          .describe("Available choices for this question."),
+        multiSelect: z
+          .boolean()
+          .optional()
+          .describe("Whether multiple options can be selected."),
+      }),
+    )
+    .min(1)
+    .max(5)
+    .describe("One or more user questions to collect structured answers."),
+});
+
+type AskUserQuestionInput = z.infer<typeof askUserQuestionSchema>;
+
+const handleAskUserQuestion = async (
+  input: AskUserQuestionInput,
 ): Promise<string> => {
   return JSON.stringify({
     success: true,
-    pendingApproval: true,
-    targetMode: input.targetMode,
-    reason: input.reason?.trim() || null,
-    message: "User approval required to switch mode.",
+    pendingUserInput: true,
+    questions: input.questions.map((question) => ({
+      ...question,
+      multiSelect: question.multiSelect === true,
+    })),
+    message: "Waiting for user answers via tool UI.",
   });
 };
 
-export const assistantRequestModeSwitchTool = tool(
-  handleAssistantRequestModeSwitch,
-  {
-    name: "assistant_requestModeSwitch",
-    description: `Request user approval to switch assistant mode.
+export const askUserQuestionTool = tool(handleAskUserQuestion, {
+  name: "assistant_askUserQuestion",
+  description: `Ask one or more structured multiple-choice questions to the user.
 
-Use this in plan mode when the user asks you to execute now.
-This tool does not change mode by itself; the UI will ask the user to approve.`,
-    schema: assistantRequestModeSwitchSchema,
-  },
-);
+Use this when you need user preferences or assumptions before proceeding.
+The UI will render options and return the user's selections back to the model.`,
+  schema: askUserQuestionSchema,
+});
 
-export const assistantControlTools = [assistantRequestModeSwitchTool];
+const confirmPlanExecutionSchema = z.object({
+  title: z
+    .string()
+    .min(1)
+    .max(120)
+    .describe("Short plan title shown to the user."),
+  summary: z
+    .string()
+    .min(1)
+    .max(1500)
+    .describe("Plain-language summary of what will be executed."),
+  steps: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(12)
+    .describe(
+      'Array of execution steps. Example: ["Create headers in row 1", "Add sample data rows", "Apply formatting"]',
+    ),
+  risks: z
+    .array(z.string().min(1))
+    .max(8)
+    .optional()
+    .describe(
+      'Optional array of risks. Example: ["May overwrite existing data", "Requires write access"]',
+    ),
+  reason: z
+    .string()
+    .min(1)
+    .max(600)
+    .optional()
+    .describe("Optional reason why confirmation is needed before execution."),
+});
+
+type ConfirmPlanExecutionInput = z.infer<typeof confirmPlanExecutionSchema>;
+
+const handleConfirmPlanExecution = async (
+  input: ConfirmPlanExecutionInput,
+): Promise<string> => {
+  return JSON.stringify({
+    success: true,
+    pendingUserInput: true,
+    title: input.title.trim(),
+    summary: input.summary.trim(),
+    steps: input.steps.map((step) => step.trim()).filter(Boolean),
+    risks: Array.isArray(input.risks)
+      ? input.risks.map((risk) => risk.trim()).filter(Boolean)
+      : [],
+    reason:
+      typeof input.reason === "string" && input.reason.trim().length > 0
+        ? input.reason.trim()
+        : null,
+    message: "Waiting for user approval before executing this plan.",
+  });
+};
+
+export const confirmPlanExecutionTool = tool(handleConfirmPlanExecution, {
+  name: "assistant_confirmPlanExecution",
+  description: `Ask the user to review and approve a plan before execution.
+
+Use this when the action is high-impact, destructive, expensive, or ambiguous.
+The UI will show the plan and return approval or requested changes.`,
+  schema: confirmPlanExecutionSchema,
+});
 
 /**
  * All available tools for the spreadsheet assistant
@@ -5945,4 +6236,9 @@ export const spreadsheetTools = [
   spreadsheetSheetTool,
   // Audit tools
   spreadsheetGetAuditSnapshotTool,
+  // Internet tools
+  webSearchTool,
+  // Interactive tools
+  askUserQuestionTool,
+  confirmPlanExecutionTool,
 ];

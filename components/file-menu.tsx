@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useTransition } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ChevronDown,
   FilePlus,
@@ -8,7 +8,6 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
-import { uuidString } from "@rowsncolumns/utils";
 import { createPortal } from "react-dom";
 
 import {
@@ -25,7 +24,7 @@ type FileMenuProps = {
   onImportCSV?: (file: File) => Promise<void>;
   onExportExcel: () => Promise<void>;
   onExportCSV: () => Promise<void>;
-  onCreateNew?: (docId: string) => void;
+  onCreateNew?: (docId: string) => void | Promise<void>;
   allowCreateNew?: boolean;
   allowImport?: boolean;
 };
@@ -39,28 +38,42 @@ export function FileMenu({
   allowCreateNew = true,
   allowImport = true,
 }: FileMenuProps) {
-  const [isCreatingNewSpreadsheet, startCreatingNewSpreadsheet] =
-    useTransition();
+  const [isCreatingNewSpreadsheet, setIsCreatingNewSpreadsheet] =
+    useState(false);
   const excelFileInputRef = useRef<HTMLInputElement>(null);
   const csvFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleNewFile = useCallback(() => {
+  const handleNewFile = useCallback(async () => {
     if (isCreatingNewSpreadsheet) {
       return;
     }
 
-    const newDocId = uuidString();
-    startCreatingNewSpreadsheet(() => {
+    setIsCreatingNewSpreadsheet(true);
+    try {
+      const response = await fetch("/api/documents", {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to create document");
+      }
+
+      const { documentId } = await response.json();
       if (onCreateNew) {
-        onCreateNew(newDocId);
+        await onCreateNew(documentId);
         return;
       }
 
       if (typeof window !== "undefined") {
-        window.location.assign(`/sheets/${newDocId}`);
+        window.location.assign(`/sheets/${documentId}`);
       }
-    });
-  }, [isCreatingNewSpreadsheet, onCreateNew, startCreatingNewSpreadsheet]);
+    } catch (error) {
+      console.error("Failed to create spreadsheet:", error);
+    } finally {
+      setIsCreatingNewSpreadsheet(false);
+    }
+  }, [isCreatingNewSpreadsheet, onCreateNew]);
 
   const handleImportExcelClick = useCallback(() => {
     if (!allowImport || !onImportExcel) return;
@@ -178,11 +191,7 @@ export function FileMenu({
             aria-busy={isCreatingNewSpreadsheet}
           >
             File
-            {isCreatingNewSpreadsheet ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ChevronDown className="h-3.5 w-3.5" />
-            )}
+            <ChevronDown className="h-3.5 w-3.5" />
           </ToolbarIconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
@@ -191,14 +200,8 @@ export function FileMenu({
               onClick={handleNewFile}
               disabled={isCreatingNewSpreadsheet}
             >
-              {isCreatingNewSpreadsheet ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FilePlus className="h-4 w-4" />
-              )}
-              {isCreatingNewSpreadsheet
-                ? "Creating spreadsheet..."
-                : "New Spreadsheet"}
+              <FilePlus className="h-4 w-4" />
+              New Spreadsheet
             </DropdownMenuItem>
           ) : null}
           {allowImport && (onImportExcel || onImportCSV) ? (

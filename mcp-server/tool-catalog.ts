@@ -14,6 +14,8 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "spreadsheet_readDocument",
   "spreadsheet_getRowColMetadata",
   "spreadsheet_getAuditSnapshot",
+  "web_search",
+  "assistant_askUserQuestion",
 ]);
 
 export const isReadOnlyTool = (toolName: string) =>

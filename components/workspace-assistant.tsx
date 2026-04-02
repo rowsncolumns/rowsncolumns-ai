@@ -1,13 +1,11 @@
 "use client";
 
 import type {
-  AssistantToolUIProps,
   ChatModelAdapter,
   MessageStatus,
   ThreadAssistantMessagePart,
   ThreadMessage,
   ThreadMessageLike,
-  ToolCallMessagePartProps,
 } from "@assistant-ui/react";
 import type {
   ReadonlyJSONObject,
@@ -24,8 +22,6 @@ import {
   useMessagePartText,
   useLocalRuntime,
   useMessage,
-  useAssistantToolUI,
-  useInlineRender,
   useThread,
   useThreadRuntime,
   useAuiState,
@@ -43,12 +39,9 @@ import {
   SpreadsheetTheme,
   TableView,
   ToolbarIconButton,
-  useNavigateToSheetRange,
-  useSpreadsheetApi,
 } from "@rowsncolumns/spreadsheet";
 import type { CellInterface, CellXfs } from "@rowsncolumns/common-types";
 import {
-  addressToSheetRange,
   MAX_COLUMN_COUNT,
   MAX_ROW_COUNT,
   selectionToAddress,
@@ -63,13 +56,11 @@ import {
   ChevronsUpDown,
   Copy,
   Cpu,
-  FileText,
   GitFork,
   Info,
   Loader2,
   Image as ImageIcon,
   Minus,
-  Navigation,
   Paperclip,
   Pencil,
   Plus,
@@ -117,7 +108,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { ContextUsageTooltipTrigger } from "@/components/workspace-assistant/context-usage-tooltip-trigger";
@@ -135,7 +125,12 @@ import {
   SessionPickerButton,
 } from "@/components/workspace-assistant/session-controls";
 import { useIsTouchInputDevice } from "@/components/workspace-assistant/touch-input-device";
+import { SpreadsheetToolUIRegistry } from "@/components/workspace-assistant/tools/tool-ui-registry";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
+import {
+  HUMAN_IN_THE_LOOP_TOOL_NAMES,
+  isHumanInTheLoopToolName,
+} from "@/lib/chat/hitl-tools";
 import { buildSkillsInstruction } from "@/lib/chat/instructions";
 import {
   getStablePartRenderKeyFromSignature,
@@ -156,7 +151,6 @@ import {
 } from "@/lib/assistant/context-usage-state";
 import {
   CHAT_EXTERNAL_API_ENABLED,
-  DEFAULT_MODE,
   DEFAULT_MODEL,
   FORK_BUTTON_ENABLED,
   getChatHistoryUrl,
@@ -164,9 +158,6 @@ import {
   getChatResumeUrl,
   getChatStopUrl,
   INSUFFICIENT_CREDITS_ERROR_CODE,
-  MODE_OPTIONS,
-  MODE_OPTION_VALUES,
-  MODE_STORAGE_KEY,
   MODEL_OPTIONS,
   MODEL_OPTION_GROUPS,
   MODEL_OPTION_VALUES,
@@ -198,8 +189,6 @@ type WorkspaceAssistantProps = {
   isAdmin?: boolean;
 };
 
-type AssistantMode = "action" | "plan" | "ask";
-
 /**
  * Props for the UI-only WorkspaceAssistantUI component.
  * Used when AssistantRuntimeProvider is provided at a higher level.
@@ -222,11 +211,6 @@ export type WorkspaceAssistantUIProps = {
   isModelPickerOpen: boolean;
   setIsModelPickerOpen: (open: boolean) => void;
   setSelectedModel: (model: string) => void;
-  selectedMode: AssistantMode;
-  selectedModeLabel: string;
-  isModePickerOpen: boolean;
-  setIsModePickerOpen: (open: boolean) => void;
-  setSelectedMode: (mode: AssistantMode) => void;
   reasoningEnabled: boolean;
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
@@ -274,23 +258,6 @@ const getPersistedModel = (): string => {
   return DEFAULT_MODEL;
 };
 
-const getPersistedMode = (): AssistantMode => {
-  if (typeof window === "undefined") {
-    return DEFAULT_MODE;
-  }
-
-  try {
-    const storedMode = window.localStorage.getItem(MODE_STORAGE_KEY)?.trim();
-    if (storedMode && MODE_OPTION_VALUES.has(storedMode as AssistantMode)) {
-      return storedMode as AssistantMode;
-    }
-  } catch {
-    // Ignore localStorage read failures
-  }
-
-  return DEFAULT_MODE;
-};
-
 const getPersistedReasoningEnabled = (): boolean => {
   if (typeof window === "undefined") {
     return false;
@@ -312,6 +279,13 @@ const getPersistedReasoningEnabled = (): boolean => {
 type ChatImageInput = {
   url: string;
   filename?: string;
+};
+
+type ChatToolResponseInput = {
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  isError?: boolean;
 };
 
 type ComposerImageAttachment = {
@@ -445,8 +419,8 @@ const requestAssistantChat = async (input: {
   docId?: string;
   message: string;
   images?: ChatImageInput[];
+  toolResponses?: ChatToolResponseInput[];
   model?: string;
-  mode?: AssistantMode;
   provider?: "openai" | "anthropic";
   reasoningEnabled?: boolean;
   context?: SpreadsheetAssistantContext;
@@ -459,8 +433,10 @@ const requestAssistantChat = async (input: {
     ...(input.images && input.images.length > 0
       ? { images: input.images }
       : {}),
+    ...(input.toolResponses && input.toolResponses.length > 0
+      ? { toolResponses: input.toolResponses }
+      : {}),
     ...(input.model ? { model: input.model } : {}),
-    ...(input.mode ? { mode: input.mode } : {}),
     ...(input.provider ? { provider: input.provider } : {}),
     ...(typeof input.reasoningEnabled === "boolean"
       ? { reasoningEnabled: input.reasoningEnabled }
@@ -658,12 +634,6 @@ type StreamingToolCallPart = {
 
 type StreamingContentPart = StreamingTextPart | StreamingToolCallPart;
 
-const TOOL_INPUT_UNAVAILABLE_MARKER = "__rnc_tool_input_unavailable__";
-const HUMAN_APPROVAL_TOOL_NAME = "assistant_requestModeSwitch";
-
-const isUnavailableToolArgs = (value: unknown) =>
-  isRecord(value) && value[TOOL_INPUT_UNAVAILABLE_MARKER] === true;
-
 const appendStreamingDelta = (
   parts: StreamingContentPart[],
   type: StreamingTextPart["type"],
@@ -736,9 +706,24 @@ const snapshotStreamingContent = (
  * This ensures tool calls don't show as "running" forever when the stream ends
  * before their results arrive.
  */
-const finalizePendingToolCalls = (parts: StreamingContentPart[]) => {
+const hasPendingHumanToolCalls = (parts: StreamingContentPart[]) =>
+  parts.some(
+    (part) =>
+      part.type === "tool-call" &&
+      part.result === undefined &&
+      HUMAN_TOOL_NAMES.has(part.toolName),
+  );
+
+const finalizePendingToolCalls = (
+  parts: StreamingContentPart[],
+  options?: { preserveToolNames?: Set<string> },
+) => {
+  const preserveToolNames = options?.preserveToolNames;
   for (const part of parts) {
     if (part.type === "tool-call" && part.result === undefined) {
+      if (preserveToolNames?.has(part.toolName)) {
+        continue;
+      }
       part.result = { success: false, error: "Tool call incomplete" };
     }
   }
@@ -776,9 +761,10 @@ const buildStreamingYield = (
   status?: Extract<MessageStatus, { type: "complete" | "requires-action" }>,
   fallbackMessage?: string,
 ) => ({
-  content: status
-    ? buildCompletionContent(parts, fallbackMessage)
-    : snapshotStreamingContent(parts),
+  content:
+    status?.type === "complete"
+      ? buildCompletionContent(parts, fallbackMessage)
+      : snapshotStreamingContent(parts),
   ...(status ? { status } : {}),
   metadata: {
     custom: {
@@ -791,7 +777,6 @@ type StreamingState = {
   runId: string | null;
   parts: StreamingContentPart[];
   toolPartIndexById: Map<string, number>;
-  hasPendingHumanApproval: boolean;
 };
 type ContextUsageStreamEvent = Extract<
   ChatStreamEvent,
@@ -832,16 +817,10 @@ const processStreamEvent = (
       event.toolName as string,
       (event.args as Record<string, unknown>) ?? {},
     );
-    if ((event.toolName as string) === HUMAN_APPROVAL_TOOL_NAME) {
-      state.hasPendingHumanApproval = true;
-    }
     return { yield: buildStreamingYield(state.parts, threadId), done: false };
   }
 
   if (event.type === "tool.result") {
-    if ((event.toolName as string) === HUMAN_APPROVAL_TOOL_NAME) {
-      return { yield: buildStreamingYield(state.parts, threadId), done: false };
-    }
     const toolCallId =
       (event.toolCallId as string) ?? (event.toolName as string);
     setStreamingToolResult(
@@ -857,24 +836,17 @@ const processStreamEvent = (
   }
 
   if (event.type === "message.complete") {
-    if (state.hasPendingHumanApproval) {
-      return {
-        yield: buildStreamingYield(
-          state.parts,
-          threadId,
-          { type: "requires-action", reason: "tool-calls" },
-          event.message as string,
-        ),
-        done: true,
-      };
-    }
-
-    finalizePendingToolCalls(state.parts);
+    const pendingHumanToolCalls = hasPendingHumanToolCalls(state.parts);
+    finalizePendingToolCalls(state.parts, {
+      preserveToolNames: HUMAN_TOOL_NAMES,
+    });
     return {
       yield: buildStreamingYield(
         state.parts,
         threadId,
-        { type: "complete", reason: "stop" },
+        pendingHumanToolCalls
+          ? { type: "requires-action", reason: "tool-calls" }
+          : { type: "complete", reason: "stop" },
         event.message as string,
       ),
       done: true,
@@ -912,7 +884,6 @@ async function* streamAssistantResponse(
     runId: null,
     parts: [],
     toolPartIndexById: new Map(),
-    hasPendingHumanApproval: false,
   };
 
   for await (const event of parseChatStream(stream)) {
@@ -933,11 +904,20 @@ async function* streamAssistantResponse(
     }
   }
 
-  finalizePendingToolCalls(state.parts);
-  yield buildStreamingYield(state.parts, threadId, {
-    type: "complete",
-    reason: "stop",
+  const pendingHumanToolCalls = hasPendingHumanToolCalls(state.parts);
+  finalizePendingToolCalls(state.parts, {
+    preserveToolNames: HUMAN_TOOL_NAMES,
   });
+  yield buildStreamingYield(
+    state.parts,
+    threadId,
+    pendingHumanToolCalls
+      ? { type: "requires-action", reason: "tool-calls" }
+      : {
+          type: "complete",
+          reason: "stop",
+        },
+  );
 }
 
 // Standard SSE reconnection with exponential backoff
@@ -1305,10 +1285,7 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   const [selectedModel, setSelectedModel] =
     React.useState<string>(DEFAULT_MODEL);
-  const [selectedMode, setSelectedMode] =
-    React.useState<AssistantMode>(DEFAULT_MODE);
   const [isModelPickerOpen, setIsModelPickerOpen] = React.useState(false);
-  const [isModePickerOpen, setIsModePickerOpen] = React.useState(false);
   const [reasoningEnabled, setReasoningEnabled] = React.useState(false);
   const [hasHydratedClientPreferences, setHasHydratedClientPreferences] =
     React.useState(false);
@@ -1316,7 +1293,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     React.useState<AssistantContextUsageByThread>({});
   const hasHydratedContextUsageRef = React.useRef(false);
   const selectedModelRef = React.useRef(selectedModel);
-  const selectedModeRef = React.useRef<AssistantMode>(selectedMode);
   const reasoningEnabledRef = React.useRef(reasoningEnabled);
   const docIdRef = React.useRef(docId);
   const pendingLocalSessionIdRef = React.useRef<string | null | undefined>(
@@ -1329,7 +1305,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   React.useEffect(() => {
     setSelectedModel(getPersistedModel());
-    setSelectedMode(getPersistedMode());
     setReasoningEnabled(getPersistedReasoningEnabled());
     setHasHydratedClientPreferences(true);
   }, []);
@@ -1353,10 +1328,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   React.useEffect(() => {
     selectedModelRef.current = selectedModel;
   }, [selectedModel]);
-
-  React.useEffect(() => {
-    selectedModeRef.current = selectedMode;
-  }, [selectedMode]);
 
   React.useEffect(() => {
     reasoningEnabledRef.current = reasoningEnabled;
@@ -1390,18 +1361,6 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   }, [hasHydratedClientPreferences, reasoningEnabled]);
 
   React.useEffect(() => {
-    if (!hasHydratedClientPreferences) {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(MODE_STORAGE_KEY, selectedMode);
-    } catch {
-      // Ignore localStorage write failures
-    }
-  }, [hasHydratedClientPreferences, selectedMode]);
-
-  React.useEffect(() => {
     if (!hasHydratedContextUsageRef.current) {
       return;
     }
@@ -1424,20 +1383,11 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
   const selectedModelLabel =
     MODEL_OPTIONS.find((option) => option.value === selectedModel)?.label ??
     selectedModel;
-  const selectedModeLabel =
-    MODE_OPTIONS.find((option) => option.value === selectedMode)?.label ??
-    selectedMode;
 
   const handleSelectModel = React.useCallback((model: string) => {
     setSelectedModel(model);
     selectedModelRef.current = model;
     setIsModelPickerOpen(false);
-  }, []);
-
-  const handleSelectMode = React.useCallback((mode: AssistantMode) => {
-    setSelectedMode(mode);
-    selectedModeRef.current = mode;
-    setIsModePickerOpen(false);
   }, []);
 
   const markThreadStarted = React.useCallback(() => {
@@ -1471,41 +1421,29 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
   const chatAdapter = React.useMemo<ChatModelAdapter>(
     () => ({
-      async *run({ messages, abortSignal }) {
-        const latestModeSwitchApproval = getLatestModeSwitchApproval(messages);
-        const latestUserMessageIndex = [...messages]
-          .map((message, index) => ({ message, index }))
-          .reverse()
-          .find(({ message }) => message.role === "user")?.index;
-        const shouldHandleModeSwitchApproval =
-          !!latestModeSwitchApproval &&
-          (latestUserMessageIndex === undefined ||
-            latestModeSwitchApproval.messageIndex > latestUserMessageIndex);
-        const shouldExecuteApprovedModeSwitch =
-          shouldHandleModeSwitchApproval &&
-          latestModeSwitchApproval.approved &&
-          latestModeSwitchApproval.targetMode === "action";
-        const shouldHandleDeclinedModeSwitch =
-          shouldHandleModeSwitchApproval && !latestModeSwitchApproval.approved;
+      async *run({ messages, abortSignal, unstable_getMessage }) {
+        const lastMessage = messages[messages.length - 1];
+        const trailingUserMessage =
+          lastMessage?.role === "user" ? lastMessage : undefined;
+        const message = getMessageText(trailingUserMessage);
+        const images = getMessageImages(trailingUserMessage);
 
-        const latestUserMessage = [...messages]
-          .reverse()
-          .find((message) => message.role === "user");
-        const userMessage = getMessageText(latestUserMessage);
-        const userImages = getMessageImages(latestUserMessage);
-        const message = shouldExecuteApprovedModeSwitch
-          ? "User approved execution. Switch to action mode and execute the approved plan now."
-          : userMessage;
-        const images = shouldExecuteApprovedModeSwitch ? [] : userImages;
+        // Check for HITL tool responses FIRST - these take priority.
+        // When continuing after a tool result submission, the messages array
+        // still contains the original user message, but we should send the
+        // tool responses instead of re-sending the user message.
+        const currentAssistantMessage = unstable_getMessage?.();
+        const toolResponses = getToolResponsesForCurrentRun({
+          currentAssistantMessage,
+        });
 
-        if (shouldHandleDeclinedModeSwitch) {
-          yield buildTerminalAssistantMessage(
-            "Staying in plan mode. I will continue planning until you approve execution.",
-          );
-          return;
-        }
+        const effectiveMessage = toolResponses.length > 0 ? "" : message;
 
-        if (!message && images.length === 0) {
+        if (
+          !effectiveMessage &&
+          images.length === 0 &&
+          toolResponses.length === 0
+        ) {
           yield {
             content: [
               {
@@ -1522,21 +1460,15 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
 
         try {
           markThreadStarted();
-          if (shouldExecuteApprovedModeSwitch) {
-            handleSelectMode("action");
-          }
-          const mode = shouldExecuteApprovedModeSwitch
-            ? "action"
-            : selectedModeRef.current;
           const model = selectedModelRef.current;
           const contextSnapshot = getAssistantContextSnapshot(docIdRef.current);
           const response = await requestAssistantChat({
             threadId,
             docId: docIdRef.current,
-            message,
+            message: effectiveMessage,
             images,
+            ...(toolResponses.length > 0 ? { toolResponses } : {}),
             model,
-            mode,
             provider: getProviderForModel(model),
             reasoningEnabled: reasoningEnabledRef.current,
             context: contextSnapshot,
@@ -1603,10 +1535,13 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
         }
       },
     }),
-    [handleContextUsageEvent, handleSelectMode, markThreadStarted, threadId],
+    [handleContextUsageEvent, markThreadStarted, threadId],
   );
 
-  const runtime = useLocalRuntime(chatAdapter, { maxSteps: 1 });
+  const runtime = useLocalRuntime(chatAdapter, {
+    maxSteps: 1,
+    unstable_humanToolNames: [...HUMAN_IN_THE_LOOP_TOOL_NAMES],
+  });
   const [isHydratingSession, setIsHydratingSession] = React.useState(false);
   const [isResumingRun, setIsResumingRun] = React.useState(false);
   const { isOffline: isReconnecting } = useNetworkStatus();
@@ -1925,140 +1860,15 @@ export function useSpreadsheetAssistantRuntime({ docId }: { docId?: string }) {
     setSelectedModel: handleSelectModel,
     isModelPickerOpen,
     setIsModelPickerOpen,
-    selectedMode,
-    setSelectedMode: handleSelectMode,
-    isModePickerOpen,
-    setIsModePickerOpen,
     reasoningEnabled,
     setReasoningEnabled,
     reasoningEnabledRef,
     selectedModelLabel,
-    selectedModeLabel,
   };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
-
-const deepParseJsonValue = (value: unknown): unknown => {
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return deepParseJsonValue(parsed);
-    } catch {
-      return value;
-    }
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(deepParseJsonValue);
-  }
-
-  if (isRecord(value)) {
-    const result: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value)) {
-      result[key] = deepParseJsonValue(val);
-    }
-    return result;
-  }
-
-  return value;
-};
-
-const getRangeFromParsedToolArgs = (value: unknown): string | null => {
-  if (!isRecord(value)) return null;
-
-  if (typeof value.range === "string" && value.range.trim().length > 0) {
-    return value.range;
-  }
-
-  if (isRecord(value.input)) {
-    const nestedRange = value.input.range;
-    if (typeof nestedRange === "string" && nestedRange.trim().length > 0) {
-      return nestedRange;
-    }
-  }
-
-  return null;
-};
-
-const getSheetIdFromParsedToolArgs = (value: unknown): number | null => {
-  if (!isRecord(value)) return null;
-
-  if (typeof value.sheetId === "number" && Number.isFinite(value.sheetId)) {
-    return value.sheetId;
-  }
-
-  if (isRecord(value.input)) {
-    const nestedSheetId = value.input.sheetId;
-    if (typeof nestedSheetId === "number" && Number.isFinite(nestedSheetId)) {
-      return nestedSheetId;
-    }
-  }
-
-  return null;
-};
-
-const getCreatedSheetIdFromToolResult = (value: unknown): number | null => {
-  if (!isRecord(value)) return null;
-
-  if (typeof value.sheetId === "number" && Number.isFinite(value.sheetId)) {
-    return value.sheetId;
-  }
-
-  if (
-    isRecord(value.sheet) &&
-    typeof value.sheet.sheetId === "number" &&
-    Number.isFinite(value.sheet.sheetId)
-  ) {
-    return value.sheet.sheetId;
-  }
-
-  return null;
-};
-
-type ParsedToolResult = {
-  success?: boolean;
-  error?: string;
-  range?: string;
-  [key: string]: unknown;
-};
-
-const extractParsedToolResult = (result: unknown): ParsedToolResult | null => {
-  if (!result) return null;
-
-  // Handle LangChain ToolMessage object: result.kwargs.content
-  if (isRecord(result)) {
-    const r = result;
-    if (r.kwargs && typeof r.kwargs === "object") {
-      const kwargs = r.kwargs as Record<string, unknown>;
-      if (typeof kwargs.content === "string") {
-        try {
-          const parsed = JSON.parse(kwargs.content);
-          return isRecord(parsed) ? (parsed as ParsedToolResult) : null;
-        } catch {
-          return { error: kwargs.content };
-        }
-      }
-    }
-    // Direct object with success property
-    if ("success" in r) {
-      return r as ParsedToolResult;
-    }
-  }
-
-  // Handle string result
-  if (typeof result === "string") {
-    try {
-      const parsed = JSON.parse(result);
-      return isRecord(parsed) ? (parsed as ParsedToolResult) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
-};
 
 const getMessageText = (message: ThreadMessage | undefined) => {
   if (!message) {
@@ -2106,369 +1916,44 @@ const getMessageImages = (
     .filter((part): part is ChatImageInput => part !== null);
 };
 
-const getLatestModeSwitchApproval = (
-  messages: readonly ThreadMessage[],
-): {
-  approved: boolean;
-  targetMode: AssistantMode;
-  messageIndex: number;
-} | null => {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "assistant") {
+const HUMAN_TOOL_NAMES = new Set<string>(HUMAN_IN_THE_LOOP_TOOL_NAMES);
+
+const getToolResponsesFromAssistantMessage = (
+  message: ThreadMessage | undefined,
+): ChatToolResponseInput[] => {
+  if (!message || message.role !== "assistant") {
+    return [];
+  }
+
+  const toolResponses: ChatToolResponseInput[] = [];
+  for (const part of message.content) {
+    if (part.type !== "tool-call") {
       continue;
     }
 
-    for (const part of message.content) {
-      if (
-        part.type !== "tool-call" ||
-        part.toolName !== HUMAN_APPROVAL_TOOL_NAME
-      ) {
-        continue;
-      }
-
-      const parsedResult = deepParseJsonValue(part.result);
-      if (
-        !isRecord(parsedResult) ||
-        typeof parsedResult.approved !== "boolean"
-      ) {
-        continue;
-      }
-
-      const targetMode = parsedResult.targetMode;
-      if (
-        targetMode === "action" ||
-        targetMode === "plan" ||
-        targetMode === "ask"
-      ) {
-        return {
-          approved: parsedResult.approved,
-          targetMode,
-          messageIndex: index,
-        };
-      }
-
-      return {
-        approved: parsedResult.approved,
-        targetMode: "action",
-        messageIndex: index,
-      };
+    if (!isHumanInTheLoopToolName(part.toolName)) {
+      continue;
     }
+
+    if (part.result === undefined) {
+      continue;
+    }
+
+    toolResponses.push({
+      toolCallId: part.toolCallId,
+      toolName: part.toolName,
+      result: part.result,
+      ...(part.isError === true ? { isError: true } : {}),
+    });
   }
 
-  return null;
+  return toolResponses;
 };
 
-type ToolCopy = {
-  running: string;
-  success: string;
-  failed: string;
-};
-
-const TOOL_UI_COPY: Record<string, ToolCopy> = {
-  spreadsheet_changeBatch: {
-    running: "Updating spreadsheet data",
-    success: "Updated spreadsheet data",
-    failed: "Failed to update spreadsheet data",
-  },
-  spreadsheet_getSheetMetadata: {
-    running: "Reading sheet metadata",
-    success: "Read sheet metadata",
-    failed: "Failed to read sheet metadata",
-  },
-  spreadsheet_formatRange: {
-    running: "Applying formatting",
-    success: "Applied formatting",
-    failed: "Failed to apply formatting",
-  },
-  spreadsheet_modifyRowsCols: {
-    running: "Modifying rows/columns",
-    success: "Modified rows/columns",
-    failed: "Failed to modify rows/columns",
-  },
-  spreadsheet_queryRange: {
-    running: "Reading spreadsheet data",
-    success: "Read spreadsheet data",
-    failed: "Failed to read spreadsheet data",
-  },
-  spreadsheet_setIterativeMode: {
-    running: "Updating iterative mode",
-    success: "Updated iterative mode",
-    failed: "Failed to update iterative mode",
-  },
-  spreadsheet_readDocument: {
-    running: "Reading spreadsheet",
-    success: "Read spreadsheet",
-    failed: "Failed to spreadsheet",
-  },
-  spreadsheet_getRowColMetadata: {
-    running: "Reading row/column metadata",
-    success: "Read row/column metadata",
-    failed: "Failed to read row/column metadata",
-  },
-  spreadsheet_setRowColMetadata: {
-    running: "Setting row/column dimensions",
-    success: "Set row/column dimensions",
-    failed: "Failed to set row/column dimensions",
-  },
-  spreadsheet_applyFill: {
-    running: "Applying fill",
-    success: "Applied fill",
-    failed: "Failed to apply fill",
-  },
-  // Consolidated tools
-  spreadsheet_clearCells: {
-    running: "Clearing cells",
-    success: "Cleared cells",
-    failed: "Failed to clear cells",
-  },
-  spreadsheet_table: {
-    running: "Managing table",
-    success: "Table operation completed",
-    failed: "Failed table operation",
-  },
-  spreadsheet_chart: {
-    running: "Managing chart",
-    success: "Chart operation completed",
-    failed: "Failed chart operation",
-  },
-  spreadsheet_dataValidation: {
-    running: "Managing data validation",
-    success: "Data validation operation completed",
-    failed: "Failed data validation operation",
-  },
-  spreadsheet_conditionalFormat: {
-    running: "Managing conditional format",
-    success: "Conditional format operation completed",
-    failed: "Failed conditional format operation",
-  },
-  spreadsheet_getAuditSnapshot: {
-    running: "Auditing spreadsheet",
-    success: "Completed spreadsheet audit",
-    failed: "Failed to audit spreadsheet",
-  },
-  assistant_requestModeSwitch: {
-    running: "Requesting mode switch approval",
-    success: "Approval requested",
-    failed: "Failed to request approval",
-  },
-};
-
-const formatToolNameFallback = (toolName: string) =>
-  toolName
-    .replace(/^spreadsheet_/, "")
-    .replace(/_/g, " ")
-    .trim();
-
-// Dynamic copy generators for consolidated tools based on action
-const CONSOLIDATED_TOOL_COPY: Record<
-  string,
-  Record<string, { running: string; success: string; failed: string }>
-> = {
-  spreadsheet_sheet: {
-    create: {
-      running: "Creating sheet",
-      success: "Created sheet",
-      failed: "Failed to create sheet",
-    },
-    update: {
-      running: "Updating sheet",
-      success: "Updated sheet",
-      failed: "Failed to update sheet",
-    },
-    delete: {
-      running: "Deleting sheet",
-      success: "Deleted sheet",
-      failed: "Failed to delete sheet",
-    },
-    duplicate: {
-      running: "Duplicating sheet",
-      success: "Duplicated sheet",
-      failed: "Failed to duplicate sheet",
-    },
-  },
-  spreadsheet_note: {
-    set: {
-      running: "Setting note",
-      success: "Set note",
-      failed: "Failed to set note",
-    },
-    delete: {
-      running: "Deleting note",
-      success: "Deleted note",
-      failed: "Failed to delete note",
-    },
-  },
-  spreadsheet_table: {
-    create: {
-      running: "Creating table",
-      success: "Created table",
-      failed: "Failed to create table",
-    },
-    update: {
-      running: "Updating table",
-      success: "Updated table",
-      failed: "Failed to update table",
-    },
-    delete: {
-      running: "Deleting table",
-      success: "Deleted table",
-      failed: "Failed to delete table",
-    },
-  },
-  spreadsheet_chart: {
-    create: {
-      running: "Creating chart",
-      success: "Created chart",
-      failed: "Failed to create chart",
-    },
-    update: {
-      running: "Updating chart",
-      success: "Updated chart",
-      failed: "Failed to update chart",
-    },
-    delete: {
-      running: "Deleting chart",
-      success: "Deleted chart",
-      failed: "Failed to delete chart",
-    },
-  },
-  spreadsheet_dataValidation: {
-    create: {
-      running: "Creating data validation",
-      success: "Created data validation",
-      failed: "Failed to create data validation",
-    },
-    update: {
-      running: "Updating data validation",
-      success: "Updated data validation",
-      failed: "Failed to update data validation",
-    },
-    delete: {
-      running: "Deleting data validation",
-      success: "Deleted data validation",
-      failed: "Failed to delete data validation",
-    },
-    query: {
-      running: "Querying data validations",
-      success: "Queried data validations",
-      failed: "Failed to query data validations",
-    },
-  },
-  spreadsheet_conditionalFormat: {
-    create: {
-      running: "Creating conditional format",
-      success: "Created conditional format",
-      failed: "Failed to create conditional format",
-    },
-    update: {
-      running: "Updating conditional format",
-      success: "Updated conditional format",
-      failed: "Failed to update conditional format",
-    },
-    delete: {
-      running: "Deleting conditional format",
-      success: "Deleted conditional format",
-      failed: "Failed to delete conditional format",
-    },
-    query: {
-      running: "Querying conditional formats",
-      success: "Queried conditional formats",
-      failed: "Failed to query conditional formats",
-    },
-  },
-  spreadsheet_clearCells: {
-    values: {
-      running: "Clearing cell values",
-      success: "Cleared cell values",
-      failed: "Failed to clear cell values",
-    },
-    formatting: {
-      running: "Clearing cell formatting",
-      success: "Cleared cell formatting",
-      failed: "Failed to clear cell formatting",
-    },
-    all: {
-      running: "Clearing cells",
-      success: "Cleared cells",
-      failed: "Failed to clear cells",
-    },
-  },
-  spreadsheet_modifyRowsCols: {
-    insert_row: {
-      running: "Inserting rows",
-      success: "Inserted rows",
-      failed: "Failed to insert rows",
-    },
-    insert_column: {
-      running: "Inserting columns",
-      success: "Inserted columns",
-      failed: "Failed to insert columns",
-    },
-    delete_row: {
-      running: "Deleting rows",
-      success: "Deleted rows",
-      failed: "Failed to delete rows",
-    },
-    delete_column: {
-      running: "Deleting columns",
-      success: "Deleted columns",
-      failed: "Failed to delete columns",
-    },
-  },
-};
-
-const getToolCopy = (
-  toolName: string,
-  parsedArgs?: Record<string, unknown>,
-): ToolCopy => {
-  // Check for consolidated tools with dynamic copy based on action
-  const consolidatedCopy = CONSOLIDATED_TOOL_COPY[toolName];
-  if (consolidatedCopy && parsedArgs) {
-    // Args might be nested under 'input' property
-    const args =
-      typeof parsedArgs.input === "object" && parsedArgs.input !== null
-        ? (parsedArgs.input as Record<string, unknown>)
-        : parsedArgs;
-
-    // For spreadsheet_clearCells, use the 'clear' field
-    if (toolName === "spreadsheet_clearCells") {
-      const clear = args.clear as string | undefined;
-      if (clear && consolidatedCopy[clear]) {
-        return consolidatedCopy[clear];
-      }
-    }
-    // For spreadsheet_modifyRowsCols, combine action + dimension
-    else if (toolName === "spreadsheet_modifyRowsCols") {
-      const action = args.action as string | undefined;
-      const dimension = args.dimension as string | undefined;
-      if (action && dimension) {
-        const key = `${action}_${dimension}`;
-        if (consolidatedCopy[key]) {
-          return consolidatedCopy[key];
-        }
-      }
-    }
-    // For other consolidated tools, use 'action' field
-    else {
-      const action = args.action as string | undefined;
-      if (action && consolidatedCopy[action]) {
-        return consolidatedCopy[action];
-      }
-    }
-  }
-
-  const mapped = TOOL_UI_COPY[toolName];
-  if (mapped) {
-    return mapped;
-  }
-
-  const fallbackName = formatToolNameFallback(toolName) || toolName;
-  return {
-    running: `Running ${fallbackName}`,
-    success: `Completed ${fallbackName}`,
-    failed: `Failed ${fallbackName}`,
-  };
+const getToolResponsesForCurrentRun = (input: {
+  currentAssistantMessage?: ThreadMessage;
+}): ChatToolResponseInput[] => {
+  return getToolResponsesFromAssistantMessage(input.currentAssistantMessage);
 };
 
 function ReasoningBlock({
@@ -2733,522 +2218,6 @@ function StableMessageContent({
       })}
     </>
   );
-}
-
-function ToolCallDisplay({
-  toolCallId,
-  toolName,
-  args,
-  result,
-  addResult,
-}: {
-  toolCallId: string;
-  toolName: string;
-  args: unknown;
-  result?: unknown;
-  addResult?: ToolCallMessagePartProps<
-    Record<string, unknown>,
-    unknown
-  >["addResult"];
-}) {
-  const modeExecutionContext = React.useContext(ModeExecutionContext);
-  const openStateKey = React.useMemo(() => `tool:${toolCallId}`, [toolCallId]);
-  const [isOpen, setIsOpen] = React.useState(() => {
-    return TOOL_CALL_OPEN_STATE.get(openStateKey) ?? false;
-  });
-  const [copiedTab, setCopiedTab] = React.useState<"input" | "output" | null>(
-    null,
-  );
-  const hasResult = result !== undefined;
-  const navigateToSheetRange = useNavigateToSheetRange();
-
-  const handleCopy = React.useCallback(
-    async (content: string, tab: "input" | "output") => {
-      try {
-        await navigator.clipboard.writeText(content);
-        setCopiedTab(tab);
-        setTimeout(() => setCopiedTab(null), 2000);
-      } catch {
-        // Ignore clipboard errors
-      }
-    },
-    [],
-  );
-
-  // Extract the actual content from various result formats
-  const extractedResult = React.useMemo(
-    () => extractParsedToolResult(result),
-    [result],
-  );
-
-  const isParsedError =
-    extractedResult?.success === false ||
-    (typeof extractedResult?.error === "string" &&
-      extractedResult.error.trim().length > 0 &&
-      extractedResult.success !== true);
-  const isError = isParsedError;
-  const errorMessage = extractedResult?.error;
-  const isComplete = hasResult && !isError;
-  const isRunning = !hasResult;
-  const parsedArgs = React.useMemo(() => deepParseJsonValue(args), [args]);
-  const toolCopy = React.useMemo(
-    () => getToolCopy(toolName, parsedArgs as Record<string, unknown>),
-    [toolName, parsedArgs],
-  );
-  const titleText = isRunning
-    ? toolCopy.running
-    : isError
-      ? toolCopy.failed
-      : toolCopy.success;
-  const rangeFromArgs = getRangeFromParsedToolArgs(parsedArgs);
-  const rangeFromResult =
-    typeof extractedResult?.range === "string" ? extractedResult.range : null;
-  const sheetIdFromArgs = getSheetIdFromParsedToolArgs(parsedArgs);
-  const sheetIdFromResult = getSheetIdFromParsedToolArgs(extractedResult);
-  const sheetRange = React.useMemo(() => {
-    const rangeForNavigation = rangeFromArgs || rangeFromResult;
-    const sheetId = sheetIdFromArgs ?? sheetIdFromResult;
-
-    if (!rangeForNavigation || sheetId === null) {
-      return null;
-    }
-
-    return addressToSheetRange(rangeForNavigation, sheetId) ?? null;
-  }, [rangeFromArgs, rangeFromResult, sheetIdFromArgs, sheetIdFromResult]);
-
-  const canNavigateToRange = Boolean(navigateToSheetRange && sheetRange);
-
-  const navigateToRange = React.useCallback(() => {
-    if (!navigateToSheetRange || !sheetRange) {
-      return;
-    }
-
-    navigateToSheetRange(sheetRange, {
-      allowSelection: false,
-      enableFlash: true,
-    });
-  }, [navigateToSheetRange, sheetRange]);
-  const handleNavigateInlineClick = React.useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      navigateToRange();
-    },
-    [navigateToRange],
-  );
-  const handleOpenChange = React.useCallback(
-    (nextOpen: boolean) => {
-      setIsOpen(nextOpen);
-      TOOL_CALL_OPEN_STATE.set(openStateKey, nextOpen);
-    },
-    [openStateKey],
-  );
-
-  React.useEffect(() => {
-    setIsOpen(TOOL_CALL_OPEN_STATE.get(openStateKey) ?? false);
-  }, [openStateKey]);
-
-  const range =
-    rangeFromArgs ||
-    rangeFromResult ||
-    (toolName === "spreadsheet_changeBatch" ? "cells" : "");
-  const explanation = React.useMemo(() => {
-    if (!isRecord(parsedArgs)) return null;
-
-    const parsedInput = parsedArgs.input;
-    if (
-      isRecord(parsedInput) &&
-      typeof parsedInput.explanation === "string" &&
-      parsedInput.explanation.trim().length > 0
-    ) {
-      return parsedInput.explanation.trim();
-    }
-
-    if (
-      typeof parsedArgs.explanation === "string" &&
-      parsedArgs.explanation.trim().length > 0
-    ) {
-      return parsedArgs.explanation.trim();
-    }
-
-    return null;
-  }, [parsedArgs]);
-  const formattedArgs = React.useMemo(() => {
-    if (isUnavailableToolArgs(parsedArgs)) {
-      return "Input unavailable: tool call failed before execution and runtime did not emit tool arguments.";
-    }
-
-    try {
-      const serialized = JSON.stringify(parsedArgs, null, 2);
-      return typeof serialized === "string" ? serialized : String(args);
-    } catch {
-      return String(args);
-    }
-  }, [args, parsedArgs]);
-  const isModeSwitchRequest = toolName === "assistant_requestModeSwitch";
-  const modeSwitchTarget = React.useMemo(() => {
-    if (!isRecord(parsedArgs)) return null;
-    const targetMode = isRecord(parsedArgs.input)
-      ? parsedArgs.input.targetMode
-      : parsedArgs.targetMode;
-    return targetMode === "action" ? targetMode : null;
-  }, [parsedArgs]);
-  const modeSwitchReason = React.useMemo(() => {
-    if (!isRecord(parsedArgs) || typeof parsedArgs.reason !== "string") {
-      return null;
-    }
-    const normalizedReason = parsedArgs.reason.trim();
-    return normalizedReason.length > 0 ? normalizedReason : null;
-  }, [parsedArgs]);
-  const [localModeSwitchDecision, setLocalModeSwitchDecision] = React.useState<
-    "approved" | "declined" | null
-  >(null);
-
-  const handleApproveModeSwitch = React.useCallback(() => {
-    if (!modeExecutionContext || modeSwitchTarget !== "action") {
-      return;
-    }
-
-    setLocalModeSwitchDecision("approved");
-    modeExecutionContext.setSelectedMode("action");
-    addResult?.({
-      success: true,
-      approved: true,
-      targetMode: "action",
-      source: "hitl-ui",
-    });
-  }, [addResult, modeExecutionContext, modeSwitchTarget]);
-
-  const handleDeclineModeSwitch = React.useCallback(() => {
-    setLocalModeSwitchDecision("declined");
-    addResult?.({
-      success: true,
-      approved: false,
-      targetMode: modeSwitchTarget ?? "action",
-      source: "hitl-ui",
-    });
-  }, [addResult, modeSwitchTarget]);
-
-  if (isModeSwitchRequest) {
-    const isActionModeActive = modeExecutionContext?.selectedMode === "action";
-    const disableApprove =
-      modeSwitchTarget !== "action" ||
-      isActionModeActive ||
-      localModeSwitchDecision !== null;
-
-    return (
-      <Card className="w-full max-w-[92%] rnc-assistant-bubble-ai rounded-xl">
-        <CardContent className="px-4 py-3">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">
-                Approval Needed: Switch to Action Mode
-              </p>
-              <p className="mt-0.5 text-xs text-(--muted-foreground)">
-                The agent is requesting permission to execute the plan now.
-              </p>
-              {modeSwitchReason && (
-                <p className="mt-1 text-xs text-foreground/80">
-                  Reason: {modeSwitchReason}
-                </p>
-              )}
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleApproveModeSwitch}
-                  disabled={disableApprove}
-                  className="rounded-md bg-(--accent) px-2.5 text-xs text-(--accent-foreground) hover:bg-(--accent-strong) disabled:opacity-60"
-                >
-                  {localModeSwitchDecision === "approved" ? (
-                    <>
-                      <Check className="mr-1 h-3.5 w-3.5" />
-                      Approved
-                    </>
-                  ) : (
-                    "Approve & Run"
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={handleDeclineModeSwitch}
-                  disabled={localModeSwitchDecision !== null}
-                  className="rounded-md border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground hover:bg-(--assistant-chip-hover)"
-                >
-                  Keep Planning
-                </Button>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Collapsible.Root open={isOpen} onOpenChange={handleOpenChange}>
-      <Collapsible.Trigger asChild>
-        <div
-          className={cn(
-            "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors",
-            isRunning
-              ? "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)"
-              : isError
-                ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                : "border-(--card-border) bg-(--assistant-chip-bg) text-foreground hover:bg-(--assistant-chip-hover)",
-          )}
-        >
-          <FileText className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-          <div className="min-w-0 flex-1 truncate">{titleText}</div>
-          {range && (
-            <span
-              className="max-w-28 shrink-0 truncate rounded border border-(--card-border) bg-(--assistant-chip-hover) px-1.5 py-0.5 font-mono text-[10px] text-(--muted-foreground)"
-              title={`Range: ${range}`}
-            >
-              {range}
-            </span>
-          )}
-          {explanation && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-(--muted-foreground)">
-                  <Info className="h-3.5 w-3.5" />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent
-                side="top"
-                align="start"
-                className="max-w-xs text-xs whitespace-pre-wrap break-words"
-              >
-                {explanation}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <ChevronDown
-            className={cn(
-              "h-3.5 w-3.5 shrink-0 text-(--muted-foreground) transition-transform",
-              isOpen && "rotate-180",
-            )}
-          />
-          <span className="h-3.5 w-px shrink-0 bg-(--card-border)" />
-          {isComplete && canNavigateToRange && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleNavigateInlineClick}
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-(--muted-foreground) transition-colors hover:bg-(--assistant-chip-hover) hover:text-foreground"
-                  aria-label="Go to range"
-                >
-                  <Navigation className="h-3 w-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" align="center" className="text-xs">
-                Go to range
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {isRunning ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-(--muted-foreground)" />
-          ) : isError ? (
-            <X className="h-3.5 w-3.5 shrink-0 text-red-600" />
-          ) : (
-            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-          )}
-        </div>
-      </Collapsible.Trigger>
-      <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
-        {explanation && (
-          <div className="mt-1.5 rounded-md border border-(--panel-border) bg-(--assistant-suggestion-bg) px-2 py-1.5">
-            <p className="text-xs leading-relaxed text-foreground">
-              {explanation}
-            </p>
-          </div>
-        )}
-        {isError && (
-          <div className="mt-1 rounded border border-red-200 bg-red-100 p-2 text-red-800 text-xs">
-            <div className="font-medium">Error</div>
-            <div className="mt-1 font-mono text-[11px]">
-              {errorMessage || "Unknown error"}
-            </div>
-          </div>
-        )}
-        <Tabs defaultValue="input" className="mt-2">
-          <TabsList className="inline-flex h-7 gap-1 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) p-0.5">
-            <TabsTrigger
-              value="input"
-              className="h-6 rounded-md px-2.5 py-0.5 text-[10px] font-medium text-(--muted-foreground) transition-colors data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)]"
-            >
-              Input
-            </TabsTrigger>
-            <TabsTrigger
-              value="output"
-              className="h-6 rounded-md px-2.5 py-0.5 text-[10px] font-medium text-(--muted-foreground) transition-colors data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_var(--card-shadow)]"
-            >
-              Output
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="input" className="mt-1.5">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => handleCopy(formattedArgs, "input")}
-                className="absolute right-1 top-1 rounded p-1 text-(--muted-foreground) transition-colors hover:bg-(--assistant-chip-hover) hover:text-foreground"
-                title="Copy to clipboard"
-              >
-                {copiedTab === "input" ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </button>
-              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap wrap-break-word rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2 pr-8 font-mono text-[11px] leading-relaxed text-foreground">
-                {formattedArgs}
-              </pre>
-            </div>
-          </TabsContent>
-          <TabsContent value="output" className="mt-1.5">
-            <div className="relative">
-              {hasResult && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleCopy(
-                      JSON.stringify(extractedResult, null, 2),
-                      "output",
-                    )
-                  }
-                  className={cn(
-                    "absolute right-1 top-1 rounded p-1 transition-colors",
-                    "text-(--muted-foreground) hover:bg-(--assistant-chip-hover) hover:text-foreground",
-                  )}
-                  title="Copy to clipboard"
-                >
-                  {copiedTab === "output" ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              )}
-              {hasResult ? (
-                <pre className="max-h-64 overflow-y-auto overflow-x-auto whitespace-pre-wrap wrap-break-word rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2 pr-8 font-mono text-[11px] leading-relaxed text-foreground">
-                  {JSON.stringify(extractedResult, null, 2)}
-                </pre>
-              ) : (
-                <div className="rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2 text-[11px] text-(--muted-foreground) italic">
-                  Waiting for result...
-                </div>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
-      </Collapsible.Content>
-    </Collapsible.Root>
-  );
-}
-
-function SpreadsheetCreateSheetSideEffect({ result }: { result?: unknown }) {
-  const spreadsheetApi = useSpreadsheetApi();
-  const hasResult = result !== undefined;
-  const parsedResult = React.useMemo(
-    () => extractParsedToolResult(result),
-    [result],
-  );
-  const createdSheetId = React.useMemo(
-    () => getCreatedSheetIdFromToolResult(parsedResult),
-    [parsedResult],
-  );
-  const hasResultRef = React.useRef(hasResult);
-
-  React.useEffect(() => {
-    const hadResult = hasResultRef.current;
-    hasResultRef.current = hasResult;
-
-    if (hadResult || !hasResult || createdSheetId === null) {
-      return;
-    }
-
-    spreadsheetApi?.setActiveSheet(createdSheetId);
-  }, [createdSheetId, hasResult, spreadsheetApi]);
-
-  return null;
-}
-
-const SPREADSHEET_TOOL_NAMES = [
-  "spreadsheet_changeBatch",
-  "spreadsheet_sheet", // Consolidated: create/update/delete sheet
-  "spreadsheet_getSheetMetadata",
-  "spreadsheet_formatRange",
-  "spreadsheet_modifyRowsCols",
-  "spreadsheet_queryRange",
-  "spreadsheet_setIterativeMode",
-  "spreadsheet_readDocument",
-  "spreadsheet_getRowColMetadata",
-  "spreadsheet_setRowColMetadata",
-  "spreadsheet_applyFill",
-  // Consolidated tools
-  "spreadsheet_note",
-  "spreadsheet_clearCells",
-  "spreadsheet_table",
-  "spreadsheet_chart",
-  "spreadsheet_dataValidation",
-  "spreadsheet_conditionalFormat",
-  "spreadsheet_getAuditSnapshot",
-  "assistant_requestModeSwitch",
-] as const;
-
-const TOOL_CALL_OPEN_STATE = new Map<string, boolean>();
-
-function SpreadsheetToolUIRegistration({
-  toolName,
-}: {
-  toolName: (typeof SPREADSHEET_TOOL_NAMES)[number];
-}) {
-  const renderToolPart = useInlineRender(
-    ({
-      toolName: renderedToolName,
-      args,
-      result,
-      toolCallId,
-      addResult,
-    }: ToolCallMessagePartProps<Record<string, unknown>, unknown>) => (
-      <div className="w-full maxx-w-md">
-        {renderedToolName === "spreadsheet_sheet" &&
-          (args as { action?: string })?.action === "create" && (
-            <SpreadsheetCreateSheetSideEffect result={result} />
-          )}
-        <ToolCallDisplay
-          toolCallId={toolCallId}
-          toolName={renderedToolName}
-          args={args}
-          result={result}
-          addResult={addResult}
-        />
-      </div>
-    ),
-  );
-
-  const toolUI = React.useMemo<
-    AssistantToolUIProps<Record<string, unknown>, unknown>
-  >(
-    () => ({
-      toolName,
-      render: renderToolPart,
-    }),
-    [renderToolPart, toolName],
-  );
-
-  useAssistantToolUI(toolUI);
-  return null;
-}
-
-function SpreadsheetToolUIRegistry() {
-  return SPREADSHEET_TOOL_NAMES.map((toolName) => (
-    <SpreadsheetToolUIRegistration key={toolName} toolName={toolName} />
-  ));
 }
 
 type ThreadMessagesComponents = NonNullable<
@@ -4474,11 +3443,6 @@ type WorkspaceAssistantPanelProps = {
   isModelPickerOpen: boolean;
   setIsModelPickerOpen: (open: boolean) => void;
   setSelectedModel: (model: string) => void;
-  selectedMode: AssistantMode;
-  selectedModeLabel: string;
-  isModePickerOpen: boolean;
-  setIsModePickerOpen: (open: boolean) => void;
-  setSelectedMode: (mode: AssistantMode) => void;
   reasoningEnabled: boolean;
   setReasoningEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   reasoningEnabledRef: React.MutableRefObject<boolean>;
@@ -4546,25 +3510,12 @@ type ForkContextValue = {
 
 const ForkContext = React.createContext<ForkContextValue | null>(null);
 
-type ModeExecutionContextValue = {
-  selectedMode: AssistantMode;
-  setSelectedMode: (mode: AssistantMode) => void;
-};
-
-const ModeExecutionContext =
-  React.createContext<ModeExecutionContextValue | null>(null);
-
 function AssistantComposer({
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
   setIsModelPickerOpen,
   setSelectedModel,
-  selectedMode,
-  selectedModeLabel,
-  isModePickerOpen,
-  setIsModePickerOpen,
-  setSelectedMode,
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
@@ -4585,13 +3536,6 @@ function AssistantComposer({
       setIsModelPickerOpen(false);
     },
     [setIsModelPickerOpen, setSelectedModel],
-  );
-  const handleSelectMode = React.useCallback(
-    (mode: AssistantMode) => {
-      setSelectedMode(mode);
-      setIsModePickerOpen(false);
-    },
-    [setIsModePickerOpen, setSelectedMode],
   );
   const composerRuntime = useComposerRuntime();
   const threadRuntime = useThreadRuntime();
@@ -5492,72 +4436,6 @@ function AssistantComposer({
           </Popover>
         </div>
         <div className="flex items-center gap-2">
-          <Popover open={isModePickerOpen} onOpenChange={setIsModePickerOpen}>
-            <PopoverTrigger asChild>
-              {isComposerCompact ? (
-                <IconButton
-                  tooltip={`Mode: ${selectedModeLabel}`}
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  role="combobox"
-                  aria-expanded={isModePickerOpen}
-                  aria-label={`Select mode. Current mode: ${selectedModeLabel}`}
-                  title={`Mode: ${selectedModeLabel}`}
-                  className="rnc-assistant-chip h-8 w-8 items-center justify-center rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-0 text-foreground shadow-none hover:bg-(--assistant-chip-hover)"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                </IconButton>
-              ) : (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  role="combobox"
-                  aria-expanded={isModePickerOpen}
-                  aria-label={`Select mode. Current mode: ${selectedModeLabel}`}
-                  title={`Mode: ${selectedModeLabel}`}
-                  className="rnc-assistant-chip h-8 max-w-32 shrink-0 items-center justify-between gap-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs font-normal text-foreground shadow-none hover:bg-(--assistant-chip-hover) sm:min-w-22 sm:max-w-42"
-                >
-                  <span className="truncate">
-                    {selectedMode === "plan"
-                      ? "Plan mode"
-                      : selectedMode === "ask"
-                        ? "Ask mode"
-                        : "Action mode"}
-                  </span>
-                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                </Button>
-              )}
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 p-0">
-              <Command>
-                <CommandList>
-                  <CommandEmpty>No mode found.</CommandEmpty>
-                  <CommandGroup>
-                    {MODE_OPTIONS.map((option) => (
-                      <CommandItem
-                        key={option.value}
-                        value={`${option.label} ${option.value}`}
-                        onSelect={() => handleSelectMode(option.value)}
-                        className="text-xs"
-                      >
-                        <Check
-                          className={cn(
-                            "h-3.5 w-3.5 shrink-0",
-                            selectedMode === option.value
-                              ? "opacity-100"
-                              : "opacity-0",
-                          )}
-                        />
-                        <span className="truncate">{option.label}</span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
           {isThreadRunning && (
             <IconButton
               tooltip="Stop"
@@ -5618,11 +4496,6 @@ function WorkspaceAssistantPanel({
   isModelPickerOpen,
   setIsModelPickerOpen,
   setSelectedModel,
-  selectedMode,
-  selectedModeLabel,
-  isModePickerOpen,
-  setIsModePickerOpen,
-  setSelectedMode,
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
@@ -5674,13 +4547,6 @@ function WorkspaceAssistantPanel({
           }
         : null,
     [onForkConversation, threadId, docId, actualForkingRef],
-  );
-  const modeExecutionContextValue = React.useMemo<ModeExecutionContextValue>(
-    () => ({
-      selectedMode,
-      setSelectedMode,
-    }),
-    [selectedMode, setSelectedMode],
   );
 
   const loadCredits = React.useCallback(async () => {
@@ -5991,120 +4857,113 @@ function WorkspaceAssistantPanel({
       </div>
 
       <AssistantDebugAccessContext.Provider value={{ isAdmin }}>
-        <ModeExecutionContext.Provider value={modeExecutionContextValue}>
-          <ForkContext.Provider value={forkContextValue}>
-            <ThreadPrimitive.Root
-              key={threadId || "active-thread"}
-              className={cn("relative flex min-h-0 flex-1 flex-col")}
+        <ForkContext.Provider value={forkContextValue}>
+          <ThreadPrimitive.Root
+            key={threadId || "active-thread"}
+            className={cn("relative flex min-h-0 flex-1 flex-col")}
+          >
+            <SpreadsheetToolUIRegistry />
+            <ThreadPrimitive.Viewport
+              className={cn(
+                "min-h-0 overflow-y-auto px-5",
+                isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
+              )}
             >
-              <SpreadsheetToolUIRegistry />
-              <ThreadPrimitive.Viewport
-                className={cn(
-                  "min-h-0 overflow-y-auto px-5",
-                  isThreadEmpty ? "h-0 flex-none py-0" : "flex-1 py-5",
-                )}
-              >
-                <div className="space-y-4">
-                  <StableThreadMessages
-                    components={{
-                      UserMessage: AssistantMessage,
-                      AssistantMessage,
-                    }}
-                  />
-                </div>
-              </ThreadPrimitive.Viewport>
-
-              <div
-                className={cn(
-                  "rnc-assistant-divider w-full px-5 py-4",
-                  isThreadEmpty
-                    ? "my-auto border-t-0"
-                    : "border-t border-black/8",
-                )}
-              >
-                <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
-                  <AssistantComposer
-                    selectedModel={selectedModel}
-                    selectedModelLabel={selectedModelLabel}
-                    isModelPickerOpen={isModelPickerOpen}
-                    setIsModelPickerOpen={setIsModelPickerOpen}
-                    setSelectedModel={setSelectedModel}
-                    selectedMode={selectedMode}
-                    selectedModeLabel={selectedModeLabel}
-                    isModePickerOpen={isModePickerOpen}
-                    setIsModePickerOpen={setIsModePickerOpen}
-                    setSelectedMode={setSelectedMode}
-                    reasoningEnabled={reasoningEnabled}
-                    setReasoningEnabled={setReasoningEnabled}
-                    reasoningEnabledRef={reasoningEnabledRef}
-                    contextUsage={contextUsage}
-                    threadId={threadId}
-                    forceCompactHeader={forceCompactHeader}
-                    hasCredits={hasCredits}
-                    panelImageDrop={panelImageDrop}
-                    onPanelImageDropHandled={handlePanelImageDropHandled}
-                  />
-                  {isThreadEmpty &&
-                  !isHydratingSession &&
-                  !isRestoringSessionFromPicker &&
-                  !isResumingRun ? (
-                    <div
-                      className={cn(
-                        "min-w-0 gap-2",
-                        forceCompactHeader
-                          ? "grid grid-cols-2"
-                          : "flex flex-wrap flex-row items-center justify-center",
-                      )}
-                    >
-                      <TooltipProvider delayDuration={200}>
-                        {prompts.map((prompt) => (
-                          <Tooltip key={prompt}>
-                            <TooltipTrigger asChild>
-                              <ThreadPrimitive.Suggestion
-                                prompt={prompt}
-                                send
-                                className={cn(
-                                  "rnc-assistant-suggestion rounded-xl border border-black/10 bg-[#fff9f2] text-left text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]",
-                                  forceCompactHeader
-                                    ? "w-full min-w-0 px-3 py-2 text-xs leading-4"
-                                    : "w-56 px-4 py-3 text-sm leading-5",
-                                )}
-                              >
-                                <span
-                                  className="block overflow-hidden"
-                                  style={{
-                                    display: "-webkit-box",
-                                    WebkitLineClamp: 3,
-                                    WebkitBoxOrient: "vertical",
-                                    textOverflow: "ellipsis",
-                                  }}
-                                >
-                                  {prompt}
-                                </span>
-                              </ThreadPrimitive.Suggestion>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" align="center">
-                              {prompt}
-                            </TooltipContent>
-                          </Tooltip>
-                        ))}
-                      </TooltipProvider>
-                    </div>
-                  ) : null}
-                </div>
+              <div className="space-y-4">
+                <StableThreadMessages
+                  components={{
+                    UserMessage: AssistantMessage,
+                    AssistantMessage,
+                  }}
+                />
               </div>
-              {(isHydratingSession || isRestoringSessionFromPicker) && (
-                <AssistantStatusOverlay label="Restoring session..." />
+            </ThreadPrimitive.Viewport>
+
+            <div
+              className={cn(
+                "rnc-assistant-divider w-full px-5 py-4",
+                isThreadEmpty
+                  ? "my-auto border-t-0"
+                  : "border-t border-black/8",
               )}
-              {isResumingRun && (
-                <AssistantStatusOverlay label="Continuing response..." />
-              )}
-              {isReconnecting && (
-                <AssistantStatusOverlay label="Reconnecting..." />
-              )}
-            </ThreadPrimitive.Root>
-          </ForkContext.Provider>
-        </ModeExecutionContext.Provider>
+            >
+              <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
+                <AssistantComposer
+                  selectedModel={selectedModel}
+                  selectedModelLabel={selectedModelLabel}
+                  isModelPickerOpen={isModelPickerOpen}
+                  setIsModelPickerOpen={setIsModelPickerOpen}
+                  setSelectedModel={setSelectedModel}
+                  reasoningEnabled={reasoningEnabled}
+                  setReasoningEnabled={setReasoningEnabled}
+                  reasoningEnabledRef={reasoningEnabledRef}
+                  contextUsage={contextUsage}
+                  threadId={threadId}
+                  forceCompactHeader={forceCompactHeader}
+                  hasCredits={hasCredits}
+                  panelImageDrop={panelImageDrop}
+                  onPanelImageDropHandled={handlePanelImageDropHandled}
+                />
+                {isThreadEmpty &&
+                !isHydratingSession &&
+                !isRestoringSessionFromPicker &&
+                !isResumingRun ? (
+                  <div
+                    className={cn(
+                      "min-w-0 gap-2",
+                      forceCompactHeader
+                        ? "grid grid-cols-2"
+                        : "flex flex-wrap flex-row items-center justify-center",
+                    )}
+                  >
+                    <TooltipProvider delayDuration={200}>
+                      {prompts.map((prompt) => (
+                        <Tooltip key={prompt}>
+                          <TooltipTrigger asChild>
+                            <ThreadPrimitive.Suggestion
+                              prompt={prompt}
+                              send
+                              className={cn(
+                                "rnc-assistant-suggestion rounded-xl border border-black/10 bg-[#fff9f2] text-left text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]",
+                                forceCompactHeader
+                                  ? "w-full min-w-0 px-3 py-2 text-xs leading-4"
+                                  : "w-56 px-4 py-3 text-sm leading-5",
+                              )}
+                            >
+                              <span
+                                className="block overflow-hidden"
+                                style={{
+                                  display: "-webkit-box",
+                                  WebkitLineClamp: 3,
+                                  WebkitBoxOrient: "vertical",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                {prompt}
+                              </span>
+                            </ThreadPrimitive.Suggestion>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="center">
+                            {prompt}
+                          </TooltipContent>
+                        </Tooltip>
+                      ))}
+                    </TooltipProvider>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            {(isHydratingSession || isRestoringSessionFromPicker) && (
+              <AssistantStatusOverlay label="Restoring session..." />
+            )}
+            {isResumingRun && (
+              <AssistantStatusOverlay label="Continuing response..." />
+            )}
+            {isReconnecting && (
+              <AssistantStatusOverlay label="Reconnecting..." />
+            )}
+          </ThreadPrimitive.Root>
+        </ForkContext.Provider>
       </AssistantDebugAccessContext.Provider>
       {isPanelImageDragActive && (
         <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center backdrop-blur-[1px] bg-(--assistant-overlay-backdrop)">
@@ -6142,11 +5001,6 @@ export function WorkspaceAssistantUI({
   isModelPickerOpen,
   setIsModelPickerOpen,
   setSelectedModel,
-  selectedMode,
-  selectedModeLabel,
-  isModePickerOpen,
-  setIsModePickerOpen,
-  setSelectedMode,
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
@@ -6172,11 +5026,6 @@ export function WorkspaceAssistantUI({
       isModelPickerOpen={isModelPickerOpen}
       setIsModelPickerOpen={setIsModelPickerOpen}
       setSelectedModel={setSelectedModel}
-      selectedMode={selectedMode}
-      selectedModeLabel={selectedModeLabel}
-      isModePickerOpen={isModePickerOpen}
-      setIsModePickerOpen={setIsModePickerOpen}
-      setSelectedMode={setSelectedMode}
       reasoningEnabled={reasoningEnabled}
       setReasoningEnabled={setReasoningEnabled}
       reasoningEnabledRef={reasoningEnabledRef}
@@ -6213,11 +5062,6 @@ export function WorkspaceAssistant({
         isModelPickerOpen={assistantRuntime.isModelPickerOpen}
         setIsModelPickerOpen={assistantRuntime.setIsModelPickerOpen}
         setSelectedModel={assistantRuntime.setSelectedModel}
-        selectedMode={assistantRuntime.selectedMode}
-        selectedModeLabel={assistantRuntime.selectedModeLabel}
-        isModePickerOpen={assistantRuntime.isModePickerOpen}
-        setIsModePickerOpen={assistantRuntime.setIsModePickerOpen}
-        setSelectedMode={assistantRuntime.setSelectedMode}
         reasoningEnabled={assistantRuntime.reasoningEnabled}
         setReasoningEnabled={assistantRuntime.setReasoningEnabled}
         reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
