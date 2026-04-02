@@ -41,7 +41,14 @@ type SessionListCacheEntry = {
   fetchedAt: number;
 };
 
-let sessionListCache: SessionListCacheEntry | null = null;
+const sessionListCacheByDocId = new Map<string, SessionListCacheEntry>();
+
+const getSessionListCacheKey = (docId?: string) => {
+  const normalizedDocId = docId?.trim();
+  return normalizedDocId && normalizedDocId.length > 0
+    ? normalizedDocId
+    : "__no_doc__";
+};
 
 const isAbortError = (error: unknown) =>
   (error instanceof DOMException && error.name === "AbortError") ||
@@ -116,12 +123,16 @@ const fetchRecentAssistantSessions = async (input: {
   signal: AbortSignal;
   limit?: number;
   currentThreadId?: string;
+  docId?: string;
 }) => {
   const params = new URLSearchParams();
   params.set("list", "sessions");
   params.set("limit", String(input.limit ?? 10));
   if (input.currentThreadId?.trim()) {
     params.set("currentThreadId", input.currentThreadId.trim());
+  }
+  if (input.docId?.trim()) {
+    params.set("docId", input.docId.trim());
   }
 
   const response = await fetch(`${getChatHistoryUrl()}?${params}`, {
@@ -226,6 +237,7 @@ export function NewSessionButton({
 export function SessionPickerButton({
   iconOnly = false,
   currentThreadId,
+  docId,
   onSelectSession,
   onSessionRestoreStart,
   onStartNewSession,
@@ -233,6 +245,7 @@ export function SessionPickerButton({
 }: {
   iconOnly?: boolean;
   currentThreadId?: string;
+  docId?: string;
   onSelectSession?: (threadId: string) => void | Promise<void>;
   onSessionRestoreStart?: () => void;
   onStartNewSession?: () => void;
@@ -240,12 +253,14 @@ export function SessionPickerButton({
 }) {
   const runtime = useAssistantRuntime();
   const isTouchInput = useIsTouchInputDevice();
+  const cacheKey = React.useMemo(() => getSessionListCacheKey(docId), [docId]);
+  const cacheEntry = sessionListCacheByDocId.get(cacheKey);
   const [isOpen, setIsOpen] = React.useState(false);
   const [sessions, setSessions] = React.useState<AssistantSessionSummary[]>(
-    () => sessionListCache?.sessions ?? [],
+    () => cacheEntry?.sessions ?? [],
   );
   const [lastFetchedAt, setLastFetchedAt] = React.useState<number>(
-    () => sessionListCache?.fetchedAt ?? 0,
+    () => cacheEntry?.fetchedAt ?? 0,
   );
   const [isLoading, setIsLoading] = React.useState(false);
   const [isSwitchingSession, setIsSwitchingSession] = React.useState(false);
@@ -253,6 +268,12 @@ export function SessionPickerButton({
     string | null
   >(null);
   const [loadError, setLoadError] = React.useState("");
+
+  React.useEffect(() => {
+    const nextCacheEntry = sessionListCacheByDocId.get(cacheKey);
+    setSessions(nextCacheEntry?.sessions ?? []);
+    setLastFetchedAt(nextCacheEntry?.fetchedAt ?? 0);
+  }, [cacheKey]);
 
   const loadSessions = React.useCallback(
     async (signal: AbortSignal) => {
@@ -263,6 +284,7 @@ export function SessionPickerButton({
           signal,
           limit: 10,
           currentThreadId,
+          docId,
         });
         if (signal.aborted) {
           return;
@@ -270,10 +292,10 @@ export function SessionPickerButton({
         setSessions(result);
         const now = Date.now();
         setLastFetchedAt(now);
-        sessionListCache = {
+        sessionListCacheByDocId.set(cacheKey, {
           sessions: result,
           fetchedAt: now,
-        };
+        });
       } catch (error) {
         if (isAbortError(error)) {
           return;
@@ -286,7 +308,7 @@ export function SessionPickerButton({
         }
       }
     },
-    [currentThreadId],
+    [cacheKey, currentThreadId, docId],
   );
 
   React.useEffect(() => {
@@ -363,10 +385,10 @@ export function SessionPickerButton({
           const nextSessions = previousSessions.filter(
             (session) => session.threadId !== normalizedThreadId,
           );
-          sessionListCache = {
+          sessionListCacheByDocId.set(cacheKey, {
             sessions: nextSessions,
             fetchedAt: now,
-          };
+          });
           return nextSessions;
         });
         setLastFetchedAt(now);
@@ -383,7 +405,7 @@ export function SessionPickerButton({
         );
       }
     },
-    [currentThreadId, onStartNewSession, runtime],
+    [cacheKey, currentThreadId, onStartNewSession, runtime],
   );
 
   return (

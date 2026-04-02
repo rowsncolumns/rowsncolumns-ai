@@ -4823,6 +4823,7 @@ function WorkspaceAssistantPanel({
               <SessionPickerButton
                 iconOnly
                 currentThreadId={threadId}
+                docId={docId}
                 onSelectSession={onSelectSession}
                 onSessionRestoreStart={handleSessionRestoreStart}
                 onStartNewSession={onNewSession}
