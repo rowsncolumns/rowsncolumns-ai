@@ -26,11 +26,9 @@ export const useCitations = ({ citations, sheetId }: UseCitationsProps) => {
         draggable: false,
         type: "citation",
         style: {
-          stroke: "#2196F3",
+          stroke: "#D97706",
           strokeWidth: 1,
           strokeStyle: "dotted",
-          fill: "#E3F2FD",
-          fillOpacity: 0.15,
         },
         title: citation.id,
       });
