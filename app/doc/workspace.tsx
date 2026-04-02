@@ -552,6 +552,7 @@ function SpreadsheetPane({
   const [scale, onChangeScale] = useState(1);
   const [colorMode, onChangeColorMode] = useState<ColorMode>(initialThemeMode);
   const [charts, onChangeCharts] = useState<EmbeddedChart[]>([]);
+  console.log(charts);
   const [embeds, onChangeEmbeds] = useState<EmbeddedObject[]>([]);
   const [slicers, onChangeSlicers] = useState<Slicer[]>([]);
   const [tables, onChangeTables] = useState<TableView[]>([]);
