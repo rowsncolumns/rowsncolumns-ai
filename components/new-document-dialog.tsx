@@ -8,6 +8,7 @@ import {
   createBlankDocument,
   createDocumentFromUpload,
   type UploadProgress,
+  type UploadStage,
 } from "@/lib/documents/client";
 
 type NewDocumentDialogProps = {
@@ -16,11 +17,13 @@ type NewDocumentDialogProps = {
   onCreated: (documentId: string) => void | Promise<void>;
 };
 
+type ImportProgressStage = UploadStage | "redirecting";
+
 const SUPPORTED_EXTENSIONS = ["xlsx", "xls", "ods", "csv"] as const;
 
 const getFileExtension = (name: string) => {
   const parts = name.toLowerCase().split(".");
-  return parts.length > 1 ? parts.at(-1) ?? "" : "";
+  return parts.length > 1 ? (parts.at(-1) ?? "") : "";
 };
 
 const isSupportedImportFile = (file: File): boolean => {
@@ -36,6 +39,9 @@ export function NewDocumentDialog({
   const [isCreatingBlank, setIsCreatingBlank] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadFileName, setUploadFileName] = useState<string | null>(null);
+  const [uploadStage, setUploadStage] = useState<ImportProgressStage | null>(
+    null,
+  );
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +72,7 @@ export function NewDocumentDialog({
       setIsCreatingBlank(false);
       setIsUploading(false);
       setUploadFileName(null);
+      setUploadStage(null);
       setUploadPercent(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -110,6 +117,7 @@ export function NewDocumentDialog({
       setError(null);
       setUploadFileName(file.name);
       setIsUploading(true);
+      setUploadStage("uploading");
       setUploadPercent(0);
 
       try {
@@ -117,7 +125,15 @@ export function NewDocumentDialog({
           onUploadProgress: (progress: UploadProgress) => {
             setUploadPercent(progress.percent);
           },
+          onStageChange: (stage: UploadStage) => {
+            setUploadStage(stage);
+            if (stage === "saving") {
+              setUploadPercent(100);
+            }
+          },
         });
+        setUploadStage("redirecting");
+        setUploadPercent(100);
         await onCreated(documentId);
         onOpenChange(false);
       } catch (err) {
@@ -127,6 +143,7 @@ export function NewDocumentDialog({
       } finally {
         setIsUploading(false);
         setUploadFileName(null);
+        setUploadStage(null);
         setUploadPercent(null);
       }
     },
@@ -158,7 +175,9 @@ export function NewDocumentDialog({
             <X className="h-4 w-4" />
           </button>
 
-          <h2 className="text-xl font-semibold text-foreground">New Spreadsheet</h2>
+          <h2 className="text-xl font-semibold text-foreground">
+            New Spreadsheet
+          </h2>
           <p className="mt-1 text-sm text-(--muted-foreground)">
             Choose how you want to start.
           </p>
@@ -219,27 +238,50 @@ export function NewDocumentDialog({
           {isUploading && uploadFileName ? (
             <div className="mt-4 space-y-2">
               <p className="text-xs text-(--muted-foreground)">
-                Uploading {uploadFileName}
-                {uploadPercent !== null ? ` (${uploadPercent}%)` : ""}...
+                {uploadStage === "saving"
+                  ? `Upload complete for ${uploadFileName}. Saving...`
+                  : uploadStage === "redirecting"
+                    ? "Saved to ShareDB. Redirecting to spreadsheet..."
+                    : `Uploading ${uploadFileName}${
+                        uploadPercent !== null ? ` (${uploadPercent}%)` : ""
+                      }...`}
               </p>
               <div
                 className="h-2 w-full overflow-hidden rounded-full bg-(--assistant-chip-bg)"
                 role="progressbar"
-                aria-label="Upload progress"
+                aria-label={
+                  uploadStage === "saving"
+                    ? "Save progress"
+                    : uploadStage === "redirecting"
+                      ? "Redirecting to spreadsheet"
+                      : "Upload progress"
+                }
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-valuenow={uploadPercent ?? undefined}
+                aria-valuenow={
+                  uploadStage === "uploading"
+                    ? (uploadPercent ?? undefined)
+                    : 100
+                }
                 aria-valuetext={
-                  uploadPercent !== null ? `${uploadPercent}%` : "Uploading"
+                  uploadStage === "saving"
+                    ? "Upload complete. Saving."
+                    : uploadStage === "redirecting"
+                      ? "Saved. Redirecting to spreadsheet."
+                      : uploadPercent !== null
+                        ? `${uploadPercent}% uploaded`
+                        : "Uploading"
                 }
               >
-                {uploadPercent !== null ? (
+                {uploadStage === "uploading" && uploadPercent !== null ? (
                   <div
                     className="h-full bg-(--accent) transition-[width] duration-200"
                     style={{ width: `${uploadPercent}%` }}
                   />
+                ) : uploadStage === "saving" ? (
+                  <div className="h-full w-full animate-pulse bg-(--accent)" />
                 ) : (
-                  <div className="h-full w-1/3 animate-pulse bg-(--accent)" />
+                  <div className="h-full w-full bg-(--accent)" />
                 )}
               </div>
             </div>
@@ -265,6 +307,7 @@ export function NewDocumentDialog({
     open,
     uploadFileName,
     uploadPercent,
+    uploadStage,
   ]);
 
   if (typeof document === "undefined") {

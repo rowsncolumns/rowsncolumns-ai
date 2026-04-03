@@ -2902,10 +2902,10 @@
     uzip "^0.20201231.0"
     xlsx "^0.18.5"
 
-"@rowsncolumns/toolkit@^22.0.24":
-  version "22.0.24"
-  resolved "https://npm.pkg.github.com/download/@rowsncolumns/toolkit/22.0.24/df28c44c92598132703d16ddf1802db58c8f0003#df28c44c92598132703d16ddf1802db58c8f0003"
-  integrity sha512-aqpzxFiMUmkyZ1CX84hjlPr1VrX467iBqZf/UvJR3QRQm03fKiX7abnmoGI7PLGA6743m5TM5d72ITqQAug4hA==
+"@rowsncolumns/toolkit@^22.0.26":
+  version "22.0.26"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/toolkit/22.0.26/bca12a89ffa26adec87979b9e931fa3d30c0997d#bca12a89ffa26adec87979b9e931fa3d30c0997d"
+  integrity sha512-RzhJRjt9JC8SRx01+JQ4btaHIfp80J50jnZz47uMupFJOydN2trQ4WpUVfFbNzbUSTqTJ7swFjebnYrmCnE7nA==
   dependencies:
     "@rowsncolumns/calculator" "^5.0.20"
     "@zip.js/zip.js" "^2.8.17"

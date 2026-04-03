@@ -39,8 +39,11 @@ export type UploadProgress = {
   percent: number | null;
 };
 
+export type UploadStage = "uploading" | "saving";
+
 type CreateDocumentFromUploadOptions = {
   onUploadProgress?: (progress: UploadProgress) => void;
+  onStageChange?: (stage: UploadStage) => void;
 };
 
 export async function createBlankDocument(): Promise<string> {
@@ -71,6 +74,7 @@ export async function createDocumentFromUpload(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/documents/import");
     xhr.responseType = "text";
+    options?.onStageChange?.("uploading");
 
     xhr.upload.onprogress = (event) => {
       if (!options?.onUploadProgress) {
@@ -88,6 +92,10 @@ export async function createDocumentFromUpload(
         total,
         percent,
       });
+    };
+
+    xhr.upload.onload = () => {
+      options?.onStageChange?.("saving");
     };
 
     xhr.onerror = () => {
