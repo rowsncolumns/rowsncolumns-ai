@@ -4,7 +4,6 @@ import { config as loadEnv } from "dotenv";
 
 const envPaths = [
   path.resolve(process.cwd(), ".env.local"),
-  path.resolve(process.cwd(), "external/rnc.ai/.env.local"),
 ];
 
 for (const envPath of envPaths) {

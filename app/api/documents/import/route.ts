@@ -1,41 +1,24 @@
 import { NextResponse } from "next/server";
-import type ShareDBClient from "sharedb/lib/client";
 
 import { auth } from "@/lib/auth/server";
-import { getShareDBDocument } from "@/lib/chat/utils";
 import { createDocumentId } from "@/lib/documents/create-document-id";
 import {
-  type ImportDocumentSnapshot,
-  parseSpreadsheetBuffer,
-  SUPPORTED_IMPORT_EXTENSIONS,
-} from "@/lib/documents/import/parsers";
+  createDocumentImportJob,
+  markDocumentImportJobFailed,
+} from "@/lib/documents/import-jobs-repository";
+import { SUPPORTED_IMPORT_EXTENSIONS } from "@/lib/documents/import/parsers";
 import {
   ensureDocumentMetadata,
   ensureDocumentOwnership,
   updateDocumentTitle,
 } from "@/lib/documents/repository";
-import { createOperationHistory } from "@/lib/operation-history/repository";
-import { issueMcpShareDbAccessToken } from "@/lib/sharedb/mcp-token";
-import { withShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
+import { inngest } from "@/lib/inngest/client";
+import { deleteR2Object, getR2Config, putR2Object } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-const SHAREDB_COLLECTION = process.env.SHAREDB_COLLECTION || "spreadsheets";
-
-const buildShareDbWsHeaders = (request: Request): Record<string, string> => {
-  const headers: Record<string, string> = {};
-  const cookie = request.headers.get("cookie")?.trim();
-  if (cookie) {
-    headers.cookie = cookie;
-  }
-  const authorization = request.headers.get("authorization")?.trim();
-  if (authorization) {
-    headers.authorization = authorization;
-  }
-  return headers;
-};
 
 const getFileExtension = (filename: string): string => {
   const parts = filename.toLowerCase().split(".");
@@ -56,85 +39,58 @@ const getDocumentTitleFromFilename = (filename: string): string | null => {
   return withoutExtension;
 };
 
-const fetchShareDbDocument = async (doc: ShareDBClient.Doc): Promise<void> => {
-  await new Promise<void>((resolve, reject) => {
-    doc.fetch((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-};
+const sanitizeForObjectKey = (value: string): string =>
+  value
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 160);
 
-const createShareDbDocument = async (
-  doc: ShareDBClient.Doc,
-  data: ImportDocumentSnapshot,
-): Promise<void> => {
-  await new Promise<void>((resolve, reject) => {
-    doc.create(data, (error) => {
-      if (!error) {
-        resolve();
-        return;
-      }
-
-      const message =
-        error instanceof Error ? error.message.toLowerCase() : String(error);
-      if (message.includes("already created")) {
-        resolve();
-        return;
-      }
-
-      reject(error);
-    });
-  });
-
-  if (doc.type === null) {
-    await fetchShareDbDocument(doc);
+const getUploadContentType = (input: { extension: string; contentType: string }) => {
+  const incoming = input.contentType.trim().toLowerCase();
+  if (incoming) {
+    return incoming;
   }
+
+  if (input.extension === "csv") return "text/csv";
+  if (input.extension === "xls") return "application/vnd.ms-excel";
+  if (input.extension === "xlsx") {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+  if (input.extension === "ods") {
+    return "application/vnd.oasis.opendocument.spreadsheet";
+  }
+
+  return "application/octet-stream";
 };
 
-const createImportBaselineHistory = async (
-  documentId: string,
-  userId: string,
-  sharedbVersion: number,
-) => {
-  await createOperationHistory({
-    collection: SHAREDB_COLLECTION,
-    docId: documentId,
-    attribution: {
-      source: "user",
-      actorType: "user",
-      actorId: userId,
-      userId,
-    },
-    activityType: "write",
-    sharedbVersionFrom: sharedbVersion,
-    sharedbVersionTo: sharedbVersion,
-    operationPayload: {
-      forward: {
-        kind: "raw_op",
-        data: [],
-      },
-      inverse: {
-        kind: "raw_op",
-        data: [],
-      },
-    },
-    metadata: {
-      reason: "import_snapshot_baseline",
-    },
-  });
+const buildImportObjectKey = (input: {
+  userId: string;
+  jobId: string;
+  fileName: string;
+}) => {
+  const sanitizedUserId = sanitizeForObjectKey(input.userId);
+  const sanitizedFileName = sanitizeForObjectKey(input.fileName) || "import-file";
+  const datePrefix = new Date().toISOString().slice(0, 10);
+  return `document-imports/${sanitizedUserId}/${datePrefix}/${input.jobId}/${sanitizedFileName}`;
 };
 
 export async function POST(request: Request) {
+  let uploadedObjectKey: string | null = null;
+  let createdJobId: string | null = null;
+
   try {
     const { data: session } = await auth.getSession();
     const userId = session?.user?.id;
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    if (!getR2Config()) {
+      return NextResponse.json(
+        { error: "R2 is not configured for spreadsheet import." },
+        { status: 500 },
+      );
     }
 
     const formData = await request.formData();
@@ -174,30 +130,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const buffer = Buffer.from(await fileInput.arrayBuffer());
-
-    let snapshot: ImportDocumentSnapshot;
-    try {
-      snapshot = await parseSpreadsheetBuffer(
-        buffer,
-        fileInput.name,
-        extension,
-      );
-    } catch (err) {
-      return NextResponse.json(
-        {
-          error:
-            "Unable to read this file. Please upload a valid Excel, ODS, or CSV file." +
-            err,
-        },
-        { status: 400 },
-      );
-    }
-
+    const fileBuffer = Buffer.from(await fileInput.arrayBuffer());
     const documentId = createDocumentId();
-    const importTitle = getDocumentTitleFromFilename(fileInput.name);
+    const jobId = crypto.randomUUID();
+    const objectKey = buildImportObjectKey({
+      userId,
+      jobId,
+      fileName: fileInput.name || `upload.${extension}`,
+    });
+
+    await putR2Object({
+      key: objectKey,
+      body: fileBuffer,
+      contentType: getUploadContentType({
+        extension,
+        contentType: fileInput.type,
+      }),
+      cacheControl: "private, max-age=86400",
+      contentDisposition: "attachment",
+    });
+    uploadedObjectKey = objectKey;
+
     await ensureDocumentOwnership({ docId: documentId, userId });
     await ensureDocumentMetadata({ docId: documentId });
+
+    const importTitle = getDocumentTitleFromFilename(fileInput.name);
     if (importTitle) {
       try {
         await updateDocumentTitle({
@@ -207,47 +164,61 @@ export async function POST(request: Request) {
         });
       } catch (titleError) {
         console.warn(
-          "[import] failed to set imported document title",
+          "[documents-import] failed to set imported document title",
           titleError,
         );
       }
     }
 
-    const { doc, close } = await withShareDbRuntimeContext(
-      {
-        mcpTokenFactory: ({ docId, permission }) =>
-          issueMcpShareDbAccessToken({ docId, permission }),
-        wsHeaders: buildShareDbWsHeaders(request),
+    await createDocumentImportJob({
+      id: jobId,
+      docId: documentId,
+      userId,
+      fileName: fileInput.name || `upload.${extension}`,
+      fileExtension: extension,
+      fileSizeBytes: fileInput.size,
+      storageKey: objectKey,
+    });
+    createdJobId = jobId;
+
+    await inngest.send({
+      name: "documents/import.requested",
+      data: {
+        jobId,
       },
-      async () => getShareDBDocument(documentId),
-    );
+    });
 
-    try {
-      if (doc.type === null) {
-        await createShareDbDocument(doc, snapshot);
-      } else {
-        return NextResponse.json(
-          { error: "Document already exists." },
-          { status: 409 },
-        );
-      }
-
-      try {
-        await createImportBaselineHistory(documentId, userId, doc.version ?? 0);
-      } catch (historyError) {
-        console.warn(
-          "[import] failed to create baseline history entry",
-          historyError,
-        );
-      }
-
-      return NextResponse.json({ documentId });
-    } finally {
-      close();
-    }
+    return NextResponse.json({
+      jobId,
+    });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Failed to import document.";
+      error instanceof Error ? error.message : "Failed to queue import.";
+
+    if (createdJobId) {
+      try {
+        await markDocumentImportJobFailed({
+          id: createdJobId,
+          errorMessage: message,
+        });
+      } catch (jobError) {
+        console.warn(
+          "[documents-import] failed to update import job failure state",
+          jobError,
+        );
+      }
+    }
+
+    if (uploadedObjectKey) {
+      try {
+        await deleteR2Object(uploadedObjectKey);
+      } catch (cleanupError) {
+        console.warn(
+          "[documents-import] failed to cleanup uploaded source object",
+          cleanupError,
+        );
+      }
+    }
 
     return NextResponse.json({ error: message }, { status: 500 });
   }

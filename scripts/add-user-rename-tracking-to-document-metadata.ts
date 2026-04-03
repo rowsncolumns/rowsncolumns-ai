@@ -10,17 +10,12 @@ loadEnv({
   override: false,
   quiet: true,
 });
-loadEnv({
-  path: path.resolve(process.cwd(), "external/rnc.ai/.env.local"),
-  override: false,
-  quiet: true,
-});
 
 const databaseUrl = process.env.DATABASE_URL ?? "";
 
 if (!databaseUrl) {
   throw new Error(
-    "Missing required config: DATABASE_URL. Set it in external/rnc.ai/.env.local.",
+    "Missing required config: DATABASE_URL. Set it in .env.local.",
   );
 }
 

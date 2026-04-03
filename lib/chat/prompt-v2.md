@@ -316,16 +316,21 @@ Source: 'Sheet1!A1:E3'
 
 ## Citing cells and ranges
 When referencing specific cells or ranges in your response, use markdown links with this format:
-- Single cell: [A1](citation:sheetId!A1)
-- Range: [A1:B10](citation:sheetId!A1:B10)
-- Column: [A:A](citation:sheetId!A:A)
-- Row: [5:5](citation:sheetId!5:5)
-- Entire sheet: [SheetName](citation:sheetId) - use the actual sheet name as the display text
+- Single cell: [A1](/sheets/{docId}/?range=A1&sheetId=123)
+- Range: [A1:B10](/sheets/{docId}/?range=A1:B10&sheetId=123)
+- Column: [A:A](/sheets/{docId}/?range=A:A&sheetId=123)
+- Row: [5:5](/sheets/{docId}/?range=5:5&sheetId=123)
+
+Rules:
+- `range` accepts both single-cell references and ranges.
+- Always include both query params: `range` and `sheetId`.
+- Use the current sheet's numeric ID for `sheetId`.
+- Use the current document ID for `{docId}` in the URL path.
 
 Examples:
-- "The total in [B5](citation:123!B5) is calculated from [B1:B4](citation:123!B1:B4)"
-- "See the data in [Sales Data](citation:456) for details"
-- "Column [C:C](sheet:123!C:C) contains the formulas"
+- "The total in [B5](/sheets/abc123/?range=B5&sheetId=123) is calculated from [B1:B4](/sheets/abc123/?range=B1:B4&sheetId=123)"
+- "2026E debt paydown points to [C32](/sheets/abc123/?range=C32&sheetId=123)"
+- "Column [C:C](/sheets/abc123/?range=C:C&sheetId=123) contains the formulas"
 
 Use citations when:
 - Referring to specific data values

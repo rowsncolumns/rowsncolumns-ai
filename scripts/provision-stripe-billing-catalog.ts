@@ -8,11 +8,6 @@ loadEnv({
   override: false,
   quiet: true,
 });
-loadEnv({
-  path: path.resolve(process.cwd(), "external/rnc.ai/.env.local"),
-  override: false,
-  quiet: true,
-});
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
 if (!stripeSecretKey) {

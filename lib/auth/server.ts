@@ -3,7 +3,7 @@ import { createNeonAuth } from "@neondatabase/auth/next/server";
 const baseUrl = process.env.NEON_AUTH_BASE_URL;
 if (!baseUrl) {
   throw new Error(
-    "Missing required config: NEON_AUTH_BASE_URL. Set it in external/rnc.ai/.env.local.",
+    "Missing required config: NEON_AUTH_BASE_URL. Set it in .env.local.",
   );
 }
 
@@ -16,7 +16,7 @@ const cookieSecret =
 
 if (!cookieSecret) {
   throw new Error(
-    "Missing required config: NEON_AUTH_COOKIE_SECRET. Set it in external/rnc.ai/.env.local.",
+    "Missing required config: NEON_AUTH_COOKIE_SECRET. Set it in .env.local.",
   );
 }
 

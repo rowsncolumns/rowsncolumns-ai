@@ -30,13 +30,13 @@ async function main() {
   const migrationPath = path.join(
     __dirname,
     "sql",
-    "008_add_share_permission_to_document_share_links.sql",
+    "016_create_document_import_jobs_table.sql",
   );
 
   try {
     const migrationSql = await readFile(migrationPath, "utf8");
     await sql.unsafe(migrationSql);
-    console.log("document_share_links permission column is ready.");
+    console.log("document_import_jobs table is ready.");
   } finally {
     await sql.end();
   }

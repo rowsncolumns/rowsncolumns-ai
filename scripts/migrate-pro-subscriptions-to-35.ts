@@ -9,11 +9,6 @@ loadEnv({
   override: false,
   quiet: true,
 });
-loadEnv({
-  path: path.resolve(process.cwd(), "external/rnc.ai/.env.local"),
-  override: false,
-  quiet: true,
-});
 
 const requireEnv = (name: string, message: string) => {
   const value = process.env[name]?.trim();
@@ -25,7 +20,7 @@ const requireEnv = (name: string, message: string) => {
 
 const databaseUrl = requireEnv(
   "DATABASE_URL",
-  "Missing required config: DATABASE_URL. Set it in external/rnc.ai/.env.local.",
+  "Missing required config: DATABASE_URL. Set it in .env.local.",
 );
 
 const stripeSecretKey = requireEnv(

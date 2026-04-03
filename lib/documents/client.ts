@@ -41,9 +41,82 @@ export type UploadProgress = {
 
 export type UploadStage = "uploading" | "saving";
 
+type ImportJobStatus = "queued" | "processing" | "completed" | "failed";
+
+type ImportJobStatusPayload = {
+  jobId?: string;
+  status?: ImportJobStatus;
+  phase?: string;
+  progressPercent?: number;
+  documentId?: string;
+  error?: string;
+};
+
 type CreateDocumentFromUploadOptions = {
   onUploadProgress?: (progress: UploadProgress) => void;
   onStageChange?: (stage: UploadStage) => void;
+};
+
+const IMPORT_JOB_POLL_INTERVAL_MS = 1000;
+const IMPORT_JOB_TIMEOUT_MS = 8 * 60 * 1000;
+
+const delay = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const waitForImportJobCompletion = async (input: {
+  jobId: string;
+  file: File;
+  options?: CreateDocumentFromUploadOptions;
+}): Promise<string> => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < IMPORT_JOB_TIMEOUT_MS) {
+    const response = await fetch(
+      `/api/documents/import/jobs/${encodeURIComponent(input.jobId)}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      },
+    );
+
+    const payload = (await response.json().catch(() => null)) as
+      | ImportJobStatusPayload
+      | null;
+
+    if (!response.ok) {
+      throw new Error(
+        extractErrorMessage(payload, "Failed to fetch import status."),
+      );
+    }
+
+    const status = payload?.status;
+    if (status === "completed") {
+      const documentId = payload?.documentId?.trim();
+      if (!documentId) {
+        throw new Error("Document id missing in import completion response.");
+      }
+      return documentId;
+    }
+
+    if (status === "failed") {
+      throw new Error(
+        extractErrorMessage(payload, "Spreadsheet import failed."),
+      );
+    }
+
+    input.options?.onStageChange?.("saving");
+    input.options?.onUploadProgress?.({
+      loaded: input.file.size,
+      total: input.file.size,
+      percent: 100,
+    });
+
+    await delay(IMPORT_JOB_POLL_INTERVAL_MS);
+  }
+
+  throw new Error("Import timed out. Please try again.");
 };
 
 export async function createBlankDocument(): Promise<string> {
@@ -116,24 +189,44 @@ export async function createDocumentFromUpload(
         return;
       }
 
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        !("documentId" in payload) ||
-        typeof payload.documentId !== "string" ||
-        payload.documentId.trim().length === 0
-      ) {
-        reject(new Error("Document id missing in import response."));
-        return;
-      }
-
       options?.onUploadProgress?.({
         loaded: file.size,
         total: file.size,
         percent: 100,
       });
+      options?.onStageChange?.("saving");
 
-      resolve(payload.documentId);
+      const payloadDocumentId =
+        payload &&
+        typeof payload === "object" &&
+        "documentId" in payload &&
+        typeof payload.documentId === "string"
+          ? payload.documentId.trim()
+          : "";
+      if (payloadDocumentId) {
+        resolve(payloadDocumentId);
+        return;
+      }
+
+      const payloadJobId =
+        payload &&
+        typeof payload === "object" &&
+        "jobId" in payload &&
+        typeof payload.jobId === "string"
+          ? payload.jobId.trim()
+          : "";
+      if (!payloadJobId) {
+        reject(new Error("Import job id missing in import response."));
+        return;
+      }
+
+      waitForImportJobCompletion({
+        jobId: payloadJobId,
+        file,
+        options,
+      })
+        .then(resolve)
+        .catch(reject);
     };
 
     xhr.send(formData);

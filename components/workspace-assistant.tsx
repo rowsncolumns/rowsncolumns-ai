@@ -126,6 +126,7 @@ import {
 } from "@/components/workspace-assistant/session-controls";
 import { useIsTouchInputDevice } from "@/components/workspace-assistant/touch-input-device";
 import { SpreadsheetToolUIRegistry } from "@/components/workspace-assistant/tools/tool-ui-registry";
+import { AssistantMarkdownLink } from "@/components/workspace-assistant/assistant-markdown-link";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import {
   HUMAN_IN_THE_LOOP_TOOL_NAMES,
@@ -2020,7 +2021,14 @@ function TypingIndicator() {
 }
 
 function MarkdownText() {
-  return <MarkdownTextPrimitive remarkPlugins={MARKDOWN_REMARK_PLUGINS} />;
+  return (
+    <MarkdownTextPrimitive
+      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      components={{
+        a: AssistantMarkdownLink,
+      }}
+    />
+  );
 }
 
 function AssistantTextPart() {
