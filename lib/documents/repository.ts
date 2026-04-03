@@ -1280,6 +1280,105 @@ export async function getOrCreateDocumentShareLink({
   }
 }
 
+export async function getDocumentShareLinkState({
+  docId,
+  userId,
+}: {
+  docId: string;
+  userId: string;
+}): Promise<{ isOwner: boolean; shareLink: DocumentShareLinkRecord | null }> {
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  if (!ownershipResult.isOwner) {
+    return { isOwner: false, shareLink: null };
+  }
+
+  try {
+    const rows = await db<DocumentShareLinkRow[]>`
+      SELECT
+        doc_id,
+        share_token,
+        is_active,
+        permission,
+        created_by_user_id,
+        created_at,
+        updated_at
+      FROM public.document_share_links
+      WHERE doc_id = ${docId}
+        AND is_active = TRUE
+      LIMIT 1
+    `;
+    const row = rows[0];
+    return {
+      isOwner: true,
+      shareLink: row ? mapShareLinkRow(row) : null,
+    };
+  } catch (error) {
+    if (!isMissingColumnError(error)) {
+      throw error;
+    }
+
+    const rows = await db<DocumentShareLinkRow[]>`
+      SELECT
+        doc_id,
+        share_token,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+      FROM public.document_share_links
+      WHERE doc_id = ${docId}
+        AND is_active = TRUE
+      LIMIT 1
+    `;
+    const row = rows[0];
+    return {
+      isOwner: true,
+      shareLink: row ? mapShareLinkRow(row) : null,
+    };
+  }
+}
+
+export async function deactivateDocumentShareLink({
+  docId,
+  userId,
+}: {
+  docId: string;
+  userId: string;
+}): Promise<{ isOwner: boolean; wasActive: boolean }> {
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  if (!ownershipResult.isOwner) {
+    return { isOwner: false, wasActive: false };
+  }
+
+  const deactivatedRows = await db<{ doc_id: string }[]>`
+    UPDATE public.document_share_links
+    SET
+      is_active = FALSE,
+      updated_at = NOW()
+    WHERE doc_id = ${docId}
+      AND is_active = TRUE
+    RETURNING doc_id
+  `;
+
+  // Revoke persisted share access grants so unshare is effective immediately.
+  try {
+    await db`
+      DELETE FROM public.document_access_grants
+      WHERE doc_id = ${docId}
+        AND granted_via = 'share'
+    `;
+  } catch (error) {
+    if (!isMissingRelationError(error)) {
+      throw error;
+    }
+  }
+
+  return {
+    isOwner: true,
+    wasActive: deactivatedRows.length > 0,
+  };
+}
+
 export async function updateDocumentSharePermission({
   docId,
   userId,

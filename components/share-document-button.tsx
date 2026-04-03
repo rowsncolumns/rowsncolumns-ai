@@ -16,6 +16,8 @@ type ShareDocumentButtonProps = {
 type SharePermission = "view" | "edit";
 
 type ShareLinkResponse = {
+  isActive?: boolean;
+  wasActive?: boolean;
   shareUrl?: string;
   permission?: SharePermission;
   error?: string;
@@ -28,6 +30,7 @@ export function ShareDocumentButton({
   const [isOpen, setIsOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isUpdatingPermission, setIsUpdatingPermission] = React.useState(false);
+  const [isUnsharing, setIsUnsharing] = React.useState(false);
   const [shareUrl, setShareUrl] = React.useState("");
   const [permission, setPermission] = React.useState<SharePermission>("edit");
   const [copied, setCopied] = React.useState(false);
@@ -56,6 +59,48 @@ export function ShareDocumentButton({
       setCopied(false);
     }, 1800);
   }, []);
+
+  const loadShareState = React.useCallback(async () => {
+    if (!canManageShare) {
+      return;
+    }
+
+    setIsLoading(true);
+    setCopied(false);
+
+    try {
+      const response = await fetch(
+        `/api/documents/share?documentId=${encodeURIComponent(documentId)}`,
+        {
+          method: "GET",
+        },
+      );
+      const payload = (await response
+        .json()
+        .catch(() => null)) as ShareLinkResponse | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load share settings.");
+      }
+
+      const hasActiveShareLink =
+        payload?.isActive !== false && typeof payload?.shareUrl === "string";
+      if (!hasActiveShareLink) {
+        setShareUrl("");
+        return;
+      }
+
+      setShareUrl(payload.shareUrl?.trim() ?? "");
+      setPermission(payload.permission === "view" ? "view" : "edit");
+    } catch (errorValue) {
+      const message =
+        errorValue instanceof Error
+          ? errorValue.message
+          : "Failed to load share settings.";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [canManageShare, documentId]);
 
   const createShareLink = React.useCallback(async () => {
     if (!canManageShare) return;
@@ -99,13 +144,13 @@ export function ShareDocumentButton({
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
       setIsOpen(nextOpen);
-      if (!nextOpen || shareUrl || isLoading || !canManageShare) {
+      if (!nextOpen || isLoading || !canManageShare) {
         return;
       }
 
-      void createShareLink();
+      void loadShareState();
     },
-    [canManageShare, createShareLink, isLoading, shareUrl],
+    [canManageShare, isLoading, loadShareState],
   );
 
   const handleCopyLink = React.useCallback(async () => {
@@ -147,7 +192,13 @@ export function ShareDocumentButton({
 
   const updateSharePermission = React.useCallback(
     async (nextPermission: SharePermission) => {
-      if (!canManageShare || isLoading || isUpdatingPermission) {
+      if (
+        !canManageShare ||
+        !shareUrl ||
+        isLoading ||
+        isUpdatingPermission ||
+        isUnsharing
+      ) {
         return;
       }
       if (nextPermission === permission) {
@@ -193,8 +244,66 @@ export function ShareDocumentButton({
         setIsUpdatingPermission(false);
       }
     },
-    [canManageShare, documentId, isLoading, isUpdatingPermission, permission],
+    [
+      canManageShare,
+      documentId,
+      isLoading,
+      isUnsharing,
+      isUpdatingPermission,
+      permission,
+      shareUrl,
+    ],
   );
+
+  const handleStopSharing = React.useCallback(async () => {
+    if (
+      !canManageShare ||
+      !shareUrl ||
+      isLoading ||
+      isUpdatingPermission ||
+      isUnsharing
+    ) {
+      return;
+    }
+
+    setIsUnsharing(true);
+    setCopied(false);
+
+    try {
+      const response = await fetch("/api/documents/share", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ documentId }),
+      });
+      const payload = (await response
+        .json()
+        .catch(() => null)) as ShareLinkResponse | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to disable sharing.");
+      }
+
+      setShareUrl("");
+      setPermission("edit");
+      toast.success("Sharing disabled.");
+    } catch (errorValue) {
+      const message =
+        errorValue instanceof Error
+          ? errorValue.message
+          : "Failed to disable sharing.";
+      toast.error(message);
+    } finally {
+      setIsUnsharing(false);
+    }
+  }, [
+    canManageShare,
+    documentId,
+    isLoading,
+    isUnsharing,
+    isUpdatingPermission,
+    shareUrl,
+  ]);
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -275,7 +384,7 @@ export function ShareDocumentButton({
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-(--muted-foreground)">
                           Permission
                         </p>
-                        <div className="mt-1.5 inline-flex rounded-lg border border-(--card-border) bg-(--card-bg-solid) p-1">
+                        <div className="mt-1.5 inline-flex gap-1 rounded-lg border border-(--card-border) bg-(--card-bg-solid) p-1">
                           <Button
                             type="button"
                             size="sm"

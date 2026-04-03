@@ -22,6 +22,16 @@ const getDocIdFromRequest = (request: Request): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const getShareTokenFromRequest = (request: Request): string | undefined => {
+  const { searchParams } = new URL(request.url);
+  const share = searchParams.get("share");
+  if (!share) {
+    return undefined;
+  }
+  const trimmed = share.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 export async function GET(request: Request) {
   try {
     const { data: session } = await auth.getSession();
@@ -41,9 +51,12 @@ export async function GET(request: Request) {
       );
     }
 
+    const shareToken = getShareTokenFromRequest(request);
+
     const access = await ensureDocumentAccess({
       docId,
       userId: user.id,
+      shareToken,
     });
     if (!access.canAccess) {
       return NextResponse.json(

@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Github, Loader2, User, X } from "lucide-react";
+import { Github, User, X } from "lucide-react";
 import { createPortal } from "react-dom";
 
+import { NewDocumentDialog } from "@/components/new-document-dialog";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth/client";
 import { withCookieCompatCallbackURL } from "@/lib/auth/cookie-compat-client";
@@ -72,7 +73,7 @@ export function AuthModalTrigger({
   const [loadingProvider, setLoadingProvider] = useState<SocialProvider | null>(
     null,
   );
-  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
+  const [isNewDocumentDialogOpen, setIsNewDocumentDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -111,35 +112,24 @@ export function AuthModalTrigger({
     [callbackURL],
   );
 
-  const createDocumentAndRedirect = useCallback(async () => {
-    setIsCreatingDocument(true);
-    try {
-      const response = await fetch("/api/documents", { method: "POST" });
-      if (!response.ok) {
-        throw new Error("Failed to create document");
-      }
-      const { documentId } = await response.json();
-      window.location.assign(`/sheets/${documentId}`);
-    } catch (err) {
-      console.error("Failed to create document:", err);
-      setIsCreatingDocument(false);
-    }
+  const handleDocumentCreated = useCallback(async (documentId: string) => {
+    window.location.assign(`/sheets/${documentId}`);
   }, []);
 
   const handleTriggerClick = useCallback(async () => {
     if (isAuthenticated) {
-      await createDocumentAndRedirect();
+      setIsNewDocumentDialogOpen(true);
       return;
     }
 
     const { data } = await authClient.getSession();
     if (data?.user) {
-      await createDocumentAndRedirect();
+      setIsNewDocumentDialogOpen(true);
       return;
     }
 
     setOpen(true);
-  }, [isAuthenticated, createDocumentAndRedirect]);
+  }, [isAuthenticated]);
 
   const modal = open ? (
     <div
@@ -211,11 +201,8 @@ export function AuthModalTrigger({
           className={`rounded-lg ${className}`}
           type="button"
           onClick={handleTriggerClick}
-          disabled={isCreatingDocument}
         >
-          {isCreatingDocument ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : showIconOnMobile ? (
+          {showIconOnMobile ? (
             <>
               <User className="h-4 w-4 sm:hidden" />
               <span className="hidden sm:inline">{resolvedTriggerText}</span>
@@ -230,12 +217,8 @@ export function AuthModalTrigger({
           size="lg"
           variant={triggerVariant === "contrast" ? "contrast" : "primary"}
           onClick={handleTriggerClick}
-          disabled={isCreatingDocument}
           className={`rounded-xl ${className}`}
         >
-          {isCreatingDocument ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : null}
           <>
             <span className="sm:hidden">{resolvedMobileTriggerText}</span>
             <span className="hidden sm:inline">{resolvedTriggerText}</span>
@@ -246,6 +229,11 @@ export function AuthModalTrigger({
       {typeof document !== "undefined"
         ? createPortal(modal, document.body)
         : null}
+      <NewDocumentDialog
+        open={isNewDocumentDialogOpen}
+        onOpenChange={setIsNewDocumentDialogOpen}
+        onCreated={handleDocumentCreated}
+      />
     </>
   );
 }

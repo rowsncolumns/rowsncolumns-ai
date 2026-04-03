@@ -64,6 +64,7 @@
     "@rowsncolumns/spreadsheet": "^8.0.31",
     "@rowsncolumns/spreadsheet-state": "^21.0.55",
     "@rowsncolumns/supabase-spreadsheet": "^22.0.21",
+    "@rowsncolumns/toolkit": "^22.0.24",
     "@rowsncolumns/ui": "^8.0.18",
     "@rowsncolumns/utils": "^7.0.17",
     "canvas": "^3.2.2",

@@ -208,6 +208,15 @@ const getMcpTokenFromUrl = (): string | null => {
   return trimmed ? trimmed : null;
 };
 
+const getShareTokenFromUrl = (): string | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const token = new URLSearchParams(window.location.search).get("share");
+  const trimmed = token?.trim();
+  return trimmed ? trimmed : null;
+};
+
 const getShareDbBaseUrl = () => {
   const configured = process.env.NEXT_PUBLIC_SHAREDB_URL?.trim();
   if (configured) return configured;
@@ -552,7 +561,6 @@ function SpreadsheetPane({
   const [scale, onChangeScale] = useState(1);
   const [colorMode, onChangeColorMode] = useState<ColorMode>(initialThemeMode);
   const [charts, onChangeCharts] = useState<EmbeddedChart[]>([]);
-  console.log(charts);
   const [embeds, onChangeEmbeds] = useState<EmbeddedObject[]>([]);
   const [slicers, onChangeSlicers] = useState<Slicer[]>([]);
   const [tables, onChangeTables] = useState<TableView[]>([]);
@@ -592,30 +600,34 @@ function SpreadsheetPane({
       }
 
       try {
-        const response = await fetch(
-          `/api/sharedb/ws-token?docId=${encodeURIComponent(documentId)}`,
-          {
-            method: "GET",
-            credentials: "same-origin",
-            cache: "no-store",
-          },
-        );
+        const shareToken = getShareTokenFromUrl();
+        const wsTokenUrl = shareToken
+          ? `/api/sharedb/ws-token?docId=${encodeURIComponent(documentId)}&share=${encodeURIComponent(shareToken)}`
+          : `/api/sharedb/ws-token?docId=${encodeURIComponent(documentId)}`;
+        const response = await fetch(wsTokenUrl, {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+        });
         if (!response.ok) {
-          return url;
+          throw new Error(`WS token request failed (${response.status})`);
         }
         const payload = (await response.json().catch(() => null)) as {
           token?: unknown;
         } | null;
         if (typeof payload?.token !== "string") {
-          return url;
+          throw new Error("WS token response missing token");
         }
         const refreshedToken = payload.token.trim();
         if (!refreshedToken) {
-          return url;
+          throw new Error("WS token is empty");
         }
         return appendShareDbQueryParam(url, "wsToken", refreshedToken);
-      } catch {
-        return url;
+      } catch (error) {
+        console.warn("[sharedb] failed to obtain wsToken", error);
+        throw error instanceof Error
+          ? error
+          : new Error("Unable to obtain ShareDB token");
       }
     };
 
