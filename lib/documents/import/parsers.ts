@@ -303,7 +303,7 @@ const parseCsvToSnapshot = async (
 
         const key = createCellKeyV3(1, rowIndex, columnIndex);
         snapshot.sheetData[key] = {
-          value: cellData,
+          value: nextCellData,
           sId: 1,
           r: rowIndex,
           c: columnIndex,
