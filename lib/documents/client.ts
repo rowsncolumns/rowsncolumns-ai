@@ -25,14 +25,6 @@ const extractErrorMessage = (payload: unknown, fallback: string) => {
   return fallback;
 };
 
-const parseJsonText = (text: string): unknown => {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return null;
-  }
-};
-
 export type UploadProgress = {
   loaded: number;
   total: number | null;
@@ -59,6 +51,148 @@ type CreateDocumentFromUploadOptions = {
 
 const IMPORT_JOB_POLL_INTERVAL_MS = 1000;
 const IMPORT_JOB_TIMEOUT_MS = 8 * 60 * 1000;
+const FALLBACK_UPLOAD_CONTENT_TYPE = "application/octet-stream";
+
+const getFileExtension = (filename: string): string => {
+  const parts = filename.toLowerCase().split(".");
+  return parts.length > 1 ? (parts.at(-1) ?? "") : "";
+};
+
+type ImportUploadUrlResponse = {
+  uploadUrl?: string;
+  objectKey?: string;
+  contentType?: string;
+};
+
+const requestImportUploadUrl = async (
+  file: File,
+): Promise<{
+  uploadUrl: string;
+  objectKey: string;
+  contentType: string;
+}> => {
+  const response = await fetch("/api/documents/import/upload-url", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      contentType: file.type,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseErrorMessage(response, "Failed to start upload."),
+    );
+  }
+
+  const payload = (await response.json()) as ImportUploadUrlResponse;
+  const uploadUrl = payload.uploadUrl?.trim() || "";
+  const objectKey = payload.objectKey?.trim() || "";
+  const contentType =
+    payload.contentType?.trim() || file.type || FALLBACK_UPLOAD_CONTENT_TYPE;
+
+  if (!uploadUrl || !objectKey) {
+    throw new Error("Upload URL response is missing required fields.");
+  }
+
+  return {
+    uploadUrl,
+    objectKey,
+    contentType,
+  };
+};
+
+const uploadFileDirectlyToStorage = async (input: {
+  file: File;
+  uploadUrl: string;
+  contentType: string;
+  options?: CreateDocumentFromUploadOptions;
+}) =>
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", input.uploadUrl);
+    xhr.responseType = "text";
+    xhr.setRequestHeader("Content-Type", input.contentType);
+
+    input.options?.onStageChange?.("uploading");
+
+    xhr.upload.onprogress = (event) => {
+      if (!input.options?.onUploadProgress) {
+        return;
+      }
+
+      const total = event.lengthComputable ? event.total : null;
+      const percent =
+        total && total > 0
+          ? Math.min(100, Math.round((event.loaded / total) * 100))
+          : null;
+
+      input.options.onUploadProgress({
+        loaded: event.loaded,
+        total,
+        percent,
+      });
+    };
+
+    xhr.upload.onload = () => {
+      input.options?.onStageChange?.("saving");
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Network error while uploading file."));
+    };
+
+    xhr.onabort = () => {
+      reject(new Error("Upload was cancelled."));
+    };
+
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error("Failed to upload file to storage."));
+        return;
+      }
+
+      input.options?.onUploadProgress?.({
+        loaded: input.file.size,
+        total: input.file.size,
+        percent: 100,
+      });
+      input.options?.onStageChange?.("saving");
+      resolve();
+    };
+
+    xhr.send(input.file);
+  });
+
+const createImportJobFromUploadedObject = async (input: {
+  file: File;
+  objectKey: string;
+}): Promise<{ documentId?: string; jobId?: string }> => {
+  const response = await fetch("/api/documents/import", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      objectKey: input.objectKey,
+      fileName: input.file.name,
+      fileExtension: getFileExtension(input.file.name),
+      fileSizeBytes: input.file.size,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseErrorMessage(response, "Failed to import document."),
+    );
+  }
+
+  return (await response.json()) as { documentId?: string; jobId?: string };
+};
 
 const delay = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -140,95 +274,33 @@ export async function createDocumentFromUpload(
   file: File,
   options?: CreateDocumentFromUploadOptions,
 ): Promise<string> {
-  const formData = new FormData();
-  formData.set("file", file);
+  const uploadTarget = await requestImportUploadUrl(file);
+  await uploadFileDirectlyToStorage({
+    file,
+    uploadUrl: uploadTarget.uploadUrl,
+    contentType: uploadTarget.contentType,
+    options,
+  });
 
-  return await new Promise<string>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/documents/import");
-    xhr.responseType = "text";
-    options?.onStageChange?.("uploading");
+  const payload = await createImportJobFromUploadedObject({
+    file,
+    objectKey: uploadTarget.objectKey,
+  });
 
-    xhr.upload.onprogress = (event) => {
-      if (!options?.onUploadProgress) {
-        return;
-      }
+  const payloadDocumentId =
+    typeof payload?.documentId === "string" ? payload.documentId.trim() : "";
+  if (payloadDocumentId) {
+    return payloadDocumentId;
+  }
 
-      const total = event.lengthComputable ? event.total : null;
-      const percent =
-        total && total > 0
-          ? Math.min(100, Math.round((event.loaded / total) * 100))
-          : null;
+  const payloadJobId = typeof payload?.jobId === "string" ? payload.jobId.trim() : "";
+  if (!payloadJobId) {
+    throw new Error("Import job id missing in import response.");
+  }
 
-      options.onUploadProgress({
-        loaded: event.loaded,
-        total,
-        percent,
-      });
-    };
-
-    xhr.upload.onload = () => {
-      options?.onStageChange?.("saving");
-    };
-
-    xhr.onerror = () => {
-      reject(new Error("Network error while uploading file."));
-    };
-
-    xhr.onabort = () => {
-      reject(new Error("Upload was cancelled."));
-    };
-
-    xhr.onload = () => {
-      const payload = parseJsonText(xhr.responseText);
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(
-          new Error(extractErrorMessage(payload, "Failed to import document.")),
-        );
-        return;
-      }
-
-      options?.onUploadProgress?.({
-        loaded: file.size,
-        total: file.size,
-        percent: 100,
-      });
-      options?.onStageChange?.("saving");
-
-      const payloadDocumentId =
-        payload &&
-        typeof payload === "object" &&
-        "documentId" in payload &&
-        typeof payload.documentId === "string"
-          ? payload.documentId.trim()
-          : "";
-      if (payloadDocumentId) {
-        resolve(payloadDocumentId);
-        return;
-      }
-
-      const payloadJobId =
-        payload &&
-        typeof payload === "object" &&
-        "jobId" in payload &&
-        typeof payload.jobId === "string"
-          ? payload.jobId.trim()
-          : "";
-      if (!payloadJobId) {
-        reject(new Error("Import job id missing in import response."));
-        return;
-      }
-
-      waitForImportJobCompletion({
-        jobId: payloadJobId,
-        file,
-        options,
-      })
-        .then(resolve)
-        .catch(reject);
-    };
-
-    xhr.send(formData);
+  return waitForImportJobCompletion({
+    jobId: payloadJobId,
+    file,
+    options,
   });
 }

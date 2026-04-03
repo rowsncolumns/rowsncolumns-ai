@@ -1,9 +1,11 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
 
 const DEFAULT_R2_BUCKET = "rowsncolumns-ai";
@@ -112,6 +114,99 @@ export const putR2Object = async (input: {
       ContentDisposition: input.contentDisposition,
     }),
   );
+};
+
+const isR2NotFoundError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const e = error as {
+    name?: unknown;
+    Code?: unknown;
+    $metadata?: { httpStatusCode?: unknown };
+  };
+  const name = typeof e.name === "string" ? e.name : "";
+  const code = typeof e.Code === "string" ? e.Code : "";
+  const statusCode =
+    typeof e.$metadata?.httpStatusCode === "number"
+      ? e.$metadata.httpStatusCode
+      : null;
+
+  return (
+    name === "NotFound" ||
+    name === "NoSuchKey" ||
+    code === "NotFound" ||
+    code === "NoSuchKey" ||
+    statusCode === 404
+  );
+};
+
+export const headR2Object = async (
+  key: string,
+): Promise<{
+  contentLength: number | null;
+  contentType: string | null;
+  eTag: string | null;
+  lastModified: string | null;
+} | null> => {
+  const config = getR2Config();
+  if (!config) {
+    throw new Error("R2 is not configured.");
+  }
+
+  const client = getR2Client(config);
+  try {
+    const response = await client.send(
+      new HeadObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      }),
+    );
+
+    return {
+      contentLength:
+        typeof response.ContentLength === "number"
+          ? response.ContentLength
+          : null,
+      contentType: response.ContentType ?? null,
+      eTag: response.ETag ?? null,
+      lastModified: response.LastModified
+        ? response.LastModified.toISOString()
+        : null,
+    };
+  } catch (error) {
+    if (isR2NotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+export const createR2PresignedPutUrl = async (input: {
+  key: string;
+  contentType?: string;
+  expiresInSeconds?: number;
+}) => {
+  const config = getR2Config();
+  if (!config) {
+    throw new Error("R2 is not configured.");
+  }
+
+  const expiresInSeconds = Math.max(
+    60,
+    Math.min(input.expiresInSeconds ?? 900, 3600),
+  );
+
+  const client = getR2Client(config);
+  const command = new PutObjectCommand({
+    Bucket: config.bucket,
+    Key: input.key,
+    ContentType: input.contentType,
+  });
+
+  return getSignedUrl(client, command, {
+    expiresIn: expiresInSeconds,
+  });
 };
 
 export const getR2ObjectBuffer = async (key: string): Promise<Buffer> => {
