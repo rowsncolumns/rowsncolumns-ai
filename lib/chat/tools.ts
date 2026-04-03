@@ -5606,7 +5606,6 @@ const handleSpreadsheetGetAuditSnapshot = async (
               const style = (ef as StyleReference)?.sid
                 ? cellXfs.get(String((ef as StyleReference)?.sid))
                 : ef;
-              console.log("style", style, cellData);
               if (style && typeof style === "object") {
                 const s = style as Record<string, unknown>;
 
