@@ -40,16 +40,16 @@ export default async function SignInPage({
     readSingleParam(params.callbackURL),
   );
 
-  // Check if user is already logged in and redirect them
-  // Wrapped in try-catch to handle cookie mutation errors that can occur
-  // when the auth library tries to refresh session tokens in Server Components
+  // Check if user is already logged in.
+  // Keep redirect outside try/catch because Next.js redirect() throws.
+  let session: Awaited<ReturnType<typeof getServerSessionSafe>> | null = null;
   try {
-    const session = await getServerSessionSafe();
-    if (session?.user) {
-      redirect(callbackURL);
-    }
+    session = await getServerSessionSafe();
   } catch {
     // If session check fails, show sign-in form (safe fallback)
+  }
+  if (session?.user) {
+    redirect("/sheets");
   }
 
   const error = readSingleParam(params.error);
