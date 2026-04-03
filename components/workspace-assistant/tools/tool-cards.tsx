@@ -292,7 +292,7 @@ export function AskUserQuestionToolCard({
             <div className="mt-1 text-xs text-(--muted-foreground)">
               {currentQuestion.question}
             </div>
-            <div className="mt-2 space-y-2 max-h-52 overflow-auto p-2">
+            <div className="mt-2 space-y-2  p-2">
               {!isCurrentQuestionCustomOnly &&
                 currentQuestion.options.map((option, optionIndex) => {
                   const checked = currentSelectedLabels.includes(option.label);
