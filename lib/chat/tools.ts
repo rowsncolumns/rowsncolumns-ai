@@ -77,6 +77,7 @@ import {
   persistSpreadsheetPatches,
   type ShareDBSpreadsheetDoc,
 } from "./utils";
+import { compressA1CellsToRanges } from "./a1-range-utils";
 import {
   createAgentAttribution,
   trackedSubmitOp,
@@ -5605,7 +5606,7 @@ const handleSpreadsheetGetAuditSnapshot = async (
               const style = (ef as StyleReference)?.sid
                 ? cellXfs.get(String((ef as StyleReference)?.sid))
                 : ef;
-
+              console.log("style", style, cellData);
               if (style && typeof style === "object") {
                 const s = style as Record<string, unknown>;
 
@@ -5756,7 +5757,7 @@ const handleSpreadsheetGetAuditSnapshot = async (
             .map(([key, cells]) => ({
               style: JSON.parse(key),
               cellCount: cells.length,
-              sample: cells.slice(0, 5),
+              ranges: compressA1CellsToRanges(cells),
             })),
           uniqueNumberFormats: numberFormatMap.size,
           numberFormats: Array.from(numberFormatMap.entries())
@@ -5764,7 +5765,7 @@ const handleSpreadsheetGetAuditSnapshot = async (
             .map(([pattern, cells]) => ({
               pattern,
               cellCount: cells.length,
-              sample: cells.slice(0, 5),
+              ranges: compressA1CellsToRanges(cells),
             })),
           uniqueBackgrounds: backgroundMap.size,
           backgrounds: Array.from(backgroundMap.entries())
@@ -5772,7 +5773,7 @@ const handleSpreadsheetGetAuditSnapshot = async (
             .map(([color, cells]) => ({
               color,
               cellCount: cells.length,
-              sample: cells.slice(0, 5),
+              ranges: compressA1CellsToRanges(cells),
             })),
           uniqueAlignments: alignmentMap.size,
           alignments: Array.from(alignmentMap.entries())
@@ -5783,7 +5784,7 @@ const handleSpreadsheetGetAuditSnapshot = async (
                 horizontal: h,
                 vertical: v,
                 cellCount: cells.length,
-                sample: cells.slice(0, 5),
+                ranges: compressA1CellsToRanges(cells),
               };
             }),
         };
@@ -6179,7 +6180,9 @@ const confirmPlanExecutionSchema = z.object({
     .min(1)
     .max(600)
     .optional()
-    .describe("Optional reason why confirmation is needed before applying changes."),
+    .describe(
+      "Optional reason why confirmation is needed before applying changes.",
+    ),
 });
 
 type ConfirmPlanExecutionInput = z.infer<typeof confirmPlanExecutionSchema>;

@@ -17,6 +17,7 @@
     "mcp:http": "tsx mcp-server/http.ts",
     "test:chat:regressions": "tsx scripts/test-chat-regressions.ts",
     "test:context-usage": "tsx scripts/test-context-usage.ts",
+    "test:a1-range-utils": "tsx scripts/test-a1-range-utils.ts",
     "test:assistant:stable-rendering": "tsx scripts/test-assistant-stable-rendering.ts",
     "test:tool-result-linking": "tsx scripts/test-tool-result-linking.ts",
     "import:parse-snapshot": "tsx scripts/parse-spreadsheet-snapshot.ts",
