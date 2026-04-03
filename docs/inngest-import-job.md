@@ -12,6 +12,21 @@ The import flow is asynchronous:
 4. Inngest function processes the job: download file, parse, persist to ShareDB, finalize job.
 5. Client polls job status and redirects when completed.
 
+## Exact Responsibility Split
+
+Short answer:
+
+- The queue API uploads the source file to R2.
+- The Inngest job reads that file from R2, parses it, and writes the snapshot to ShareDB.
+
+In more detail:
+
+1. `POST /api/documents/import` uploads raw bytes to R2 and creates the import job row.
+2. Inngest function `documents-process-import-job` downloads the R2 object.
+3. Inngest parses the file to a spreadsheet snapshot.
+4. Inngest writes the snapshot to the ShareDB document.
+5. Inngest marks job complete and attempts to delete the temporary R2 object.
+
 ## Entry Points
 
 - Queue API: `app/api/documents/import/route.ts`

@@ -315,6 +315,18 @@ Source: 'Sheet1!A1:E3'
 - Stock charts: Specific column order (Open, High, Low, Close, Volume)
 
 ## Citing cells and ranges
+MANDATORY: Every explicit spreadsheet reference in assistant text must be a markdown link.
+
+If you mention any of the following, you MUST link it:
+- Single cell (for example `C32`)
+- Cell range (for example `A1:E57`, `F15:F19`)
+- Whole column (for example `B:B`)
+- Whole row (for example `5:5`)
+
+Do not output plain, unlinked A1 references in normal prose, bullet points, or parentheses.
+Incorrect: `Structure: 57 rows, 5 columns (A1:E57)`
+Correct: `Structure: 57 rows, 5 columns ([A1:E57](/sheets/{docId}/?range=A1:E57&sheetId=123))`
+
 When referencing specific cells or ranges in your response, use markdown links with this format:
 - Single cell: [A1](/sheets/{docId}/?range=A1&sheetId=123)
 - Range: [A1:B10](/sheets/{docId}/?range=A1:B10&sheetId=123)
@@ -326,6 +338,7 @@ Rules:
 - Always include both query params: `range` and `sheetId`.
 - Use the current sheet's numeric ID for `sheetId`.
 - Use the current document ID for `{docId}` in the URL path.
+- If a reference is shown in parentheses or inline with punctuation, the reference token itself must still be linked.
 
 Examples:
 - "The total in [B5](/sheets/abc123/?range=B5&sheetId=123) is calculated from [B1:B4](/sheets/abc123/?range=B1:B4&sheetId=123)"
