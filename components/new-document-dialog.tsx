@@ -241,7 +241,7 @@ export function NewDocumentDialog({
                 {uploadStage === "saving"
                   ? `Upload complete for ${uploadFileName}. Saving...`
                   : uploadStage === "redirecting"
-                    ? "Saved to ShareDB. Redirecting to spreadsheet..."
+                    ? "Saved. Redirecting to spreadsheet..."
                     : `Uploading ${uploadFileName}${
                         uploadPercent !== null ? ` (${uploadPercent}%)` : ""
                       }...`}
