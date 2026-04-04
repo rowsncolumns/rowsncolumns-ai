@@ -290,7 +290,7 @@ const parseCsvToSnapshot = async (
         }
         const cellData = buildCellData(
           cellValue,
-          undefined,
+          "en-US",
           true,
           true,
           sharedStrings,

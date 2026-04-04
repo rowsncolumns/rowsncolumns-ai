@@ -1152,6 +1152,9 @@ function SpreadsheetPane({
               align="start"
               side="bottom"
               sideOffset={0}
+              onOpenAutoFocus={(e) => {
+                e.preventDefault();
+              }}
             >
               {props.type === "citation"
                 ? citationsById[props.title].citation_string
