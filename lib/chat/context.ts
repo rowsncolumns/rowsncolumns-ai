@@ -52,6 +52,7 @@ export type UserLocationContext = {
 
 export type SpreadsheetAssistantContext = {
   documentId?: string;
+  documentName?: string;
   sheets?: Array<{
     title: string;
     sheetId: number;
@@ -84,6 +85,7 @@ const COMPACT_BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
 
 type SpreadsheetContextPayloadInput = {
   documentId: string;
+  documentName?: string;
   sheets?: Array<{ title: string; sheetId: number }>;
   activeSheetId?: number | null;
   activeCell?: {
@@ -403,6 +405,15 @@ export const buildSpreadsheetContextInstructions = (
     );
   }
 
+  if (context.documentName) {
+    lines.push(
+      instructionLine(
+        "User is working on \nDocument Name\n",
+        context.documentName,
+      ),
+    );
+  }
+
   if (context.sheets) {
     lines.push(
       instructionLine(
@@ -590,6 +601,7 @@ export const buildSpreadsheetContextPayload = (
   const compactCellXfs = compactCellXfsForAssistant(input.cellXfs);
   const assistantContext: SpreadsheetAssistantContext = {
     documentId: input.documentId,
+    ...(input.documentName ? { documentName: input.documentName } : {}),
     ...(input.sheets && input.sheets.length > 0
       ? { sheets: input.sheets }
       : {}),
@@ -760,6 +772,7 @@ export const sanitizeSpreadsheetAssistantContext = (
 
   const context: SpreadsheetAssistantContext = {
     documentId: asString(record.documentId),
+    documentName: asString(record.documentName),
     sheets: sheets && sheets.length > 0 ? sheets : undefined,
     activeSheetId: asNumber(record.activeSheetId),
     activeCell,
@@ -775,6 +788,7 @@ export const sanitizeSpreadsheetAssistantContext = (
 
   if (
     !context.documentId &&
+    !context.documentName &&
     !context.sheets &&
     context.activeSheetId === undefined &&
     !context.activeCell &&

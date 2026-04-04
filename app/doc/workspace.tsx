@@ -527,6 +527,7 @@ export type WorkspaceUser = {
 
 function SpreadsheetPane({
   documentId,
+  documentName,
   currentUser,
   initialThemeMode,
   canManageShare,
@@ -538,6 +539,7 @@ function SpreadsheetPane({
   currency,
 }: {
   documentId: string;
+  documentName?: string;
   currentUser: WorkspaceUser;
   initialThemeMode: ThemeMode;
   canManageShare: boolean;
@@ -1322,6 +1324,7 @@ function SpreadsheetPane({
         activeSheetId={activeSheetId}
         activeCell={activeCell}
         documentId={documentId}
+        documentName={documentName}
         cellXfs={cellXfs}
         tables={tables}
         getSheetProperties={getSheetProperties}
@@ -2412,6 +2415,7 @@ export function SpreadsheetOnlyWorkspace({
         <div className="relative min-h-0 flex-1 flex flex-col">
           <SpreadsheetPane
             documentId={documentId}
+            documentName={getFallbackDocumentTitle(documentId)}
             currentUser={currentUser}
             initialThemeMode={initialThemeMode}
             canManageShare={canManageShare}
@@ -2507,6 +2511,7 @@ export function NewWorkspace({
   const spreadsheetPane = (
     <SpreadsheetPane
       documentId={documentId}
+      documentName={initialDocumentTitle}
       currentUser={currentUser}
       initialThemeMode={initialThemeMode}
       canManageShare={canManageShare}

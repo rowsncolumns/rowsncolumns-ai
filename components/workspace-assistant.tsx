@@ -2701,6 +2701,7 @@ export { AssistantRuntimeProvider };
  */
 export function SheetsInstructions({
   documentId,
+  documentName,
   sheets,
   activeSheetId,
   activeCell,
@@ -2714,6 +2715,7 @@ export function SheetsInstructions({
   getSheetProperties,
 }: {
   documentId: string;
+  documentName?: string;
   sheets?: Sheet[];
   activeSheetId?: number;
   activeCell: CellInterface;
@@ -2924,6 +2926,7 @@ export function SheetsInstructions({
   const contextSnapshot = React.useMemo<SpreadsheetAssistantContext>(
     () => ({
       documentId,
+      ...(documentName ? { documentName } : {}),
       sheets: sheetSummary,
       activeSheetId,
       activeCell: {
@@ -2942,6 +2945,7 @@ export function SheetsInstructions({
     }),
     [
       documentId,
+      documentName,
       sheetSummary,
       activeSheetId,
       activeCell.rowIndex,
