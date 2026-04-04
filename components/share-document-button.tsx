@@ -93,7 +93,7 @@ export function ShareDocumentButton({
       }
 
       setShareUrl(nextShareUrl);
-      setPermission(payload.permission === "view" ? "view" : "edit");
+      setPermission(payload?.permission === "view" ? "view" : "edit");
     } catch (errorValue) {
       const message =
         errorValue instanceof Error
@@ -136,7 +136,7 @@ export function ShareDocumentButton({
       }
 
       setShareUrl(nextShareUrl);
-      setPermission(payload.permission === "view" ? "view" : "edit");
+      setPermission(payload?.permission === "view" ? "view" : "edit");
     } catch (errorValue) {
       const message =
         errorValue instanceof Error
