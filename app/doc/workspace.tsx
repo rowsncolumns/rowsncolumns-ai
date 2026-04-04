@@ -1135,6 +1135,45 @@ function SpreadsheetPane({
     [borderStyles, citationBorderStyles],
   );
 
+  // Keep chart renderer identity stable so CanvasGrid doesn't treat it as a new
+  // renderer each parent render (which can cause transient duplicate overlays).
+  const renderChartComponent = useCallback(
+    (props: Parameters<typeof ChartComponent>[0]) => (
+      <Suspense fallback={<CircularLoader />}>
+        <ChartComponent
+          {...props}
+          isDarkMode={isDarkMode}
+          getSeriesValuesFromRange={getSeriesValuesFromRange}
+          getDomainValuesFromRange={getDomainValuesFromRange}
+          onRequestEdit={onRequestEditChart}
+          onRequestCalculate={onRequestCalculate}
+        />
+      </Suspense>
+    ),
+    [
+      getDomainValuesFromRange,
+      getSeriesValuesFromRange,
+      isDarkMode,
+      onRequestCalculate,
+      onRequestEditChart,
+    ],
+  );
+
+  const renderSlicerComponent = useCallback(
+    (props: SlicerComponentProps) => <SlicerComponent {...props} />,
+    [],
+  );
+
+  const gridFooterComponent = useMemo(
+    () => (
+      <GridFooter
+        onRequestAddRows={onRequestAddRows}
+        sheetId={activeSheetId}
+      />
+    ),
+    [activeSheetId, onRequestAddRows],
+  );
+
   const currentCellFormat = useMemo(
     () =>
       getEffectiveFormat(
@@ -1879,9 +1918,7 @@ function SpreadsheetPane({
           onProtectRange={onProtectRange}
           onUnProtectRange={onUnProtectRange}
           namedRanges={namedRanges}
-          getSlicerComponent={(props: SlicerComponentProps) => {
-            return <SlicerComponent {...props} />;
-          }}
+          getSlicerComponent={renderSlicerComponent}
           licenseKey="evaluation-license"
           onRequestSearch={onRequestSearch}
           onRequestResize={onRequestResize}
@@ -1901,25 +1938,9 @@ function SpreadsheetPane({
           onDeleteTableRow={onDeleteTableRow}
           onInsertAutoSum={onInsertAutoSum}
           footerHeight={80}
-          footerComponent={
-            <GridFooter
-              onRequestAddRows={onRequestAddRows}
-              sheetId={activeSheetId}
-            />
-          }
+          footerComponent={gridFooterComponent}
           arrowComponents={arrows}
-          getChartComponent={(props) => (
-            <Suspense fallback={<CircularLoader />}>
-              <ChartComponent
-                {...props}
-                isDarkMode={isDarkMode}
-                getSeriesValuesFromRange={getSeriesValuesFromRange}
-                getDomainValuesFromRange={getDomainValuesFromRange}
-                onRequestEdit={onRequestEditChart}
-                onRequestCalculate={onRequestCalculate}
-              />
-            </Suspense>
-          )}
+          getChartComponent={renderChartComponent}
           readonly={!canEdit}
         />
       </div>
