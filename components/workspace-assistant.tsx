@@ -75,6 +75,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import remarkGfm from "remark-gfm";
 import { useShallow } from "zustand/shallow";
+import { matchSorter, rankings } from "match-sorter";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -3674,15 +3675,19 @@ const filterLocalMentionOptions = (
   items: ComposerMentionOption[],
   query: string,
 ): ComposerMentionOption[] => {
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = query.trim();
   if (!normalizedQuery) {
     return items;
   }
 
-  return items.filter((item) => {
-    const haystack =
-      `${item.label} ${item.id} ${item.description ?? ""} ${item.category}`.toLowerCase();
-    return haystack.includes(normalizedQuery);
+  return matchSorter(items, normalizedQuery, {
+    threshold: rankings.CONTAINS,
+    keys: [
+      "label",
+      "id",
+      (item) => item.description ?? "",
+      "category",
+    ],
   });
 };
 

@@ -13,6 +13,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 import { useCallbackRef } from "@rowsncolumns/spreadsheet";
+import { matchSorter, rankings } from "match-sorter";
 
 import {
   Command,
@@ -192,30 +193,45 @@ const filterMentionOptions = (
   items: ComposerMentionOption[],
   query: string,
 ): ComposerMentionOption[] => {
-  const normalizedQuery = query.trim().toLowerCase();
-  const ranked = items
-    .filter((item) => {
-      if (!normalizedQuery) {
-        return true;
-      }
-      const category = MENTION_CATEGORY_LABELS[item.category].toLowerCase();
-      const haystack =
-        `${item.label} ${item.id} ${item.description ?? ""} ${category}`.toLowerCase();
-      return haystack.includes(normalizedQuery);
-    })
-    .sort((left, right) => {
-      const categoryOrderDelta =
-        MENTION_CATEGORY_ORDER.indexOf(left.category) -
-        MENTION_CATEGORY_ORDER.indexOf(right.category);
-      if (categoryOrderDelta !== 0) {
-        return categoryOrderDelta;
-      }
-      return left.label.localeCompare(right.label, undefined, {
-        sensitivity: "base",
-      });
-    });
+  const normalizedQuery = query.trim();
+  const byCategory = new Map<ComposerMentionCategory, ComposerMentionOption[]>();
+  for (const item of items) {
+    const existing = byCategory.get(item.category);
+    if (existing) {
+      existing.push(item);
+    } else {
+      byCategory.set(item.category, [item]);
+    }
+  }
 
-  return ranked.slice(0, 12);
+  const results: ComposerMentionOption[] = [];
+  for (const category of MENTION_CATEGORY_ORDER) {
+    const categoryItems = byCategory.get(category) ?? [];
+    if (categoryItems.length === 0) {
+      continue;
+    }
+
+    const rankedItems =
+      normalizedQuery.length === 0
+        ? [...categoryItems].sort((left, right) =>
+            left.label.localeCompare(right.label, undefined, {
+              sensitivity: "base",
+            }),
+          )
+        : matchSorter(categoryItems, normalizedQuery, {
+            threshold: rankings.CONTAINS,
+            keys: [
+              "label",
+              "id",
+              (item) => item.description ?? "",
+              () => MENTION_CATEGORY_LABELS[category],
+            ],
+          });
+
+    results.push(...rankedItems);
+  }
+
+  return results.slice(0, 12);
 };
 
 const groupMentionOptions = (items: ComposerMentionOption[]) => {
@@ -478,13 +494,14 @@ export function AssistantComposerInput({
         if (!previous.open || previous.query !== query) {
           return previous;
         }
+        const nextItems = filterMentionOptions(items, query);
         const nextSelectedIndex =
-          items.length === 0
+          nextItems.length === 0
             ? 0
-            : Math.min(previous.selectedIndex, items.length - 1);
+            : Math.min(previous.selectedIndex, nextItems.length - 1);
         return {
           ...previous,
-          items,
+          items: nextItems,
           selectedIndex: nextSelectedIndex,
         };
       });
