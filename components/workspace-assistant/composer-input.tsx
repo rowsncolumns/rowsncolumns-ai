@@ -361,7 +361,6 @@ const createMentionSuggestion = ({
   getItems,
   getSearchItems,
   onLoadingDelta,
-  onAsyncItemsResolved,
   onMenuStateChange,
 }: {
   getItems: () => ComposerMentionOption[];
@@ -369,16 +368,15 @@ const createMentionSuggestion = ({
     | ((query: string) => Promise<ComposerMentionOption[]>)
     | undefined;
   onLoadingDelta?: (delta: 1 | -1) => void;
-  onAsyncItemsResolved?: (payload: {
-    query: string;
-    items: ComposerMentionOption[];
-  }) => void;
   onMenuStateChange: (state: MentionMenuState) => void;
 }): Omit<
   SuggestionOptions<ComposerMentionOption, MentionNodeAttrs>,
   "editor"
 > => {
-  const inFlightSearchQueries = new Set<string>();
+  const inFlightSearchQueries = new Map<
+    string,
+    Promise<ComposerMentionOption[]>
+  >();
 
   return {
     char: "@",
@@ -391,25 +389,39 @@ const createMentionSuggestion = ({
       }
 
       const normalizedQuery = query.trim().toLowerCase();
-      if (inFlightSearchQueries.has(normalizedQuery)) {
-        return localItems;
+      const inFlight = inFlightSearchQueries.get(normalizedQuery);
+      if (inFlight) {
+        return inFlight;
       }
 
-      inFlightSearchQueries.add(normalizedQuery);
-      onLoadingDelta?.(1);
-      void searchItems(query)
+      // Keep TipTap suggestion items as the single source of truth.
+      // Returning the merged async result here ensures the rendered rows and
+      // keyboard selection index operate on the exact same array instance.
+      // If we mutate menu state out-of-band, list order/count can drift and
+      // ArrowUp/ArrowDown appears to select "random" items.
+      const pendingSearch = searchItems(query)
         .then((resolvedItems) => {
-          onAsyncItemsResolved?.({
+          const mergedItemsById = new Map<string, ComposerMentionOption>();
+          for (const item of localItems) {
+            mergedItemsById.set(item.id, item);
+          }
+          for (const item of resolvedItems) {
+            mergedItemsById.set(item.id, item);
+          }
+          return filterMentionOptions(
+            Array.from(mergedItemsById.values()),
             query,
-            items: resolvedItems,
-          });
+          );
         })
+        .catch(() => localItems)
         .finally(() => {
           inFlightSearchQueries.delete(normalizedQuery);
           onLoadingDelta?.(-1);
         });
 
-      return localItems;
+      inFlightSearchQueries.set(normalizedQuery, pendingSearch);
+      onLoadingDelta?.(1);
+      return pendingSearch;
     },
     command: ({ editor, range, props }) => {
       const mentionId = props.id?.trim();
@@ -616,14 +628,6 @@ export function AssistantComposerInput({
     setMentionSearchPendingCount((previous) => Math.max(0, previous + delta));
   }, []);
 
-  const handleAsyncMentionItemsResolved = React.useCallback(
-    (_: { query: string; items: ComposerMentionOption[] }) => {
-      // Keep dropdown list sourced directly from TipTap suggestion items
-      // to avoid index mismatch between rendered items and keyboard selection.
-    },
-    [],
-  );
-
   const editor = useEditor(
     {
       immediatelyRender: false,
@@ -684,7 +688,6 @@ export function AssistantComposerInput({
             getItems: getMentionOptions,
             getSearchItems: getSearchMentionItems,
             onLoadingDelta: handleMentionSearchLoadingDelta,
-            onAsyncItemsResolved: handleAsyncMentionItemsResolved,
             onMenuStateChange: setMentionMenu,
           }),
         }),
@@ -728,7 +731,6 @@ export function AssistantComposerInput({
       emitChange,
       getMentionOptions,
       getSearchMentionItems,
-      handleAsyncMentionItemsResolved,
       handleMentionSearchLoadingDelta,
     ],
   );
@@ -786,7 +788,6 @@ export function AssistantComposerInput({
     },
     [editor, onPasteFiles],
   );
-  console.log("mentionMenu", mentionMenu);
   const groupedMentionItems = React.useMemo(
     () => groupMentionOptions(mentionMenu.items),
     [mentionMenu.items],
