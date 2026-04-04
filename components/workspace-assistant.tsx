@@ -3682,12 +3682,7 @@ const filterLocalMentionOptions = (
 
   return matchSorter(items, normalizedQuery, {
     threshold: rankings.CONTAINS,
-    keys: [
-      "label",
-      "id",
-      (item) => item.description ?? "",
-      "category",
-    ],
+    keys: ["label", "id", (item) => item.description ?? "", "category"],
   });
 };
 
@@ -3784,8 +3779,9 @@ function AssistantComposer({
   const documentMentionSearchCacheRef = React.useRef<
     Map<string, ComposerMentionOption[]>
   >(new Map());
-  const documentMentionSearchAbortRef =
-    React.useRef<AbortController | null>(null);
+  const documentMentionSearchAbortRef = React.useRef<AbortController | null>(
+    null,
+  );
   const queuedMessagesRef = React.useRef<QueuedComposerMessage[]>([]);
   const hasQueuedDispatchRef = React.useRef(false);
   const lastHandledPanelDropIdRef = React.useRef<string | null>(null);
@@ -4495,7 +4491,7 @@ function AssistantComposer({
       onDragLeave={handleComposerDragLeave}
       onDrop={handleComposerDrop}
       className={cn(
-        "rnc-assistant-composer overflow-hidden rounded-2xl border border-black/10 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]",
+        "rnc-assistant-composer overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]",
         isDragActive &&
           "border-(--accent) ring-2 ring-(--accent)/30 ring-offset-0",
       )}
@@ -5154,7 +5150,7 @@ function WorkspaceAssistantPanel({
       onDragLeave={handlePanelDragLeave}
       onDrop={handlePanelDrop}
       className={cn(
-        "rnc-assistant-panel relative flex h-full flex-col overflow-hidden rounded-lg border-(--card-border) bg-(--assistant-panel-bg) transition-colors",
+        "rnc-assistant-panel relative flex h-full flex-col overflow-hidden rounded-xl border-(--card-border) bg-(--assistant-panel-bg) transition-colors",
         isPanelImageDragActive &&
           "border-(--accent) ring-2 ring-(--accent)/35 ring-offset-0",
       )}
