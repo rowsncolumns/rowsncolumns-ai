@@ -183,6 +183,7 @@ import { selectionFromActiveCell } from "@rowsncolumns/grid";
 import { ChevronRight, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useCitations } from "@/hooks/use-citations";
+import { cn } from "@/lib/utils";
 
 const appendShareDbQueryParam = (
   url: string,
@@ -1135,7 +1136,7 @@ function SpreadsheetPane({
       }
       return (
         <div
-          className="absolute left-0 top-0 pointer-events-auto "
+          className="absolute left-0 top-0 pointer-events-auto"
           style={{
             top: props.y + props.height,
             left: props.x,
@@ -1148,16 +1149,21 @@ function SpreadsheetPane({
               <StyledFakeTriggerButton className="left-0 bottom-0" />
             </PopoverTrigger>
             <PopoverContent
-              className="border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs"
+              className={cn(
+                "border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs",
+              )}
               align="start"
               side="bottom"
               sideOffset={0}
+              updatePositionStrategy="always"
+              sticky="always"
+              hideWhenDetached
               onOpenAutoFocus={(e) => {
                 e.preventDefault();
               }}
             >
               {props.type === "citation"
-                ? citationsById[props.title].citation_string
+                ? citationsById[props.title]?.citation_string
                 : props.title}
             </PopoverContent>
           </Popover>
