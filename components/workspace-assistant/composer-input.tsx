@@ -1,6 +1,12 @@
 "use client";
 
-import { EditorContent, useEditor } from "@tiptap/react";
+import {
+  EditorContent,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  type NodeViewProps,
+  useEditor,
+} from "@tiptap/react";
 import Mention from "@tiptap/extension-mention";
 import type { MentionNodeAttrs } from "@tiptap/extension-mention";
 import StarterKit from "@tiptap/starter-kit";
@@ -11,7 +17,7 @@ import type {
 } from "@tiptap/suggestion";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as React from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Table2, Wrench } from "lucide-react";
 import { useCallbackRef } from "@rowsncolumns/spreadsheet";
 import { matchSorter, rankings } from "match-sorter";
 
@@ -22,8 +28,15 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import {
+  MENTION_CATEGORY_ORDER,
+  getMentionCategoryIconKind,
+  getMentionCategoryLabel,
+  getMentionKindFromMentionId,
+  type MentionCategory,
+} from "@/components/workspace-assistant/mention-config";
 
-export type ComposerMentionCategory = "sheet" | "document";
+export type ComposerMentionCategory = MentionCategory;
 
 export type ComposerMentionOption = {
   id: string;
@@ -63,12 +76,81 @@ const CLOSED_MENTION_MENU: MentionMenuState = {
   position: null,
 };
 
-const MENTION_CATEGORY_LABELS: Record<ComposerMentionCategory, string> = {
-  sheet: "Sheets",
-  document: "Documents",
+const getMentionSearchKeys = (category: ComposerMentionCategory) => {
+  switch (category) {
+    case "tool":
+      return ["label", "description", "id"] as const;
+    case "sheet":
+      return ["label", "description", "id"] as const;
+    case "document":
+      return ["label", "id", "description"] as const;
+    default:
+      return ["label", "id", "description"] as const;
+  }
 };
 
-const MENTION_CATEGORY_ORDER: ComposerMentionCategory[] = ["sheet", "document"];
+const sortMentionOptionsByCategory = (
+  category: ComposerMentionCategory,
+  items: ComposerMentionOption[],
+): ComposerMentionOption[] => {
+  switch (category) {
+    case "tool":
+    case "sheet":
+    case "document":
+    default:
+      return [...items].sort((left, right) =>
+        left.label.localeCompare(right.label, undefined, {
+          sensitivity: "base",
+        }),
+      );
+  }
+};
+
+const MentionCategoryIcon = ({
+  category,
+}: {
+  category: ComposerMentionCategory;
+}) => {
+  switch (getMentionCategoryIconKind(category)) {
+    case "tool":
+      return <Wrench className="h-3 w-3 shrink-0 text-(--muted-foreground)" />;
+    case "sheet":
+    default:
+      return <Table2 className="h-3 w-3 shrink-0 text-(--muted-foreground)" />;
+  }
+};
+
+const MentionNodeIcon = ({ mentionId }: { mentionId: string }) => {
+  switch (getMentionKindFromMentionId(mentionId)) {
+    case "tool":
+      return <Wrench aria-hidden="true" className="h-3 w-3 shrink-0" />;
+    case "sheet":
+    default:
+      return <Table2 aria-hidden="true" className="h-3 w-3 shrink-0" />;
+  }
+};
+
+const MentionNodeView = ({ node }: NodeViewProps) => {
+  const mentionId = typeof node.attrs.id === "string" ? node.attrs.id : "";
+  const mentionLabel =
+    typeof node.attrs.label === "string" && node.attrs.label.trim().length > 0
+      ? node.attrs.label.trim()
+      : mentionId;
+
+  return (
+    <NodeViewWrapper
+      as="span"
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-(--panel-border) bg-(--assistant-chip-bg) px-2 py-0.5 text-sm text-foreground"
+      data-mention-url={mentionId}
+      contentEditable={false}
+    >
+      <span className="text-(--muted-foreground)">
+        <MentionNodeIcon mentionId={mentionId} />
+      </span>
+      <span>{mentionLabel}</span>
+    </NodeViewWrapper>
+  );
+};
 
 const normalizeComposerValue = (value: string): string =>
   value
@@ -224,14 +306,12 @@ const filterMentionOptions = (
         : matchSorter(categoryItems, normalizedQuery, {
             threshold: rankings.CONTAINS,
             keys: [
-              "label",
-              "id",
-              (item) => item.description ?? "",
-              () => MENTION_CATEGORY_LABELS[category],
+              ...getMentionSearchKeys(category),
+              () => getMentionCategoryLabel(category),
             ],
           });
 
-    results.push(...rankedItems);
+    results.push(...sortMentionOptionsByCategory(category, rankedItems));
   }
 
   return results.slice(0, 12);
@@ -455,6 +535,7 @@ export function AssistantComposerInput({
   const getSearchMentionItems = useCallbackRef(() => onSearchMentions);
   const [mentionMenu, setMentionMenu] =
     React.useState<MentionMenuState>(CLOSED_MENTION_MENU);
+  const mentionMenuRef = React.useRef<MentionMenuState>(CLOSED_MENTION_MENU);
   const mentionPopoverContentRef = React.useRef<HTMLDivElement | null>(null);
   const [mentionSearchPendingCount, setMentionSearchPendingCount] =
     React.useState(0);
@@ -463,6 +544,10 @@ export function AssistantComposerInput({
   React.useEffect(() => {
     onSubmitRef.current = onSubmit;
   }, [onSubmit]);
+
+  React.useEffect(() => {
+    mentionMenuRef.current = mentionMenu;
+  }, [mentionMenu]);
 
   React.useEffect(() => {
     if (!mentionMenu.open) {
@@ -526,7 +611,11 @@ export function AssistantComposerInput({
           heading: false,
           horizontalRule: false,
         }),
-        Mention.configure({
+        Mention.extend({
+          addNodeView() {
+            return ReactNodeViewRenderer(MentionNodeView);
+          },
+        }).configure({
           HTMLAttributes: {
             class:
               "inline-flex items-center whitespace-nowrap rounded-full border border-(--panel-border) bg-(--assistant-chip-bg) px-2 py-0.5 text-sm text-foreground",
@@ -547,20 +636,19 @@ export function AssistantComposerInput({
             );
           },
           renderHTML({ options, node }) {
+            const mentionId =
+              typeof node.attrs.id === "string" ? node.attrs.id : "";
             const mentionLabel =
               typeof node.attrs.label === "string" &&
               node.attrs.label.trim().length > 0
                 ? node.attrs.label.trim()
-                : typeof node.attrs.id === "string"
-                  ? node.attrs.id
-                  : "";
+                : mentionId;
 
             return [
               "span",
               {
                 ...options.HTMLAttributes,
-                "data-mention-url":
-                  typeof node.attrs.id === "string" ? node.attrs.id : "",
+                "data-mention-url": mentionId,
               },
               mentionLabel,
             ];
@@ -582,6 +670,15 @@ export function AssistantComposerInput({
           "aria-label": "Message",
         },
         handleKeyDown: (_, event) => {
+          if (
+            mentionMenuRef.current.open &&
+            (event.key === "Enter" ||
+              event.key === "ArrowDown" ||
+              event.key === "ArrowUp" ||
+              event.key === "Escape")
+          ) {
+            return false;
+          }
           if (event.isComposing) {
             return false;
           }
@@ -749,7 +846,7 @@ export function AssistantComposerInput({
                     return (
                       <CommandGroup
                         key={category}
-                        heading={MENTION_CATEGORY_LABELS[category]}
+                        heading={getMentionCategoryLabel(category)}
                         className="p-0"
                       >
                         {categoryItems.map((item) => {
@@ -780,7 +877,10 @@ export function AssistantComposerInput({
                               }}
                             >
                               <div className="flex w-full flex-col items-start px-2 py-1.5 text-left">
-                                <span className="text-xs leading-4 text-foreground">
+                                <span className="inline-flex items-center gap-1.5 text-xs leading-4 text-foreground">
+                                  <MentionCategoryIcon
+                                    category={item.category}
+                                  />
                                   {item.label}
                                 </span>
                               </div>

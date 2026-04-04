@@ -130,7 +130,14 @@ import {
   AssistantComposerInput,
   type ComposerMentionOption,
 } from "@/components/workspace-assistant/composer-input";
-import { SpreadsheetToolUIRegistry } from "@/components/workspace-assistant/tools/tool-ui-registry";
+import {
+  TOOLS_URI_PREFIX,
+  getMentionKindFromPathOrUri,
+} from "@/components/workspace-assistant/mention-config";
+import {
+  SPREADSHEET_TOOL_NAMES,
+  SpreadsheetToolUIRegistry,
+} from "@/components/workspace-assistant/tools/tool-ui-registry";
 import { AssistantMarkdownLink } from "@/components/workspace-assistant/assistant-markdown-link";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import {
@@ -298,6 +305,7 @@ const parseMentionReferenceTextNodes = (
       );
       if (label && url) {
         hasMention = true;
+        const mentionKind = getMentionKindFromPathOrUri(url);
         nodes.push({
           type: "link",
           url,
@@ -306,6 +314,7 @@ const parseMentionReferenceTextNodes = (
             hProperties: {
               className: mentionPillClassName,
               "data-mention-url": url,
+              ...(mentionKind ? { "data-mention-kind": mentionKind } : {}),
             },
           },
         });
@@ -335,8 +344,8 @@ const parseMentionReferenceTextNodes = (
   return nodes;
 };
 
-const isMentionSheetUrl = (url: string): boolean => {
-  return /^\/sheets\/[^/\s?#]+\/?(?:[?#].*)?$/i.test(url.trim());
+const getMentionKindFromUrl = (url: string): "sheet" | "tool" | null => {
+  return getMentionKindFromPathOrUri(url);
 };
 
 const transformMentionReferenceLinks = (node: MarkdownNode) => {
@@ -347,7 +356,8 @@ const transformMentionReferenceLinks = (node: MarkdownNode) => {
   const nextChildren: MarkdownNode[] = [];
   for (const child of node.children) {
     if (child.type === "link" && typeof child.url === "string") {
-      if (isMentionSheetUrl(child.url)) {
+      const mentionKind = getMentionKindFromUrl(child.url);
+      if (mentionKind) {
         const existingProperties =
           child.data?.hProperties && isRecord(child.data.hProperties)
             ? child.data.hProperties
@@ -362,6 +372,7 @@ const transformMentionReferenceLinks = (node: MarkdownNode) => {
             ...existingProperties,
             className: `${existingClassName} ${mentionPillClassName}`.trim(),
             "data-mention-url": child.url,
+            "data-mention-kind": mentionKind,
           },
         };
       }
@@ -3671,6 +3682,18 @@ type DocumentsApiResponse = {
   }>;
 };
 
+const formatToolMentionLabel = (toolName: string): string => {
+  const withoutPrefix = toolName
+    .replace(/^spreadsheet_/i, "")
+    .replace(/^assistant_/i, "")
+    .replace(/^web_/i, "");
+  return withoutPrefix
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
 const filterLocalMentionOptions = (
   items: ComposerMentionOption[],
   query: string,
@@ -3937,17 +3960,32 @@ function AssistantComposer({
     );
   }, [docId, fallbackSheets, resolvedActiveSheetId]);
 
+  const toolMentionOptions = React.useMemo<ComposerMentionOption[]>(
+    () =>
+      SPREADSHEET_TOOL_NAMES.map((toolName) => ({
+        id: `${TOOLS_URI_PREFIX}${toolName}`,
+        label: formatToolMentionLabel(toolName),
+        category: "tool",
+        description: toolName,
+      })),
+    [],
+  );
+
   const mentionOptions = React.useMemo<ComposerMentionOption[]>(() => {
     const uniqueMentions = new Map<string, ComposerMentionOption>();
 
-    for (const item of [...sheetMentionOptions, ...documentMentionOptions]) {
+    for (const item of [
+      ...sheetMentionOptions,
+      ...documentMentionOptions,
+      ...toolMentionOptions,
+    ]) {
       if (!uniqueMentions.has(item.id)) {
         uniqueMentions.set(item.id, item);
       }
     }
 
     return Array.from(uniqueMentions.values());
-  }, [documentMentionOptions, sheetMentionOptions]);
+  }, [documentMentionOptions, sheetMentionOptions, toolMentionOptions]);
 
   const searchMentionOptions = React.useCallback(
     async (query: string): Promise<ComposerMentionOption[]> => {
@@ -3955,10 +3993,18 @@ function AssistantComposer({
         sheetMentionOptions,
         query,
       );
+      const filteredToolOptions = filterLocalMentionOptions(
+        toolMentionOptions,
+        query,
+      );
       const documentOptions = await fetchDocumentMentionOptions(query);
       const uniqueMentions = new Map<string, ComposerMentionOption>();
 
-      for (const item of [...filteredSheetOptions, ...documentOptions]) {
+      for (const item of [
+        ...filteredSheetOptions,
+        ...documentOptions,
+        ...filteredToolOptions,
+      ]) {
         if (!uniqueMentions.has(item.id)) {
           uniqueMentions.set(item.id, item);
         }
@@ -3966,7 +4012,7 @@ function AssistantComposer({
 
       return Array.from(uniqueMentions.values());
     },
-    [fetchDocumentMentionOptions, sheetMentionOptions],
+    [fetchDocumentMentionOptions, sheetMentionOptions, toolMentionOptions],
   );
 
   const releasePreviewUrl = React.useCallback((url?: string) => {

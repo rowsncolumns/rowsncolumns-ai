@@ -7,11 +7,18 @@ import {
   useSpreadsheetInstances,
 } from "@rowsncolumns/spreadsheet";
 import { addressToSelection } from "@rowsncolumns/utils";
+import {
+  SHEETS_URI_REGEX,
+  TOOLS_URI_REGEX,
+  type MentionKind,
+} from "@/components/workspace-assistant/mention-config";
+import { Table2, Wrench } from "lucide-react";
 
 const SHEETS_PATH_REGEX = /^\/sheets\/([^/?#]+)\/?$/;
 
 type MarkdownAnchorProps = React.ComponentPropsWithoutRef<"a"> & {
   node?: unknown;
+  "data-mention-kind"?: string;
 };
 
 export type SpreadsheetLinkTarget = {
@@ -23,6 +30,15 @@ export type SpreadsheetLinkTarget = {
 
 type AssistantMarkdownLinkProps = MarkdownAnchorProps & {
   onOpenInCurrentDocument?: (target: SpreadsheetLinkTarget) => void;
+};
+
+const readMentionKindFromDataAttribute = (
+  value: string | undefined,
+): MentionKind | null => {
+  if (value === "tool" || value === "sheet") {
+    return value;
+  }
+  return null;
 };
 
 const readDocumentIdParam = (
@@ -75,11 +91,58 @@ const parseSpreadsheetLink = (href: string): SpreadsheetLinkTarget | null => {
   };
 };
 
+const getMentionKindFromHref = (
+  href: string | undefined,
+): MentionKind | null => {
+  const normalizedHref = href?.trim();
+  if (!normalizedHref) {
+    return null;
+  }
+
+  if (TOOLS_URI_REGEX.test(normalizedHref)) {
+    return "tool";
+  }
+
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const url = new URL(normalizedHref, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return null;
+    }
+    return SHEETS_URI_REGEX.test(url.pathname) ? "sheet" : null;
+  } catch {
+    return null;
+  }
+};
+
+const MentionLinkIcon = ({
+  mentionKind,
+}: {
+  mentionKind: MentionKind | null;
+}) => {
+  switch (mentionKind) {
+    case "tool":
+      return (
+        <Wrench aria-hidden="true" className="mr-1 inline-block h-3 w-3" />
+      );
+    case "sheet":
+      return (
+        <Table2 aria-hidden="true" className="mr-1 inline-block h-3 w-3" />
+      );
+    default:
+      return null;
+  }
+};
+
 export function AssistantMarkdownLink({
   href,
   onClick,
   onOpenInCurrentDocument,
   node,
+  "data-mention-kind": dataMentionKind,
   ...props
 }: AssistantMarkdownLinkProps) {
   void node;
@@ -89,6 +152,13 @@ export function AssistantMarkdownLink({
     [params],
   );
   const instance = useSpreadsheetInstances();
+  const mentionKind = React.useMemo(
+    () =>
+      readMentionKindFromDataAttribute(
+        typeof dataMentionKind === "string" ? dataMentionKind : undefined,
+      ) ?? getMentionKindFromHref(href),
+    [dataMentionKind, href],
+  );
   const getInstance = useCallbackRef((docId: string) => {
     return instance.get(docId);
   });
@@ -108,6 +178,11 @@ export function AssistantMarkdownLink({
         event.shiftKey ||
         event.altKey
       ) {
+        return;
+      }
+
+      if (mentionKind === "tool") {
+        event.preventDefault();
         return;
       }
 
@@ -147,8 +222,20 @@ export function AssistantMarkdownLink({
       event.preventDefault();
       window.open(target.href, "_blank", "noopener,noreferrer");
     },
-    [currentDocId, getInstance, href, onClick, onOpenInCurrentDocument],
+    [
+      currentDocId,
+      getInstance,
+      href,
+      mentionKind,
+      onClick,
+      onOpenInCurrentDocument,
+    ],
   );
 
-  return <a {...props} href={href} onClick={handleClick} />;
+  return (
+    <a {...props} href={href} onClick={handleClick}>
+      <MentionLinkIcon mentionKind={mentionKind} />
+      {props.children}
+    </a>
+  );
 }
