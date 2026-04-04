@@ -1128,10 +1128,63 @@ function SpreadsheetPane({
     [activeCell, activeSheetId, getEffectiveFormat],
   );
 
+  // Viewport getter
+  const getViewPort = useGetViewPort();
+
   // Selection title render
   const selectionTitleRenderer = useCallback(
     (props: SelectionTitleProps) => {
-      if (!props.title) {
+      if (!props.title || !props.range) {
+        return null;
+      }
+
+      const viewport = getViewPort?.();
+      if (!viewport) {
+        return null;
+      }
+
+      const overlaps = (
+        start: number,
+        end: number,
+        viewportStart: number,
+        viewportEnd: number,
+      ) => start <= viewportEnd && end >= viewportStart;
+
+      const frozenRows = frozenRowCount ?? 0;
+      const frozenColumns = frozenColumnCount ?? 0;
+
+      // Frozen panes are always visible even when outside scrollable viewport bounds.
+      const rowVisible =
+        overlaps(
+          props.range.startRowIndex,
+          props.range.endRowIndex,
+          viewport.visibleRowStartIndex,
+          viewport.visibleRowStopIndex,
+        ) ||
+        (frozenRows > 0 &&
+          overlaps(
+            props.range.startRowIndex,
+            props.range.endRowIndex,
+            0,
+            frozenRows,
+          ));
+
+      const columnVisible =
+        overlaps(
+          props.range.startColumnIndex,
+          props.range.endColumnIndex,
+          viewport.visibleColumnStartIndex,
+          viewport.visibleColumnStopIndex,
+        ) ||
+        (frozenColumns > 0 &&
+          overlaps(
+            props.range.startColumnIndex,
+            props.range.endColumnIndex,
+            0,
+            frozenColumns,
+          ));
+
+      if (!rowVisible || !columnVisible) {
         return null;
       }
       return (
@@ -1171,14 +1224,11 @@ function SpreadsheetPane({
         </div>
       );
     },
-    [citationsById],
+    [citationsById, getViewPort, frozenColumnCount, frozenRowCount],
   );
 
   // Spreadsheet Api
   const api = useSpreadsheetApi<CellData>();
-
-  // Viewport getter
-  const getViewPort = useGetViewPort();
 
   const handleExportExcel = useCallback(async () => {
     await exportToExcel({

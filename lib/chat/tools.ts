@@ -4088,6 +4088,72 @@ const parseRangeWithSheetName = (
   return { selection: { range: selection.range }, sheetId: resolvedSheetId };
 };
 
+const getFirstChartSourceSheetId = (
+  chart: Pick<EmbeddedChart, "spec">,
+  kind: "domains" | "series",
+) => {
+  const spec = chart.spec as Record<string, unknown>;
+  const groups = Array.isArray(spec[kind])
+    ? (spec[kind] as Array<Record<string, unknown>>)
+    : [];
+
+  const firstGroup = groups[0];
+  if (!firstGroup || !Array.isArray(firstGroup.sources)) {
+    return undefined;
+  }
+
+  const firstSource = firstGroup.sources[0] as Record<string, unknown> | undefined;
+  if (!firstSource || typeof firstSource.sheetId !== "number") {
+    return undefined;
+  }
+
+  return firstSource.sheetId;
+};
+
+export const resolveChartUpdateDefaultSheetIds = (
+  chart: Pick<EmbeddedChart, "spec" | "position">,
+  inputSheetId: number | undefined,
+) => {
+  const domainSourceSheetId = getFirstChartSourceSheetId(chart, "domains");
+  const seriesSourceSheetId = getFirstChartSourceSheetId(chart, "series");
+  const chartPositionSheetId = chart.position?.sheetId;
+
+  return {
+    domainSheetId:
+      domainSourceSheetId ?? chartPositionSheetId ?? inputSheetId ?? 1,
+    seriesSheetId:
+      seriesSourceSheetId ??
+      domainSourceSheetId ??
+      chartPositionSheetId ??
+      inputSheetId ??
+      1,
+  };
+};
+
+export const buildChartDomainsUpdate = (
+  input: { sheetId: number; range: GridRange }[],
+) =>
+  input.map(({ sheetId, range }) => ({
+    sources: [
+      {
+        sheetId,
+        ...range,
+      },
+    ],
+  }));
+
+export const buildChartSeriesUpdate = (
+  input: { sheetId: number; range: GridRange }[],
+) =>
+  input.map(({ sheetId, range }) => ({
+    sources: [
+      {
+        sheetId,
+        ...range,
+      },
+    ],
+  }));
+
 const handleSpreadsheetChart = async (
   input: SpreadsheetChartInput,
 ): Promise<string> => {
@@ -4277,53 +4343,42 @@ const handleSpreadsheetChart = async (
           if (rest.stackedType)
             specUpdates.stackedType = mapStackedType(rest.stackedType);
 
+          const { domainSheetId, seriesSheetId } =
+            resolveChartUpdateDefaultSheetIds(chart, sheetId);
+
           if (rest.domain) {
-            const defaultDomainSheetId = (chart.spec as Record<string, unknown>)
-              .domain
-              ? ((
-                  (chart.spec as Record<string, unknown>).domain as Record<
-                    string,
-                    unknown
-                  >
-                ).sheetId as number)
-              : (sheetId ?? 1);
             const domainParsed = parseRangeWithSheetName(
               rest.domain,
               spreadsheet,
-              defaultDomainSheetId,
+              domainSheetId,
             );
             if (domainParsed.selection?.range) {
-              specUpdates.domain = {
-                sheetId: domainParsed.sheetId,
-                ...domainParsed.selection.range,
-              };
+              specUpdates.domains = buildChartDomainsUpdate([
+                {
+                  sheetId: domainParsed.sheetId,
+                  range: domainParsed.selection.range,
+                },
+              ]);
             }
           }
 
           if (rest.series) {
-            const defaultSeriesSheetId = (chart.spec as Record<string, unknown>)
-              .domain
-              ? ((
-                  (chart.spec as Record<string, unknown>).domain as Record<
-                    string,
-                    unknown
-                  >
-                ).sheetId as number)
-              : (sheetId ?? 1);
             specUpdates.series = rest.series.map((seriesRange: string) => {
               const parsed = parseRangeWithSheetName(
                 seriesRange,
                 spreadsheet,
-                defaultSeriesSheetId,
+                seriesSheetId,
               );
               if (!parsed.selection?.range)
                 throw new Error(
                   parsed.error || `Invalid series range: ${seriesRange}`,
                 );
-              return {
-                sheetId: parsed.sheetId,
-                ...parsed.selection.range,
-              };
+              return buildChartSeriesUpdate([
+                {
+                  sheetId: parsed.sheetId,
+                  range: parsed.selection.range,
+                },
+              ])[0];
             });
           }
 
