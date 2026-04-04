@@ -35,7 +35,7 @@ import {
   getMentionKindFromMentionId,
   type MentionCategory,
 } from "@/components/workspace-assistant/mention-config";
-import { MentionPill } from "@/components/workspace-assistant/mention-pill";
+import { AssistantMarkdownLink } from "@/components/workspace-assistant/assistant-markdown-link";
 
 export type ComposerMentionCategory = MentionCategory;
 
@@ -136,9 +136,14 @@ const MentionNodeView = ({ node }: NodeViewProps) => {
       data-mention-url={mentionId}
       contentEditable={false}
     >
-      <MentionPill mentionKind={mentionKind} className="whitespace-nowrap">
+      <AssistantMarkdownLink
+        href={mentionId}
+        data-mention-kind={mentionKind}
+        data-mention-url={mentionId}
+        className="rnc-markdown-mention-pill whitespace-nowrap"
+      >
         {mentionLabel}
-      </MentionPill>
+      </AssistantMarkdownLink>
     </NodeViewWrapper>
   );
 };
