@@ -20,7 +20,7 @@
   --header-bg-bottom: rgba(255, 255, 255, 0.64);
   --nav-bg: rgba(255, 255, 255, 0.76);
   --nav-hover: rgba(17, 24, 39, 0.06);
-  --assistant-panel-bg: rgba(255, 255, 255, 0.82);
+  --assistant-panel-bg: rgba(255, 255, 255, 1);
   --assistant-composer-bg: rgba(255, 255, 255, 0.95);
   --assistant-muted-bg: #fff9f4;
   --assistant-item-bg: rgba(255, 255, 255, 0.96);
@@ -291,6 +291,98 @@ body.rnc-dark .rnc-site-header-logo {
   background: var(--assistant-composer-bg) !important;
 }
 
+.rnc-composer-prosemirror {
+  border: 0;
+  background: transparent;
+}
+
+.rnc-composer-prosemirror:focus {
+  outline: none;
+}
+
+.rnc-composer-prosemirror p {
+  margin: 0;
+  min-height: 1.5rem;
+}
+
+.rnc-composer-prosemirror p + p {
+  margin-top: 0.25rem;
+}
+
+.rnc-composer-mention-node {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.5rem;
+  border: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--assistant-chip-bg) 88%, white);
+  padding: 0.05rem 0.4rem;
+  font-size: 0.88em;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+
+.rnc-composer-mention-popup {
+  position: absolute;
+  z-index: 70;
+  max-height: 18rem;
+  overflow-y: auto;
+  border-radius: 0.75rem;
+  border: 1px solid var(--panel-border);
+  background: var(--assistant-panel-bg);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+  padding: 0.35rem;
+}
+
+.rnc-composer-mention-group + .rnc-composer-mention-group {
+  margin-top: 0.3rem;
+}
+
+.rnc-composer-mention-group-label {
+  padding: 0.2rem 0.45rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.rnc-composer-mention-option {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  padding: 0.38rem 0.5rem;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rnc-composer-mention-option.is-active,
+.rnc-composer-mention-option:hover {
+  background: var(--assistant-suggestion-hover);
+}
+
+.rnc-composer-mention-option-label {
+  font-size: 0.78rem;
+  line-height: 1.1rem;
+  color: var(--foreground);
+}
+
+.rnc-composer-mention-option-description {
+  font-size: 0.67rem;
+  line-height: 0.95rem;
+  color: var(--muted-foreground);
+}
+
+.rnc-composer-mention-empty {
+  padding: 0.45rem 0.55rem;
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
 @media (hover: none), (pointer: coarse) {
   .rnc-assistant-composer [data-composer-input],
   .rnc-assistant-composer .aui-composer-input,
@@ -330,6 +422,26 @@ body.rnc-dark .rnc-site-header-logo {
 .rnc-assistant-suggestion:hover {
   border-color: var(--panel-border-strong) !important;
   background: var(--assistant-suggestion-hover) !important;
+}
+
+.rnc-markdown-mention-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid var(--panel-border);
+  background: var(--assistant-chip-bg);
+  color: inherit;
+  text-decoration: none !important;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.78em;
+  line-height: 1.2;
+  vertical-align: baseline;
+}
+
+.rnc-assistant-bubble-user .rnc-markdown-mention-pill {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #ffffff !important;
 }
 
 .rnc-assistant-bubble-ai {

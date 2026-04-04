@@ -79,8 +79,10 @@ export function AssistantMarkdownLink({
   href,
   onClick,
   onOpenInCurrentDocument,
+  node,
   ...props
 }: AssistantMarkdownLinkProps) {
+  void node;
   const params = useParams<{ documentId?: string | string[] }>();
   const currentDocId = React.useMemo(
     () => readDocumentIdParam(params?.documentId),

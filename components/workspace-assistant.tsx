@@ -125,6 +125,10 @@ import {
   SessionPickerButton,
 } from "@/components/workspace-assistant/session-controls";
 import { useIsTouchInputDevice } from "@/components/workspace-assistant/touch-input-device";
+import {
+  AssistantComposerInput,
+  type ComposerMentionOption,
+} from "@/components/workspace-assistant/composer-input";
 import { SpreadsheetToolUIRegistry } from "@/components/workspace-assistant/tools/tool-ui-registry";
 import { AssistantMarkdownLink } from "@/components/workspace-assistant/assistant-markdown-link";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
@@ -197,6 +201,8 @@ type WorkspaceAssistantProps = {
 export type WorkspaceAssistantUIProps = {
   prompts: string[];
   docId?: string;
+  sheets?: Sheet[];
+  activeSheetId?: number;
   isAdmin?: boolean;
   threadId?: string;
   onNewSession?: () => void;
@@ -237,7 +243,159 @@ type AssistantSkill = {
   updatedAt: string;
 };
 
-const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
+type MarkdownNode = {
+  type?: unknown;
+  value?: unknown;
+  url?: unknown;
+  children?: MarkdownNode[];
+  data?: {
+    hProperties?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+const MENTION_REFERENCE_MARKDOWN_REGEX =
+  /\[([^\]\n]+)\]\(([^)\n]+)\)|\[([^\]\n]+)\]\[([^\]\n]+)\]/g;
+
+const mentionPillClassName =
+  "rnc-markdown-mention-pill inline-flex items-center rounded-full border border-(--panel-border) bg-(--assistant-chip-bg) px-2 py-0.5 text-sm align-baseline no-underline";
+
+const unescapeMentionMarkdownText = (value: string): string =>
+  value.replace(/\\([[\]\\])/g, "$1");
+
+const parseMentionReferenceTextNodes = (
+  value: string,
+): MarkdownNode[] | null => {
+  const nodes: MarkdownNode[] = [];
+  let cursor = 0;
+  let hasMention = false;
+
+  value.replace(
+    MENTION_REFERENCE_MARKDOWN_REGEX,
+    (
+      fullMatch: string,
+      markdownLabel: string | undefined,
+      markdownUrl: string | undefined,
+      legacyLabel: string | undefined,
+      legacyUrl: string | undefined,
+      index: number,
+    ) => {
+      const safeIndex = Number.isFinite(index) ? index : cursor;
+      if (safeIndex > cursor) {
+        nodes.push({
+          type: "text",
+          value: value.slice(cursor, safeIndex),
+        });
+      }
+
+      const label = unescapeMentionMarkdownText(
+        (markdownLabel ?? legacyLabel ?? "").trim(),
+      );
+      const url = unescapeMentionMarkdownText(
+        (markdownUrl ?? legacyUrl ?? "").trim(),
+      );
+      if (label && url) {
+        hasMention = true;
+        nodes.push({
+          type: "link",
+          url,
+          children: [{ type: "text", value: label }],
+          data: {
+            hProperties: {
+              className: mentionPillClassName,
+              "data-mention-url": url,
+            },
+          },
+        });
+      } else {
+        nodes.push({
+          type: "text",
+          value: fullMatch,
+        });
+      }
+
+      cursor = safeIndex + fullMatch.length;
+      return fullMatch;
+    },
+  );
+
+  if (!hasMention) {
+    return null;
+  }
+
+  if (cursor < value.length) {
+    nodes.push({
+      type: "text",
+      value: value.slice(cursor),
+    });
+  }
+
+  return nodes;
+};
+
+const isMentionSheetUrl = (url: string): boolean => {
+  return /^\/sheets\/[^/\s?#]+\/?(?:[?#].*)?$/i.test(url.trim());
+};
+
+const transformMentionReferenceLinks = (node: MarkdownNode) => {
+  if (!Array.isArray(node.children) || node.children.length === 0) {
+    return;
+  }
+
+  const nextChildren: MarkdownNode[] = [];
+  for (const child of node.children) {
+    if (child.type === "link" && typeof child.url === "string") {
+      if (isMentionSheetUrl(child.url)) {
+        const existingProperties =
+          child.data?.hProperties && isRecord(child.data.hProperties)
+            ? child.data.hProperties
+            : {};
+        const existingClassName =
+          typeof existingProperties.className === "string"
+            ? existingProperties.className
+            : "";
+        child.data = {
+          ...(child.data ?? {}),
+          hProperties: {
+            ...existingProperties,
+            className: `${existingClassName} ${mentionPillClassName}`.trim(),
+            "data-mention-url": child.url,
+          },
+        };
+      }
+      transformMentionReferenceLinks(child);
+      nextChildren.push(child);
+      continue;
+    }
+
+    if (child.type === "text" && typeof child.value === "string") {
+      const transformed = parseMentionReferenceTextNodes(child.value);
+      if (transformed) {
+        nextChildren.push(...transformed);
+      } else {
+        nextChildren.push(child);
+      }
+      continue;
+    }
+
+    transformMentionReferenceLinks(child);
+    nextChildren.push(child);
+  }
+
+  node.children = nextChildren;
+};
+
+const remarkMentionReferenceLinks = () => {
+  return (tree: unknown) => {
+    if (!isRecord(tree)) {
+      return;
+    }
+    transformMentionReferenceLinks(tree as MarkdownNode);
+  };
+};
+
+const MARKDOWN_REMARK_PLUGINS = [remarkMentionReferenceLinks, remarkGfm];
 const ASSISTANT_MAX_COMPOSER_IMAGES = 5;
 const ASSISTANT_CONTEXT_USAGE_STORAGE_KEY =
   "rnc.ai.workspace-assistant.context-usage-v1";
@@ -1893,7 +2051,7 @@ const getMessageText = (message: ThreadMessage | undefined) => {
     return "";
   }
 
-  return message.content
+  const text = message.content
     .map((part) => {
       if (part.type === "text" || part.type === "reasoning") {
         return part.text;
@@ -1904,6 +2062,8 @@ const getMessageText = (message: ThreadMessage | undefined) => {
     .filter(Boolean)
     .join("\n")
     .trim();
+
+  return text;
 };
 
 const getMessageImages = (
@@ -3453,6 +3613,8 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
 type WorkspaceAssistantPanelProps = {
   prompts: string[];
   docId?: string;
+  sheets?: Sheet[];
+  activeSheetId?: number;
   isAdmin?: boolean;
   threadId?: string;
   onNewSession?: () => void;
@@ -3501,6 +3663,29 @@ type CreditsApiResponse = {
   };
 };
 
+type DocumentsApiResponse = {
+  items?: Array<{
+    docId?: string;
+    title?: string;
+  }>;
+};
+
+const filterLocalMentionOptions = (
+  items: ComposerMentionOption[],
+  query: string,
+): ComposerMentionOption[] => {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return items;
+  }
+
+  return items.filter((item) => {
+    const haystack =
+      `${item.label} ${item.id} ${item.description ?? ""} ${item.category}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
+};
+
 type QueuedComposerMessage = {
   id: string;
   text: string;
@@ -3536,6 +3721,9 @@ type ForkContextValue = {
 const ForkContext = React.createContext<ForkContextValue | null>(null);
 
 function AssistantComposer({
+  docId,
+  sheets,
+  activeSheetId,
   selectedModel,
   selectedModelLabel,
   isModelPickerOpen,
@@ -3585,9 +3773,200 @@ function AssistantComposer({
   >([]);
   const [isReasoningPickerOpen, setIsReasoningPickerOpen] =
     React.useState(false);
+  const [documentMentionOptions, setDocumentMentionOptions] = React.useState<
+    ComposerMentionOption[]
+  >([]);
+  const documentMentionSearchCacheRef = React.useRef<
+    Map<string, ComposerMentionOption[]>
+  >(new Map());
+  const documentMentionSearchAbortRef =
+    React.useRef<AbortController | null>(null);
   const queuedMessagesRef = React.useRef<QueuedComposerMessage[]>([]);
   const hasQueuedDispatchRef = React.useRef(false);
   const lastHandledPanelDropIdRef = React.useRef<string | null>(null);
+
+  const fetchDocumentMentionOptions = React.useCallback(
+    async (query: string): Promise<ComposerMentionOption[]> => {
+      const normalizedQuery = query.trim();
+      const cacheKey = normalizedQuery.toLowerCase();
+      const cached = documentMentionSearchCacheRef.current.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      documentMentionSearchAbortRef.current?.abort();
+      const controller = new AbortController();
+      documentMentionSearchAbortRef.current = controller;
+
+      try {
+        const params = new URLSearchParams({
+          limit: "24",
+          filter: "owned",
+        });
+        if (normalizedQuery.length > 0) {
+          params.set("q", normalizedQuery);
+        }
+
+        const response = await fetch(`/api/documents?${params.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          return [];
+        }
+
+        const payload = (await response.json()) as DocumentsApiResponse;
+        const mentions = (payload.items ?? []).reduce<ComposerMentionOption[]>(
+          (accumulator, item) => {
+            const nextDocId = item.docId?.trim();
+            if (!nextDocId) {
+              return accumulator;
+            }
+            const nextTitle =
+              item.title?.trim() || `Document ${nextDocId.slice(0, 8)}`;
+            accumulator.push({
+              id: `/sheets/${nextDocId}`,
+              label: nextTitle,
+              category: "document",
+              description: nextDocId,
+            });
+            return accumulator;
+          },
+          [],
+        );
+
+        const normalizedDocId = docId?.trim();
+        if (
+          normalizedQuery.length === 0 &&
+          normalizedDocId &&
+          !mentions.some((item) => item.id === `/sheets/${normalizedDocId}`)
+        ) {
+          mentions.unshift({
+            id: `/sheets/${normalizedDocId}`,
+            label: `Document ${normalizedDocId.slice(0, 8)}`,
+            category: "document",
+            description: `${normalizedDocId} (current document)`,
+          });
+        }
+
+        documentMentionSearchCacheRef.current.set(cacheKey, mentions);
+        if (normalizedQuery.length === 0) {
+          setDocumentMentionOptions(mentions);
+        }
+
+        return mentions;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return [];
+        }
+        return [];
+      } finally {
+        if (documentMentionSearchAbortRef.current === controller) {
+          documentMentionSearchAbortRef.current = null;
+        }
+      }
+    },
+    [docId],
+  );
+
+  React.useEffect(() => {
+    documentMentionSearchCacheRef.current.clear();
+    setDocumentMentionOptions([]);
+    void fetchDocumentMentionOptions("");
+
+    return () => {
+      documentMentionSearchAbortRef.current?.abort();
+      documentMentionSearchAbortRef.current = null;
+    };
+  }, [fetchDocumentMentionOptions]);
+
+  const fallbackSheets = React.useMemo(() => {
+    if (sheets && sheets.length > 0) {
+      return sheets;
+    }
+    const snapshot = getAssistantContextSnapshot(docId);
+    return snapshot?.sheets ?? [];
+  }, [docId, sheets]);
+
+  const resolvedActiveSheetId = React.useMemo(() => {
+    if (typeof activeSheetId === "number" && Number.isFinite(activeSheetId)) {
+      return activeSheetId;
+    }
+    const snapshot = getAssistantContextSnapshot(docId);
+    const snapshotSheetId = snapshot?.activeSheetId;
+    return typeof snapshotSheetId === "number" &&
+      Number.isFinite(snapshotSheetId)
+      ? snapshotSheetId
+      : undefined;
+  }, [activeSheetId, docId]);
+
+  const sheetMentionOptions = React.useMemo<ComposerMentionOption[]>(() => {
+    const normalizedDocId = docId?.trim();
+    if (!normalizedDocId || fallbackSheets.length === 0) {
+      return [];
+    }
+
+    return fallbackSheets.reduce<ComposerMentionOption[]>(
+      (accumulator, sheet) => {
+        const sheetId =
+          typeof sheet.sheetId === "number" && Number.isFinite(sheet.sheetId)
+            ? sheet.sheetId
+            : null;
+        if (sheetId === null) {
+          return accumulator;
+        }
+
+        const sheetLabel =
+          sheet.title?.trim() || `Sheet ${Math.max(1, Math.floor(sheetId))}`;
+        const mentionUrl = `/sheets/${normalizedDocId}?sheetId=${sheetId}`;
+        const isCurrentSheet = sheetId === resolvedActiveSheetId;
+
+        accumulator.push({
+          id: mentionUrl,
+          label: sheetLabel,
+          category: "sheet",
+          description: isCurrentSheet
+            ? `${mentionUrl} (current sheet)`
+            : mentionUrl,
+        });
+        return accumulator;
+      },
+      [],
+    );
+  }, [docId, fallbackSheets, resolvedActiveSheetId]);
+
+  const mentionOptions = React.useMemo<ComposerMentionOption[]>(() => {
+    const uniqueMentions = new Map<string, ComposerMentionOption>();
+
+    for (const item of [...sheetMentionOptions, ...documentMentionOptions]) {
+      if (!uniqueMentions.has(item.id)) {
+        uniqueMentions.set(item.id, item);
+      }
+    }
+
+    return Array.from(uniqueMentions.values());
+  }, [documentMentionOptions, sheetMentionOptions]);
+
+  const searchMentionOptions = React.useCallback(
+    async (query: string): Promise<ComposerMentionOption[]> => {
+      const filteredSheetOptions = filterLocalMentionOptions(
+        sheetMentionOptions,
+        query,
+      );
+      const documentOptions = await fetchDocumentMentionOptions(query);
+      const uniqueMentions = new Map<string, ComposerMentionOption>();
+
+      for (const item of [...filteredSheetOptions, ...documentOptions]) {
+        if (!uniqueMentions.has(item.id)) {
+          uniqueMentions.set(item.id, item);
+        }
+      }
+
+      return Array.from(uniqueMentions.values());
+    },
+    [fetchDocumentMentionOptions, sheetMentionOptions],
+  );
 
   const releasePreviewUrl = React.useCallback((url?: string) => {
     if (url && url.startsWith("blob:")) {
@@ -3952,37 +4331,16 @@ function AssistantComposer({
     threadRuntime.cancelRun();
   }, [isThreadRunning, threadId, threadRuntime]);
 
-  const handleQueueOnEnter = React.useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (
-        event.nativeEvent.isComposing ||
-        event.key !== "Enter" ||
-        event.shiftKey
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      handleSendOrQueue();
+  const handleComposerTextChange = React.useCallback(
+    (value: string) => {
+      composerRuntime.setText(value);
     },
-    [handleSendOrQueue],
+    [composerRuntime],
   );
 
-  const handleComposerInputPaste = React.useCallback(
-    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const pastedFiles = Array.from(event.clipboardData.items)
-        .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile())
-        .filter(
-          (file): file is File => file !== null && isSupportedImageFile(file),
-        );
-
-      if (pastedFiles.length === 0) {
-        return;
-      }
-
-      event.preventDefault();
-      void addImageFilesToComposer(pastedFiles);
+  const handleComposerPasteFiles = React.useCallback(
+    (files: File[]) => {
+      void addImageFilesToComposer(files);
     },
     [addImageFilesToComposer],
   );
@@ -4285,19 +4643,15 @@ function AssistantComposer({
         </div>
       )}
       <div className={cn("px-4", hasCredits ? "pt-4" : "pt-2")}>
-        <ComposerPrimitive.Input
-          asChild
-          onKeyDown={handleQueueOnEnter}
-          submitMode="none"
-          onPaste={handleComposerInputPaste}
-          addAttachmentOnPaste={false}
-        >
-          <Textarea
-            rows={2}
-            placeholder="Type to start sending a message"
-            className="min-h-12 sm:min-h-16 w-full resize-none border-0 bg-transparent px-0 py-0 leading-6 text-[16px] sm:text-sm text-foreground outline-none transition placeholder:text-[#7e8da7] focus-visible:ring-0"
-          />
-        </ComposerPrimitive.Input>
+        <AssistantComposerInput
+          value={composerText}
+          placeholder="Type to start sending a message"
+          mentionOptions={mentionOptions}
+          onSearchMentions={searchMentionOptions}
+          onChange={handleComposerTextChange}
+          onSubmit={handleSendOrQueue}
+          onPasteFiles={handleComposerPasteFiles}
+        />
       </div>
       <div
         ref={composerFooterRef}
@@ -4506,6 +4860,8 @@ function AssistantStatusOverlay({ label }: { label: string }) {
 function WorkspaceAssistantPanel({
   prompts,
   docId,
+  sheets,
+  activeSheetId,
   isAdmin = false,
   threadId,
   onNewSession,
@@ -4915,6 +5271,9 @@ function WorkspaceAssistantPanel({
             >
               <div className={cn("w-full", isThreadEmpty ? "space-y-3" : "")}>
                 <AssistantComposer
+                  docId={docId}
+                  sheets={sheets}
+                  activeSheetId={activeSheetId}
                   selectedModel={selectedModel}
                   selectedModelLabel={selectedModelLabel}
                   isModelPickerOpen={isModelPickerOpen}
@@ -5012,6 +5371,8 @@ function WorkspaceAssistantPanel({
 export function WorkspaceAssistantUI({
   prompts,
   docId,
+  sheets,
+  activeSheetId,
   isAdmin,
   threadId,
   onNewSession,
@@ -5037,6 +5398,8 @@ export function WorkspaceAssistantUI({
     <WorkspaceAssistantPanel
       prompts={prompts}
       docId={docId}
+      sheets={sheets}
+      activeSheetId={activeSheetId}
       isAdmin={isAdmin}
       threadId={threadId}
       onNewSession={onNewSession}
@@ -5064,6 +5427,8 @@ export function WorkspaceAssistantUI({
 export function WorkspaceAssistant({
   prompts,
   docId,
+  sheets,
+  activeSheetId,
   isAdmin,
 }: WorkspaceAssistantProps) {
   const assistantRuntime = useSpreadsheetAssistantRuntime({ docId });
@@ -5073,6 +5438,8 @@ export function WorkspaceAssistant({
       <WorkspaceAssistantPanel
         prompts={prompts}
         docId={docId}
+        sheets={sheets}
+        activeSheetId={activeSheetId}
         isAdmin={isAdmin}
         threadId={assistantRuntime.threadId}
         onNewSession={assistantRuntime.startNewThread}

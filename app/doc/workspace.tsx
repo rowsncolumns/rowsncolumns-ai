@@ -533,6 +533,7 @@ function SpreadsheetPane({
   canEdit,
   canUseAuditHistory,
   onOpenHistorySidebar,
+  onAssistantContextChange,
   locale,
   currency,
 }: {
@@ -543,6 +544,10 @@ function SpreadsheetPane({
   canEdit: boolean;
   canUseAuditHistory: boolean;
   onOpenHistorySidebar: () => void;
+  onAssistantContextChange?: (value: {
+    sheets: Sheet[];
+    activeSheetId: number;
+  }) => void;
   locale: string;
   currency: string;
 }) {
@@ -1025,6 +1030,16 @@ function SpreadsheetPane({
       maxIterations: 100,
     },
   });
+
+  useEffect(() => {
+    if (!Number.isFinite(activeSheetId)) {
+      return;
+    }
+    onAssistantContextChange?.({
+      sheets,
+      activeSheetId,
+    });
+  }, [activeSheetId, onAssistantContextChange, sheets]);
 
   const { onBroadcastPatch, users, synced } = useShareDBSpreadsheet({
     connection,
@@ -2435,6 +2450,10 @@ export function NewWorkspace({
   const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
   const [showAssistantBubbleEntrance, setShowAssistantBubbleEntrance] =
     useState(false);
+  const [assistantSheetContext, setAssistantSheetContext] = useState<{
+    sheets: Sheet[];
+    activeSheetId: number;
+  } | null>(null);
   // Create the assistant runtime at this level so both panes can use it
   const assistantRuntime = useSpreadsheetAssistantRuntime({
     docId: documentId,
@@ -2493,6 +2512,7 @@ export function NewWorkspace({
       canEdit={canEdit}
       canUseAuditHistory={canUseAuditHistory}
       onOpenHistorySidebar={() => setIsHistorySidebarOpen(true)}
+      onAssistantContextChange={setAssistantSheetContext}
       locale={locale}
       currency={currency}
     />
@@ -2519,6 +2539,8 @@ export function NewWorkspace({
     <WorkspaceAssistantUI
       prompts={starterPrompts}
       docId={documentId}
+      sheets={assistantSheetContext?.sheets}
+      activeSheetId={assistantSheetContext?.activeSheetId}
       isAdmin={isAdmin}
       threadId={assistantRuntime.threadId}
       onNewSession={assistantRuntime.startNewThread}
@@ -2573,16 +2595,16 @@ export function NewWorkspace({
               >
                 <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl border border-(--panel-border) bg-(--assistant-chip-bg) p-1">
                   <TabsTrigger
-                    value="chat"
-                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground  data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground data[state=active]:shadow-lg"
-                  >
-                    Chat
-                  </TabsTrigger>
-                  <TabsTrigger
                     value="sheet"
                     className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground data[state=active]:shadow-lg"
                   >
                     Sheet
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="chat"
+                    className="h-9 rounded-lg text-[15px] font-semibold tracking-[-0.01em] text-(--muted-foreground) data-[state=active]:bg-(--assistant-tabs-active-bg) data-[state=active]:text-foreground  data-[state=inactive]:hover:bg-(--assistant-chip-hover) data-[state=inactive]:hover:text-foreground data[state=active]:shadow-lg"
+                  >
+                    Chat
                   </TabsTrigger>
                 </TabsList>
                 <div className="relative mt-2 min-h-0 flex-1 overflow-hidden">
