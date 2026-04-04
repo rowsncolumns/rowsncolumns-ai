@@ -13,8 +13,10 @@ import {
 import { resolveLocaleAndCurrency } from "@/lib/locale-preference";
 import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme-preference";
 import {
+  ASSISTANT_COLLAPSED_COOKIE,
   DEFAULT_PANEL_LAYOUT,
   PANEL_LAYOUT_COOKIE,
+  parseAssistantCollapsedCookie,
   parsePanelLayoutCookie,
 } from "@/app/doc/panel-layout";
 import { NewBodyClass } from "@/app/doc/body-class";
@@ -92,6 +94,9 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
   const initialThemeMode = parseThemeCookie(
     cookieStore.get(THEME_COOKIE)?.value,
   );
+  const initialAssistantCollapsed = parseAssistantCollapsedCookie(
+    cookieStore.get(ASSISTANT_COLLAPSED_COOKIE)?.value,
+  );
   const secChUaMobile = headerStore.get("sec-ch-ua-mobile");
   const userAgent = headerStore.get("user-agent") ?? "";
   const { locale, currency } = resolveLocaleAndCurrency({
@@ -118,6 +123,7 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
         canManageShare={access.isOwner}
         canEdit={access.permission === "edit"}
         initialThemeMode={initialThemeMode}
+        initialAssistantCollapsed={initialAssistantCollapsed}
         initialIsMobileLayout={initialIsMobileLayout}
         isAdmin={isAdmin}
         canUseAuditHistory={canUseAuditHistory}

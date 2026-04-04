@@ -29,6 +29,9 @@ export function ShareDocumentButton({
 }: ShareDocumentButtonProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [loadingAction, setLoadingAction] = React.useState<"load" | "create">(
+    "load",
+  );
   const [isUpdatingPermission, setIsUpdatingPermission] = React.useState(false);
   const [isUnsharing, setIsUnsharing] = React.useState(false);
   const [shareUrl, setShareUrl] = React.useState("");
@@ -60,11 +63,52 @@ export function ShareDocumentButton({
     }, 1800);
   }, []);
 
-  const loadShareState = React.useCallback(async () => {
+  const createShareLink = React.useCallback(async () => {
     if (!canManageShare) {
       return;
     }
 
+    setLoadingAction("create");
+    setIsLoading(true);
+    setCopied(false);
+
+    try {
+      const response = await fetch("/api/documents/share", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ documentId }),
+      });
+      const payload = (await response
+        .json()
+        .catch(() => null)) as ShareLinkResponse | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to create share link.");
+      }
+
+      const nextShareUrl = payload?.shareUrl?.trim() ?? "";
+      if (!nextShareUrl) {
+        throw new Error("Failed to generate share URL.");
+      }
+
+      setShareUrl(nextShareUrl);
+      setPermission(payload.permission === "view" ? "view" : "edit");
+    } catch (errorValue) {
+      const message =
+        errorValue instanceof Error
+          ? errorValue.message
+          : "Failed to create share link.";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [canManageShare, documentId]);
+
+  const loadShareState = React.useCallback(async () => {
+    if (!canManageShare) return;
+
+    setLoadingAction("load");
     setIsLoading(true);
     setCopied(false);
 
@@ -82,59 +126,22 @@ export function ShareDocumentButton({
         throw new Error(payload?.error || "Failed to load share settings.");
       }
 
-      const hasActiveShareLink =
-        payload?.isActive !== false && typeof payload?.shareUrl === "string";
+      const nextShareUrl = payload?.shareUrl?.trim() ?? "";
+      const hasActiveShareLink = payload?.isActive !== false && !!nextShareUrl;
+
       if (!hasActiveShareLink) {
         setShareUrl("");
+        setPermission(payload?.permission === "view" ? "view" : "edit");
         return;
       }
 
-      setShareUrl(payload.shareUrl?.trim() ?? "");
+      setShareUrl(nextShareUrl);
       setPermission(payload.permission === "view" ? "view" : "edit");
     } catch (errorValue) {
       const message =
         errorValue instanceof Error
           ? errorValue.message
           : "Failed to load share settings.";
-      toast.error(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [canManageShare, documentId]);
-
-  const createShareLink = React.useCallback(async () => {
-    if (!canManageShare) return;
-
-    setIsLoading(true);
-    setCopied(false);
-
-    try {
-      const response = await fetch("/api/documents/share", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ documentId }),
-      });
-
-      const payload = (await response
-        .json()
-        .catch(() => null)) as ShareLinkResponse | null;
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to create share link.");
-      }
-
-      if (!payload?.shareUrl) {
-        throw new Error("Failed to generate share URL.");
-      }
-
-      setShareUrl(payload.shareUrl);
-      setPermission(payload.permission === "view" ? "view" : "edit");
-    } catch (errorValue) {
-      const message =
-        errorValue instanceof Error
-          ? errorValue.message
-          : "Failed to create share link.";
       toast.error(message);
     } finally {
       setIsLoading(false);
@@ -226,7 +233,7 @@ export function ShareDocumentButton({
         }
 
         if (payload?.shareUrl) {
-          setShareUrl(payload.shareUrl);
+          setShareUrl(payload.shareUrl.trim());
         }
         setPermission(payload?.permission === "view" ? "view" : "edit");
         toast.success(
@@ -305,6 +312,15 @@ export function ShareDocumentButton({
     shareUrl,
   ]);
 
+  const hasShareLink = shareUrl.trim().length > 0;
+  const isCreatingLink = isLoading && loadingAction === "create";
+  const isLoadingShareState = isLoading && loadingAction === "load";
+  const inputPlaceholder = isCreatingLink
+    ? "Generating share link..."
+    : isLoadingShareState
+      ? "Loading share settings..."
+      : "No active share link";
+
   React.useEffect(() => {
     if (!isOpen) {
       return;
@@ -373,105 +389,151 @@ export function ShareDocumentButton({
                     </button>
                   </div>
 
-                  {isLoading ? (
-                    <div className="flex items-center gap-2 text-xs text-(--muted-foreground)">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Generating share link...
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) p-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-(--muted-foreground)">
-                          Permission
-                        </p>
-                        <div className="mt-1.5 inline-flex gap-1 rounded-lg border border-(--card-border) bg-(--card-bg-solid) p-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={
-                              permission === "view" ? "default" : "secondary"
-                            }
-                            onClick={() => void updateSharePermission("view")}
-                            disabled={isUpdatingPermission || isLoading}
-                            className="h-7 rounded-md px-2.5 text-xs"
-                          >
-                            Can view
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={
-                              permission === "edit" ? "default" : "secondary"
-                            }
-                            onClick={() => void updateSharePermission("edit")}
-                            disabled={isUpdatingPermission || isLoading}
-                            className="h-7 rounded-md px-2.5 text-xs"
-                          >
-                            Can edit
-                          </Button>
-                        </div>
-                        <p className="mt-1 text-[11px] text-(--muted-foreground)">
-                          {permission === "view"
-                            ? "Recipients can view but cannot edit."
-                            : "Recipients can view and edit."}
-                        </p>
-                      </div>
-                      <input
-                        readOnly
-                        value={shareUrl}
-                        className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 text-xs text-foreground outline-none"
-                      />
-                      <div className="flex items-center justify-between gap-2">
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) p-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-(--muted-foreground)">
+                        Permission
+                      </p>
+                      <div className="mt-1.5 inline-flex gap-1 rounded-lg border border-(--card-border) bg-(--card-bg-solid) p-1">
                         <Button
                           type="button"
                           size="sm"
-                          variant="secondary"
-                          onClick={() => setIsOpen(false)}
-                          className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
+                          variant={
+                            permission === "view" ? "default" : "secondary"
+                          }
+                          onClick={() => void updateSharePermission("view")}
+                          disabled={
+                            !hasShareLink ||
+                            isUpdatingPermission ||
+                            isLoading ||
+                            isUnsharing
+                          }
+                          className="h-7 rounded-md px-2.5 text-xs"
                         >
-                          Done
+                          Can view
                         </Button>
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          {canNativeShare ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => void handleNativeShare()}
-                              disabled={
-                                !shareUrl || isLoading || isUpdatingPermission
-                              }
-                              className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
-                            >
-                              <Share2 className="h-3.5 w-3.5" />
-                              Share link
-                            </Button>
-                          ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            permission === "edit" ? "default" : "secondary"
+                          }
+                          onClick={() => void updateSharePermission("edit")}
+                          disabled={
+                            !hasShareLink ||
+                            isUpdatingPermission ||
+                            isLoading ||
+                            isUnsharing
+                          }
+                          className="h-7 rounded-md px-2.5 text-xs"
+                        >
+                          Can edit
+                        </Button>
+                      </div>
+                      <p className="mt-1 text-[11px] text-(--muted-foreground)">
+                        {!hasShareLink
+                          ? "No active share link. Create one to share this document."
+                          : permission === "view"
+                            ? "Recipients can view but cannot edit."
+                            : "Recipients can view and edit."}
+                      </p>
+                    </div>
+                    <div className="relative">
+                      <input
+                        readOnly
+                        value={shareUrl}
+                        placeholder={inputPlaceholder}
+                        className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 pr-9 text-xs text-foreground outline-none"
+                      />
+                      {isLoading ? (
+                        <span className="pointer-events-none absolute inset-y-0 right-3 inline-flex items-center text-(--muted-foreground)">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setIsOpen(false)}
+                        className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
+                      >
+                        Done
+                      </Button>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {!hasShareLink ? (
                           <Button
                             type="button"
                             size="sm"
-                            onClick={() => void handleCopyLink()}
+                            onClick={() => void createShareLink()}
                             disabled={
-                              !shareUrl || isLoading || isUpdatingPermission
+                              isLoading || isUpdatingPermission || isUnsharing
                             }
                             className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"
                           >
-                            {copied ? (
-                              <>
-                                <Check className="h-3.5 w-3.5" />
-                                Copied
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3.5 w-3.5" />
-                                Copy
-                              </>
-                            )}
+                            Create link
                           </Button>
-                        </div>
+                        ) : null}
+                        {hasShareLink ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void handleStopSharing()}
+                            disabled={
+                              isLoading || isUpdatingPermission || isUnsharing
+                            }
+                            className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
+                          >
+                            Unshare
+                          </Button>
+                        ) : null}
+                        {canNativeShare ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void handleNativeShare()}
+                            disabled={
+                              !hasShareLink ||
+                              isLoading ||
+                              isUpdatingPermission ||
+                              isUnsharing
+                            }
+                            className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
+                          >
+                            <Share2 className="h-3.5 w-3.5" />
+                            Share link
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void handleCopyLink()}
+                          disabled={
+                            !hasShareLink ||
+                            isLoading ||
+                            isUpdatingPermission ||
+                            isUnsharing
+                          }
+                          className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"
+                        >
+                          {copied ? (
+                            <>
+                              <Check className="h-3.5 w-3.5" />
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              Copy
+                            </>
+                          )}
+                        </Button>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             ) : null,

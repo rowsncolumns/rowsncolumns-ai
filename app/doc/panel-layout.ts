@@ -1,7 +1,9 @@
 export const PANEL_LAYOUT_COOKIE = "new-workspace-layout";
+export const ASSISTANT_COLLAPSED_COOKIE = "new-workspace-assistant-collapsed";
 export const PANEL_GROUP_ID = "new-workspace-group";
 export const SPREADSHEET_PANEL_ID = "spreadsheet-panel";
 export const ASSISTANT_PANEL_ID = "assistant-panel";
+export const ASSISTANT_COLLAPSED_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 export type WorkspacePanelLayout = {
   [SPREADSHEET_PANEL_ID]: number;
@@ -61,4 +63,14 @@ export function serializePanelLayoutCookie(
   layout: WorkspacePanelLayout,
 ): string {
   return encodeURIComponent(JSON.stringify(normalizePanelLayout(layout)));
+}
+
+export function parseAssistantCollapsedCookie(
+  value: string | null | undefined,
+): boolean {
+  return value === "1";
+}
+
+export function serializeAssistantCollapsedCookie(isCollapsed: boolean): string {
+  return isCollapsed ? "1" : "0";
 }

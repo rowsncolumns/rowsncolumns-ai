@@ -169,10 +169,13 @@ import {
   useCharts,
 } from "@rowsncolumns/charts";
 import {
+  ASSISTANT_COLLAPSED_COOKIE,
+  ASSISTANT_COLLAPSED_COOKIE_MAX_AGE,
   ASSISTANT_PANEL_ID,
   PANEL_GROUP_ID,
   PANEL_LAYOUT_COOKIE,
   SPREADSHEET_PANEL_ID,
+  serializeAssistantCollapsedCookie,
   serializePanelLayoutCookie,
   type WorkspacePanelLayout,
 } from "./panel-layout";
@@ -2172,6 +2175,7 @@ type NewWorkspaceProps = {
   canManageShare: boolean;
   canEdit: boolean;
   canUseAuditHistory: boolean;
+  initialAssistantCollapsed: boolean;
   initialIsMobileLayout: boolean;
   isAdmin: boolean;
   locale: string;
@@ -2462,6 +2466,7 @@ export function NewWorkspace({
   canManageShare,
   canEdit,
   canUseAuditHistory,
+  initialAssistantCollapsed,
   initialIsMobileLayout,
   isAdmin,
   locale,
@@ -2472,7 +2477,9 @@ export function NewWorkspace({
     initialIsMobileLayout,
   );
   const [mobileTab, setMobileTab] = useState<"chat" | "sheet">("sheet");
-  const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(
+    initialAssistantCollapsed,
+  );
   const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
   const [showAssistantBubbleEntrance, setShowAssistantBubbleEntrance] =
     useState(false);
@@ -2508,6 +2515,15 @@ export function NewWorkspace({
     return () => {
       window.clearTimeout(timeoutId);
     };
+  }, [isAssistantCollapsed]);
+
+  useEffect(() => {
+    document.cookie = [
+      `${ASSISTANT_COLLAPSED_COOKIE}=${serializeAssistantCollapsedCookie(isAssistantCollapsed)}`,
+      "Path=/",
+      `Max-Age=${ASSISTANT_COLLAPSED_COOKIE_MAX_AGE}`,
+      "SameSite=Lax",
+    ].join("; ");
   }, [isAssistantCollapsed]);
 
   const handleLayoutChanged = (layout: Record<string, number>) => {
