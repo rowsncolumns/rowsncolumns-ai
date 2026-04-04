@@ -194,7 +194,10 @@ const filterMentionOptions = (
   query: string,
 ): ComposerMentionOption[] => {
   const normalizedQuery = query.trim();
-  const byCategory = new Map<ComposerMentionCategory, ComposerMentionOption[]>();
+  const byCategory = new Map<
+    ComposerMentionCategory,
+    ComposerMentionOption[]
+  >();
   for (const item of items) {
     const existing = byCategory.get(item.category);
     if (existing) {
