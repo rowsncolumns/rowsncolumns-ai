@@ -1161,6 +1161,7 @@ function SpreadsheetPane({
               onOpenAutoFocus={(e) => {
                 e.preventDefault();
               }}
+              onContextMenu={(e) => e.stopPropagation()}
             >
               {props.type === "citation"
                 ? citationsById[props.title]?.citation_string
