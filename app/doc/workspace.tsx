@@ -2445,7 +2445,7 @@ export function NewWorkspace({
     MOBILE_LAYOUT_MEDIA_QUERY,
     initialIsMobileLayout,
   );
-  const [mobileTab, setMobileTab] = useState<"chat" | "sheet">("chat");
+  const [mobileTab, setMobileTab] = useState<"chat" | "sheet">("sheet");
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
   const [showAssistantBubbleEntrance, setShowAssistantBubbleEntrance] =
