@@ -18,15 +18,16 @@ import {
   getChatToolDescription,
   getChatToolDisplayName,
 } from "@/lib/chat/tool-metadata";
-import { Table2, Wrench } from "lucide-react";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import { MentionPill } from "@/components/workspace-assistant/mention-pill";
 import { cn } from "@/lib/utils";
 
 const SHEETS_PATH_REGEX = /^\/sheets\/([^/?#]+)\/?$/;
+const DEFAULT_SHEET_NAVIGATION_RANGE = "A1";
 
 type MarkdownAnchorProps = React.ComponentPropsWithoutRef<"a"> & {
   node?: unknown;
@@ -92,7 +93,7 @@ const parseSpreadsheetLink = (href: string): SpreadsheetLinkTarget | null => {
   const sheetIdValue = url.searchParams.get("sheetId")?.trim() || "";
   const sheetId = Number.parseInt(sheetIdValue, 10);
 
-  if (!docId || !range || !Number.isInteger(sheetId)) {
+  if (!docId || !Number.isInteger(sheetId)) {
     return null;
   }
 
@@ -169,25 +170,6 @@ const getMentionKindFromHref = (
   }
 };
 
-const MentionLinkIcon = ({
-  mentionKind,
-}: {
-  mentionKind: MentionKind | null;
-}) => {
-  switch (mentionKind) {
-    case "tool":
-      return (
-        <Wrench aria-hidden="true" className="mr-1 inline-block h-3 w-3" />
-      );
-    case "sheet":
-      return (
-        <Table2 aria-hidden="true" className="mr-1 inline-block h-3 w-3" />
-      );
-    default:
-      return null;
-  }
-};
-
 export function AssistantMarkdownLink({
   href,
   onClick,
@@ -260,8 +242,7 @@ export function AssistantMarkdownLink({
       const target =
         (effectiveMentionUrl
           ? parseSpreadsheetLink(effectiveMentionUrl)
-          : null) ??
-        parseSpreadsheetTargetFromMentionUri(effectiveMentionUrl);
+          : null) ?? parseSpreadsheetTargetFromMentionUri(effectiveMentionUrl);
       if (!target) {
         const docHref = parseDocumentHrefFromMentionUri(effectiveMentionUrl);
         if (docHref) {
@@ -280,7 +261,9 @@ export function AssistantMarkdownLink({
 
         const instance = getInstance(currentDocId);
         if (instance) {
-          const sheetRange = addressToSelection(target.range);
+          const sheetRange = addressToSelection(
+            target.range || DEFAULT_SHEET_NAVIGATION_RANGE,
+          );
           if (sheetRange) {
             // Navigate to sheet range inside the current document.
             instance.navigateToSheetRange?.(
@@ -316,29 +299,47 @@ export function AssistantMarkdownLink({
     const toolDescription = getChatToolDescription(toolName);
 
     return (
-      <Popover>
-        <PopoverTrigger asChild>
+      <HoverCard openDelay={120} closeDelay={80}>
+        <HoverCardTrigger asChild>
           <button
             type="button"
             className={cn(
-              "inline-flex cursor-pointer items-center text-left",
+              "inline-flex cursor-pointer items-center text-left no-underline",
               className,
             )}
             aria-label={`${toolTitle} tool details`}
           >
-            <MentionLinkIcon mentionKind={mentionKind} />
-            {children}
+            <MentionPill mentionKind={mentionKind} className="align-baseline">
+              {children}
+            </MentionPill>
           </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" sideOffset={8} className="w-80 p-3">
+        </HoverCardTrigger>
+        <HoverCardContent align="start" sideOffset={8} className="w-80 p-3">
           <div className="space-y-1">
             <p className="text-sm font-semibold text-foreground">{toolTitle}</p>
             <p className="text-xs leading-relaxed text-(--muted-foreground)">
               {toolDescription}
             </p>
           </div>
-        </PopoverContent>
-      </Popover>
+        </HoverCardContent>
+      </HoverCard>
+    );
+  }
+
+  if (mentionKind === "sheet") {
+    return (
+      <a
+        {...props}
+        className={cn("inline-flex items-center no-underline", className)}
+        href={href}
+        onClick={handleClick}
+        data-mention-kind={dataMentionKind}
+        data-mention-url={dataMentionUrl}
+      >
+        <MentionPill mentionKind={mentionKind} className="align-baseline">
+          {children}
+        </MentionPill>
+      </a>
     );
   }
 
@@ -351,7 +352,6 @@ export function AssistantMarkdownLink({
       data-mention-kind={dataMentionKind}
       data-mention-url={dataMentionUrl}
     >
-      <MentionLinkIcon mentionKind={mentionKind} />
       {children}
     </a>
   );

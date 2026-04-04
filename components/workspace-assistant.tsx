@@ -270,8 +270,7 @@ type MarkdownNode = {
 const MENTION_REFERENCE_MARKDOWN_REGEX =
   /\[([^\]\n]+)\]\(([^)\n]+)\)|\[([^\]\n]+)\]\[([^\]\n]+)\]/g;
 
-const mentionPillClassName =
-  "rnc-markdown-mention-pill inline-flex items-center rounded-full border border-(--panel-border) bg-(--assistant-chip-bg) px-2 py-0.5 text-sm align-baseline no-underline";
+const mentionPillClassName = "rnc-markdown-mention-pill";
 
 const unescapeMentionMarkdownText = (value: string): string =>
   value.replace(/\\([[\]\\])/g, "$1");

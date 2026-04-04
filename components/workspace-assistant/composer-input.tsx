@@ -35,6 +35,7 @@ import {
   getMentionKindFromMentionId,
   type MentionCategory,
 } from "@/components/workspace-assistant/mention-config";
+import { MentionPill } from "@/components/workspace-assistant/mention-pill";
 
 export type ComposerMentionCategory = MentionCategory;
 
@@ -120,34 +121,24 @@ const MentionCategoryIcon = ({
   }
 };
 
-const MentionNodeIcon = ({ mentionId }: { mentionId: string }) => {
-  switch (getMentionKindFromMentionId(mentionId)) {
-    case "tool":
-      return <Wrench aria-hidden="true" className="h-3 w-3 shrink-0" />;
-    case "sheet":
-    default:
-      return <Table2 aria-hidden="true" className="h-3 w-3 shrink-0" />;
-  }
-};
-
 const MentionNodeView = ({ node }: NodeViewProps) => {
   const mentionId = typeof node.attrs.id === "string" ? node.attrs.id : "";
   const mentionLabel =
     typeof node.attrs.label === "string" && node.attrs.label.trim().length > 0
       ? node.attrs.label.trim()
       : mentionId;
+  const mentionKind = getMentionKindFromMentionId(mentionId);
 
   return (
     <NodeViewWrapper
       as="span"
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-(--panel-border) bg-(--assistant-chip-bg) px-2 py-0.5 text-sm text-foreground"
+      className="inline-flex"
       data-mention-url={mentionId}
       contentEditable={false}
     >
-      <span className="text-(--muted-foreground)">
-        <MentionNodeIcon mentionId={mentionId} />
-      </span>
-      <span>{mentionLabel}</span>
+      <MentionPill mentionKind={mentionKind} className="whitespace-nowrap">
+        {mentionLabel}
+      </MentionPill>
     </NodeViewWrapper>
   );
 };
