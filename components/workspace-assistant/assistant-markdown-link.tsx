@@ -8,17 +8,30 @@ import {
 } from "@rowsncolumns/spreadsheet";
 import { addressToSelection } from "@rowsncolumns/utils";
 import {
+  parseMentionUri,
   SHEETS_URI_REGEX,
   TOOLS_URI_REGEX,
+  parseToolNameFromMentionUri,
   type MentionKind,
 } from "@/components/workspace-assistant/mention-config";
+import {
+  getChatToolDescription,
+  getChatToolDisplayName,
+} from "@/lib/chat/tool-metadata";
 import { Table2, Wrench } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const SHEETS_PATH_REGEX = /^\/sheets\/([^/?#]+)\/?$/;
 
 type MarkdownAnchorProps = React.ComponentPropsWithoutRef<"a"> & {
   node?: unknown;
   "data-mention-kind"?: string;
+  "data-mention-url"?: string;
 };
 
 export type SpreadsheetLinkTarget = {
@@ -91,6 +104,36 @@ const parseSpreadsheetLink = (href: string): SpreadsheetLinkTarget | null => {
   };
 };
 
+const parseSpreadsheetTargetFromMentionUri = (
+  mentionUri: string | undefined,
+): SpreadsheetLinkTarget | null => {
+  const parsed = parseMentionUri(mentionUri);
+  if (!parsed || parsed.kind !== "sheet") {
+    return null;
+  }
+  const parsedSheetId = parsed.sheetId;
+  if (!parsed.docId || !Number.isInteger(parsedSheetId)) {
+    return null;
+  }
+
+  const sheetId = Number(parsedSheetId);
+  const href = `/sheets/${encodeURIComponent(parsed.docId)}?sheetId=${sheetId}`;
+  return {
+    docId: parsed.docId,
+    range: "",
+    sheetId,
+    href,
+  };
+};
+
+const parseDocumentHrefFromMentionUri = (mentionUri: string | undefined) => {
+  const parsed = parseMentionUri(mentionUri);
+  if (!parsed || parsed.kind !== "document") {
+    return null;
+  }
+  return `/sheets/${encodeURIComponent(parsed.docId)}`;
+};
+
 const getMentionKindFromHref = (
   href: string | undefined,
 ): MentionKind | null => {
@@ -99,7 +142,12 @@ const getMentionKindFromHref = (
     return null;
   }
 
-  if (TOOLS_URI_REGEX.test(normalizedHref)) {
+  const parsed = parseMentionUri(normalizedHref);
+  if (parsed) {
+    return parsed.kind === "tool" ? "tool" : "sheet";
+  }
+
+  if (parseToolNameFromMentionUri(normalizedHref)) {
     return "tool";
   }
 
@@ -111,6 +159,9 @@ const getMentionKindFromHref = (
     const url = new URL(normalizedHref, window.location.origin);
     if (url.origin !== window.location.origin) {
       return null;
+    }
+    if (TOOLS_URI_REGEX.test(url.pathname)) {
+      return "tool";
     }
     return SHEETS_URI_REGEX.test(url.pathname) ? "sheet" : null;
   } catch {
@@ -143,9 +194,11 @@ export function AssistantMarkdownLink({
   onOpenInCurrentDocument,
   node,
   "data-mention-kind": dataMentionKind,
+  "data-mention-url": dataMentionUrl,
+  className,
+  children,
   ...props
 }: AssistantMarkdownLinkProps) {
-  void node;
   const params = useParams<{ documentId?: string | string[] }>();
   const currentDocId = React.useMemo(
     () => readDocumentIdParam(params?.documentId),
@@ -156,8 +209,26 @@ export function AssistantMarkdownLink({
     () =>
       readMentionKindFromDataAttribute(
         typeof dataMentionKind === "string" ? dataMentionKind : undefined,
-      ) ?? getMentionKindFromHref(href),
-    [dataMentionKind, href],
+      ) ??
+      getMentionKindFromHref(href) ??
+      (typeof dataMentionUrl === "string"
+        ? getMentionKindFromHref(dataMentionUrl)
+        : null),
+    [dataMentionKind, dataMentionUrl, href],
+  );
+  const effectiveMentionUrl = React.useMemo(() => {
+    const candidate = href?.trim() || "";
+    if (candidate.length > 0) {
+      return candidate;
+    }
+    if (typeof dataMentionUrl === "string" && dataMentionUrl.trim()) {
+      return dataMentionUrl.trim();
+    }
+    return undefined;
+  }, [dataMentionUrl, href]);
+  const toolName = React.useMemo(
+    () => parseToolNameFromMentionUri(effectiveMentionUrl),
+    [effectiveMentionUrl],
   );
   const getInstance = useCallbackRef((docId: string) => {
     return instance.get(docId);
@@ -166,7 +237,7 @@ export function AssistantMarkdownLink({
   const handleClick = React.useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
       onClick?.(event);
-      if (event.defaultPrevented || !href) {
+      if (event.defaultPrevented) {
         return;
       }
 
@@ -186,8 +257,17 @@ export function AssistantMarkdownLink({
         return;
       }
 
-      const target = parseSpreadsheetLink(href);
+      const target =
+        (effectiveMentionUrl
+          ? parseSpreadsheetLink(effectiveMentionUrl)
+          : null) ??
+        parseSpreadsheetTargetFromMentionUri(effectiveMentionUrl);
       if (!target) {
+        const docHref = parseDocumentHrefFromMentionUri(effectiveMentionUrl);
+        if (docHref) {
+          event.preventDefault();
+          window.open(docHref, "_blank", "noopener,noreferrer");
+        }
         return;
       }
 
@@ -224,18 +304,55 @@ export function AssistantMarkdownLink({
     },
     [
       currentDocId,
+      effectiveMentionUrl,
       getInstance,
-      href,
       mentionKind,
       onClick,
       onOpenInCurrentDocument,
     ],
   );
+  if (mentionKind === "tool" && toolName) {
+    const toolTitle = getChatToolDisplayName(toolName);
+    const toolDescription = getChatToolDescription(toolName);
+
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex cursor-pointer items-center text-left",
+              className,
+            )}
+            aria-label={`${toolTitle} tool details`}
+          >
+            <MentionLinkIcon mentionKind={mentionKind} />
+            {children}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" sideOffset={8} className="w-80 p-3">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">{toolTitle}</p>
+            <p className="text-xs leading-relaxed text-(--muted-foreground)">
+              {toolDescription}
+            </p>
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
+  }
 
   return (
-    <a {...props} href={href} onClick={handleClick}>
+    <a
+      {...props}
+      className={className}
+      href={href}
+      onClick={handleClick}
+      data-mention-kind={dataMentionKind}
+      data-mention-url={dataMentionUrl}
+    >
       <MentionLinkIcon mentionKind={mentionKind} />
-      {props.children}
+      {children}
     </a>
   );
 }

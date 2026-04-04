@@ -23,6 +23,35 @@ export const CHAT_TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: "Web Search",
 };
 
+export const CHAT_TOOL_DESCRIPTIONS: Record<string, string> = {
+  spreadsheet_changeBatch: "Write values or formulas to selected cells.",
+  spreadsheet_sheet: "Create, update, delete, or duplicate sheet tabs.",
+  spreadsheet_getSheetMetadata:
+    "Read structural sheet metadata and properties.",
+  spreadsheet_formatRange: "Apply visual formatting to a range.",
+  spreadsheet_modifyRowsCols: "Insert or delete rows and columns.",
+  spreadsheet_queryRange: "Read targeted values or formatting from ranges.",
+  spreadsheet_setIterativeMode:
+    "Enable or disable iterative calculation behavior.",
+  spreadsheet_readDocument: "Read workbook values or metadata.",
+  spreadsheet_getRowColMetadata: "Inspect row heights and column widths.",
+  spreadsheet_setRowColMetadata: "Set row heights or column widths.",
+  spreadsheet_applyFill: "Extend patterns, values, or formulas across ranges.",
+  spreadsheet_note: "Add or remove notes on cells.",
+  spreadsheet_clearCells: "Clear values, formatting, or both in ranges.",
+  spreadsheet_table: "Create, update, or remove structured tables.",
+  spreadsheet_chart: "Create, update, or remove charts.",
+  spreadsheet_dataValidation: "Manage input validation rules.",
+  spreadsheet_conditionalFormat: "Manage conditional formatting rules.",
+  spreadsheet_getAuditSnapshot: "Collect workbook audit details.",
+  assistant_requestModeSwitch: "Request a mode change from the user.",
+  assistant_askUserQuestion:
+    "Ask the user structured multiple-choice questions.",
+  assistant_confirmPlanExecution:
+    "Show a plan and request user approval before execution.",
+  web_search: "Search the web and return sourced results.",
+};
+
 export const CHAT_TOOL_MENTION_EXCLUDED = new Set<string>([
   "assistant_confirmPlanExecution",
   "assistant_askUserQuestion",
@@ -42,3 +71,6 @@ const formatToolDisplayNameFallback = (toolName: string): string =>
 export const getChatToolDisplayName = (toolName: string): string =>
   CHAT_TOOL_DISPLAY_NAMES[toolName] ?? formatToolDisplayNameFallback(toolName);
 
+export const getChatToolDescription = (toolName: string): string =>
+  CHAT_TOOL_DESCRIPTIONS[toolName] ??
+  `${getChatToolDisplayName(toolName)} tool.`;

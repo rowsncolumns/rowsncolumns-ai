@@ -859,20 +859,18 @@ export function AssistantComposerInput({
           >
             <Command value={selectedMentionValue} shouldFilter={false}>
               <CommandList className="max-h-72 overflow-y-auto">
-                {isMentionSearching && (
-                  <div className="flex items-center gap-2 px-2 py-2 text-xs text-(--muted-foreground)">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Searching documents...</span>
-                  </div>
-                )}
-                {mentionMenu.items.length === 0 ? (
+                {mentionMenu.items.length === 0 && !isMentionSearching ? (
                   <div className="px-2 py-2 text-xs text-(--muted-foreground)">
                     No matches
                   </div>
                 ) : (
                   MENTION_CATEGORY_ORDER.map((category) => {
                     const categoryItems = groupedMentionItems.get(category);
-                    if (!categoryItems || categoryItems.length === 0) {
+                    const showDocumentsLoadingRow =
+                      category === "document" && isMentionSearching;
+                    const hasCategoryItems =
+                      Array.isArray(categoryItems) && categoryItems.length > 0;
+                    if (!hasCategoryItems && !showDocumentsLoadingRow) {
                       return null;
                     }
                     return (
@@ -881,7 +879,7 @@ export function AssistantComposerInput({
                         heading={getMentionCategoryLabel(category)}
                         className="p-0"
                       >
-                        {categoryItems.map((item) => {
+                        {(categoryItems ?? []).map((item) => {
                           const optionIndex = mentionMenu.items.findIndex(
                             (candidate) => candidate.id === item.id,
                           );
@@ -919,6 +917,12 @@ export function AssistantComposerInput({
                             </CommandItem>
                           );
                         })}
+                        {showDocumentsLoadingRow ? (
+                          <div className="mx-1 mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-(--muted-foreground)">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span>Searching documents...</span>
+                          </div>
+                        ) : null}
                       </CommandGroup>
                     );
                   })

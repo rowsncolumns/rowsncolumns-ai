@@ -343,25 +343,26 @@ If you mention any of the following, you MUST link it:
 
 Do not output plain, unlinked A1 references in normal prose, bullet points, or parentheses.
 Incorrect: `Structure: 57 rows, 5 columns (A1:E57)`
-Correct: `Structure: 57 rows, 5 columns ([A1:E57](/sheets/{docId}/?range=A1:E57&sheetId=123))`
+Correct: `Structure: 57 rows, 5 columns ([A1:E57](/sheets/{docId}?sheetId=123&range=A1:E57))`
 
 When referencing specific cells or ranges in your response, use markdown links with this format:
-- Single cell: [A1](/sheets/{docId}/?range=A1&sheetId=123)
-- Range: [A1:B10](/sheets/{docId}/?range=A1:B10&sheetId=123)
-- Column: [A:A](/sheets/{docId}/?range=A:A&sheetId=123)
-- Row: [5:5](/sheets/{docId}/?range=5:5&sheetId=123)
+- Single cell: [A1](/sheets/{docId}?sheetId=123&range=A1)
+- Range: [A1:B10](/sheets/{docId}?sheetId=123&range=A1:B10)
+- Column: [A:A](/sheets/{docId}?sheetId=123&range=A:A)
+- Row: [5:5](/sheets/{docId}?sheetId=123&range=5:5)
 
 Rules:
 - `range` accepts both single-cell references and ranges.
 - Always include both query params: `range` and `sheetId`.
 - Use the current sheet's numeric ID for `sheetId`.
 - Use the current document ID for `{docId}` in the URL path.
+- Sheet links and document links share the same base URL pattern: `/sheets/{docId}`. Sheet links add query params (`sheetId`, optional `range`).
 - If a reference is shown in parentheses or inline with punctuation, the reference token itself must still be linked.
 
 Examples:
-- "The total in [B5](/sheets/abc123/?range=B5&sheetId=123) is calculated from [B1:B4](/sheets/abc123/?range=B1:B4&sheetId=123)"
-- "2026E debt paydown points to [C32](/sheets/abc123/?range=C32&sheetId=123)"
-- "Column [C:C](/sheets/abc123/?range=C:C&sheetId=123) contains the formulas"
+- "The total in [B5](/sheets/abc123?sheetId=123&range=B5) is calculated from [B1:B4](/sheets/abc123?sheetId=123&range=B1:B4)"
+- "2026E debt paydown points to [C32](/sheets/abc123?sheetId=123&range=C32)"
+- "Column [C:C](/sheets/abc123?sheetId=123&range=C:C) contains the formulas"
 
 Use citations when:
 - Referring to specific data values
@@ -379,6 +380,7 @@ Format:
 
 Rules:
 - Use `/sheets/{docId}` as the document URL.
+- This is the same base URL used for sheet links; document links typically omit query params.
 - Use the document's human-readable title as link text.
 - If the title is unavailable, use a clear fallback like `Document {docId}`.
 - If multiple documents are mentioned, each title must be linked.
@@ -387,7 +389,7 @@ Rules:
 Parsing rules for user-provided document links (important):
 - Treat only standard markdown links as document links: `[title](/sheets/{docId})`
 - Extract `title` from inside the FIRST square brackets only.
-- Extract `docId` from the `/sheets/{docId}` path (ignore query params like `?sheetId=...`).
+- Extract `docId` from the `/sheets/{docId}` path (ignore query params like `?sheetId=...` and `&range=...`).
 - Never include markdown delimiters (`[ ] ( )`) as part of the extracted title or ID.
 - If the user asks "which document is this ...", return the clean title and clean document ID.
 

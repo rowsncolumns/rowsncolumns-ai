@@ -131,7 +131,9 @@ import {
   type ComposerMentionOption,
 } from "@/components/workspace-assistant/composer-input";
 import {
-  TOOLS_URI_PREFIX,
+  buildDocumentMentionUri,
+  buildSheetMentionUri,
+  buildToolMentionUri,
   getMentionKindFromPathOrUri,
 } from "@/components/workspace-assistant/mention-config";
 import {
@@ -3839,8 +3841,9 @@ function AssistantComposer({
             }
             const nextTitle =
               item.title?.trim() || `Document ${nextDocId.slice(0, 8)}`;
+            const mentionUri = buildDocumentMentionUri(nextDocId);
             accumulator.push({
-              id: `/sheets/${nextDocId}`,
+              id: mentionUri,
               label: nextTitle,
               category: "document",
               description: nextDocId,
@@ -3854,10 +3857,13 @@ function AssistantComposer({
         if (
           normalizedQuery.length === 0 &&
           normalizedDocId &&
-          !mentions.some((item) => item.id === `/sheets/${normalizedDocId}`)
+          !mentions.some(
+            (item) => item.id === buildDocumentMentionUri(normalizedDocId),
+          )
         ) {
+          const mentionUri = buildDocumentMentionUri(normalizedDocId);
           mentions.unshift({
-            id: `/sheets/${normalizedDocId}`,
+            id: mentionUri,
             label: `Document ${normalizedDocId.slice(0, 8)}`,
             category: "document",
             description: `${normalizedDocId} (current document)`,
@@ -3933,16 +3939,19 @@ function AssistantComposer({
 
         const sheetLabel =
           sheet.title?.trim() || `Sheet ${Math.max(1, Math.floor(sheetId))}`;
-        const mentionUrl = `/sheets/${normalizedDocId}?sheetId=${sheetId}`;
+        const mentionUri = buildSheetMentionUri({
+          docId: normalizedDocId,
+          sheetId,
+        });
         const isCurrentSheet = sheetId === resolvedActiveSheetId;
 
         accumulator.push({
-          id: mentionUrl,
+          id: mentionUri,
           label: sheetLabel,
           category: "sheet",
           description: isCurrentSheet
-            ? `${mentionUrl} (current sheet)`
-            : mentionUrl,
+            ? `${mentionUri} (current sheet)`
+            : mentionUri,
         });
         return accumulator;
       },
@@ -3955,7 +3964,7 @@ function AssistantComposer({
       SPREADSHEET_TOOL_NAMES.filter(
         (toolName) => !CHAT_TOOL_MENTION_EXCLUDED.has(toolName),
       ).map((toolName) => ({
-        id: `${TOOLS_URI_PREFIX}${toolName}`,
+        id: buildToolMentionUri(toolName),
         label: getToolMentionLabel(toolName),
         category: "tool",
         description: toolName,
