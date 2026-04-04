@@ -37,6 +37,7 @@
     "db:migrate:document-share-permissions": "tsx scripts/add-share-permission-to-document-share-links.ts",
     "db:migrate:document-favorites": "tsx scripts/create-document-favorites-table.ts",
     "db:migrate:document-import-jobs": "tsx scripts/create-document-import-jobs-table.ts",
+    "db:cleanup:non-favorite-documents": "tsx scripts/delete-non-favorite-documents.ts",
     "db:migrate:billing": "tsx scripts/create-billing-tables.ts",
     "test:credits:buckets": "tsx scripts/test-credits-buckets.ts",
     "stripe:provision:billing-catalog": "tsx scripts/provision-stripe-billing-catalog.ts",

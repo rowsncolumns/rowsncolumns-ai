@@ -377,176 +377,188 @@ const createMentionSuggestion = ({
 }): Omit<
   SuggestionOptions<ComposerMentionOption, MentionNodeAttrs>,
   "editor"
-> => ({
-  char: "@",
-  allowSpaces: true,
-  items: async ({ query }: { query: string }) => {
-    const localItems = filterMentionOptions(getItems(), query);
-    const searchItems = getSearchItems?.();
-    if (!searchItems) {
-      return localItems;
-    }
+> => {
+  const inFlightSearchQueries = new Set<string>();
 
-    onLoadingDelta?.(1);
-    void searchItems(query)
-      .then((resolvedItems) => {
-        onAsyncItemsResolved?.({
-          query,
-          items: resolvedItems,
+  return {
+    char: "@",
+    allowSpaces: true,
+    items: async ({ query }: { query: string }) => {
+      const localItems = filterMentionOptions(getItems(), query);
+      const searchItems = getSearchItems?.();
+      if (!searchItems) {
+        return localItems;
+      }
+
+      const normalizedQuery = query.trim().toLowerCase();
+      if (inFlightSearchQueries.has(normalizedQuery)) {
+        return localItems;
+      }
+
+      inFlightSearchQueries.add(normalizedQuery);
+      onLoadingDelta?.(1);
+      void searchItems(query)
+        .then((resolvedItems) => {
+          onAsyncItemsResolved?.({
+            query,
+            items: resolvedItems,
+          });
+        })
+        .finally(() => {
+          inFlightSearchQueries.delete(normalizedQuery);
+          onLoadingDelta?.(-1);
         });
-      })
-      .finally(() => {
-        onLoadingDelta?.(-1);
-      });
 
-    return localItems;
-  },
-  command: ({ editor, range, props }) => {
-    const mentionId = props.id?.trim();
-    if (!mentionId) {
-      return;
-    }
-    const mentionLabel = props.label?.trim() || mentionId;
-    const replacementRange = extendMentionReplacementRange(editor, range);
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(replacementRange, [
-        {
-          type: "mention",
-          attrs: {
-            id: mentionId,
-            label: mentionLabel,
-          },
-        },
-        { type: "text", text: " " },
-      ])
-      .run();
-  },
-  render: () => {
-    let selectedIndex = 0;
-    let activeProps: SuggestionProps<
-      ComposerMentionOption,
-      MentionNodeAttrs
-    > | null = null;
-
-    const closeMenu = () => {
-      onMenuStateChange(CLOSED_MENTION_MENU);
-    };
-
-    const publishMenu = () => {
-      if (!activeProps) {
-        closeMenu();
+      return localItems;
+    },
+    command: ({ editor, range, props }) => {
+      const mentionId = props.id?.trim();
+      if (!mentionId) {
         return;
       }
+      const mentionLabel = props.label?.trim() || mentionId;
+      const replacementRange = extendMentionReplacementRange(editor, range);
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(replacementRange, [
+          {
+            type: "mention",
+            attrs: {
+              id: mentionId,
+              label: mentionLabel,
+            },
+          },
+          { type: "text", text: " " },
+        ])
+        .run();
+    },
+    render: () => {
+      let selectedIndex = 0;
+      let activeProps: SuggestionProps<
+        ComposerMentionOption,
+        MentionNodeAttrs
+      > | null = null;
 
-      const safeItems = activeProps.items;
-      if (safeItems.length === 0) {
-        selectedIndex = 0;
-      } else if (selectedIndex >= safeItems.length) {
-        selectedIndex = safeItems.length - 1;
-      } else if (selectedIndex < 0) {
-        selectedIndex = 0;
-      }
+      const closeMenu = () => {
+        onMenuStateChange(CLOSED_MENTION_MENU);
+      };
 
-      onMenuStateChange({
-        open: true,
-        items: safeItems,
-        selectedIndex,
-        query: activeProps.query,
-        command: (item) => {
-          activeProps?.command({
-            id: item.id,
-            label: item.label,
-          });
-        },
-        position: (() => {
-          const rect = activeProps.clientRect?.();
-          if (!rect || typeof window === "undefined") {
-            return null;
-          }
-          const viewportPadding = 8;
-          const caretBottom = rect.top + Math.max(rect.height, 20);
-          const left = Math.max(viewportPadding, rect.left);
-          const top = Math.max(viewportPadding, caretBottom);
-          return {
-            top,
-            left,
-          };
-        })(),
-      });
-    };
-
-    return {
-      onStart(props: SuggestionProps<ComposerMentionOption, MentionNodeAttrs>) {
-        activeProps = props;
-        selectedIndex = 0;
-        publishMenu();
-      },
-      onUpdate(
-        props: SuggestionProps<ComposerMentionOption, MentionNodeAttrs>,
-      ) {
-        activeProps = props;
-        publishMenu();
-      },
-      onKeyDown(props: SuggestionKeyDownProps) {
+      const publishMenu = () => {
         if (!activeProps) {
-          return false;
-        }
-
-        if (props.event.key === "ArrowDown") {
-          if (activeProps.items.length === 0) {
-            return false;
-          }
-          props.event.preventDefault();
-          selectedIndex = Math.min(
-            selectedIndex + 1,
-            activeProps.items.length - 1,
-          );
-          publishMenu();
-          return true;
-        }
-
-        if (props.event.key === "ArrowUp") {
-          if (activeProps.items.length === 0) {
-            return false;
-          }
-          props.event.preventDefault();
-          selectedIndex = Math.max(selectedIndex - 1, 0);
-          publishMenu();
-          return true;
-        }
-
-        if (props.event.key === "Enter") {
-          if (activeProps.items.length === 0) {
-            return false;
-          }
-          props.event.preventDefault();
-          const selectedItem = activeProps.items[selectedIndex];
-          if (selectedItem) {
-            activeProps.command({
-              id: selectedItem.id,
-              label: selectedItem.label,
-            });
-          }
-          return true;
-        }
-
-        if (props.event.key === "Escape") {
-          props.event.preventDefault();
           closeMenu();
-          return true;
+          return;
         }
 
-        return false;
-      },
-      onExit() {
-        activeProps = null;
-        closeMenu();
-      },
-    };
-  },
-});
+        const safeItems = activeProps.items;
+        if (safeItems.length === 0) {
+          selectedIndex = 0;
+        } else if (selectedIndex >= safeItems.length) {
+          selectedIndex = safeItems.length - 1;
+        } else if (selectedIndex < 0) {
+          selectedIndex = 0;
+        }
+        onMenuStateChange({
+          open: true,
+          items: safeItems,
+          selectedIndex,
+          query: activeProps.query,
+          command: (item) => {
+            activeProps?.command({
+              id: item.id,
+              label: item.label,
+            });
+          },
+          position: (() => {
+            const rect = activeProps.clientRect?.();
+            if (!rect || typeof window === "undefined") {
+              return null;
+            }
+            const viewportPadding = 8;
+            const caretBottom = rect.top + Math.max(rect.height, 20);
+            const left = Math.max(viewportPadding, rect.left);
+            const top = Math.max(viewportPadding, caretBottom);
+            return {
+              top,
+              left,
+            };
+          })(),
+        });
+      };
+
+      return {
+        onStart(
+          props: SuggestionProps<ComposerMentionOption, MentionNodeAttrs>,
+        ) {
+          activeProps = props;
+          selectedIndex = 0;
+          publishMenu();
+        },
+        onUpdate(
+          props: SuggestionProps<ComposerMentionOption, MentionNodeAttrs>,
+        ) {
+          activeProps = props;
+          publishMenu();
+        },
+        onKeyDown(props: SuggestionKeyDownProps) {
+          if (!activeProps) {
+            return false;
+          }
+
+          if (props.event.key === "ArrowDown") {
+            if (activeProps.items.length === 0) {
+              return false;
+            }
+            props.event.preventDefault();
+            selectedIndex = Math.min(
+              selectedIndex + 1,
+              activeProps.items.length - 1,
+            );
+            publishMenu();
+            return true;
+          }
+
+          if (props.event.key === "ArrowUp") {
+            if (activeProps.items.length === 0) {
+              return false;
+            }
+            props.event.preventDefault();
+            selectedIndex = Math.max(selectedIndex - 1, 0);
+            publishMenu();
+            return true;
+          }
+
+          if (props.event.key === "Enter") {
+            if (activeProps.items.length === 0) {
+              return false;
+            }
+            props.event.preventDefault();
+            const selectedItem = activeProps.items[selectedIndex];
+            if (selectedItem) {
+              activeProps.command({
+                id: selectedItem.id,
+                label: selectedItem.label,
+              });
+            }
+            return true;
+          }
+
+          if (props.event.key === "Escape") {
+            props.event.preventDefault();
+            closeMenu();
+            return true;
+          }
+
+          return false;
+        },
+        onExit() {
+          activeProps = null;
+          closeMenu();
+        },
+      };
+    },
+  };
+};
 
 export function AssistantComposerInput({
   value,
@@ -605,22 +617,9 @@ export function AssistantComposerInput({
   }, []);
 
   const handleAsyncMentionItemsResolved = React.useCallback(
-    ({ query, items }: { query: string; items: ComposerMentionOption[] }) => {
-      setMentionMenu((previous) => {
-        if (!previous.open || previous.query !== query) {
-          return previous;
-        }
-        const nextItems = filterMentionOptions(items, query);
-        const nextSelectedIndex =
-          nextItems.length === 0
-            ? 0
-            : Math.min(previous.selectedIndex, nextItems.length - 1);
-        return {
-          ...previous,
-          items: nextItems,
-          selectedIndex: nextSelectedIndex,
-        };
-      });
+    (_: { query: string; items: ComposerMentionOption[] }) => {
+      // Keep dropdown list sourced directly from TipTap suggestion items
+      // to avoid index mismatch between rendered items and keyboard selection.
     },
     [],
   );
@@ -787,18 +786,11 @@ export function AssistantComposerInput({
     },
     [editor, onPasteFiles],
   );
-
+  console.log("mentionMenu", mentionMenu);
   const groupedMentionItems = React.useMemo(
     () => groupMentionOptions(mentionMenu.items),
     [mentionMenu.items],
   );
-  const selectedMentionValue = React.useMemo(() => {
-    const selectedItem = mentionMenu.items[mentionMenu.selectedIndex];
-    if (!selectedItem) {
-      return "";
-    }
-    return `${selectedItem.category}:${selectedItem.id}`;
-  }, [mentionMenu.items, mentionMenu.selectedIndex]);
   const isEditorEmpty = normalizeComposerValue(value).length === 0;
 
   return (
@@ -853,7 +845,7 @@ export function AssistantComposerInput({
               setMentionMenu(CLOSED_MENTION_MENU);
             }}
           >
-            <Command value={selectedMentionValue} shouldFilter={false}>
+            <Command shouldFilter={false}>
               <CommandList className="max-h-72 overflow-y-auto">
                 {mentionMenu.items.length === 0 && !isMentionSearching ? (
                   <div className="px-2 py-2 text-xs text-(--muted-foreground)">

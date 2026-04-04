@@ -3997,6 +3997,10 @@ function AssistantComposer({
         sheetMentionOptions,
         query,
       );
+      const filteredDocumentOptions = filterLocalMentionOptions(
+        documentMentionOptions,
+        query,
+      );
       const filteredToolOptions = filterLocalMentionOptions(
         toolMentionOptions,
         query,
@@ -4006,6 +4010,7 @@ function AssistantComposer({
 
       for (const item of [
         ...filteredSheetOptions,
+        ...filteredDocumentOptions,
         ...documentOptions,
         ...filteredToolOptions,
       ]) {
@@ -4016,7 +4021,12 @@ function AssistantComposer({
 
       return Array.from(uniqueMentions.values());
     },
-    [fetchDocumentMentionOptions, sheetMentionOptions, toolMentionOptions],
+    [
+      documentMentionOptions,
+      fetchDocumentMentionOptions,
+      sheetMentionOptions,
+      toolMentionOptions,
+    ],
   );
 
   const releasePreviewUrl = React.useCallback((url?: string) => {
