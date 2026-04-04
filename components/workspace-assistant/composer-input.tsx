@@ -330,6 +330,37 @@ const groupMentionOptions = (items: ComposerMentionOption[]) => {
   return grouped;
 };
 
+const MENTION_TRAILING_TOKEN_PATTERN = /^[\p{L}\p{N}_-]+/u;
+
+const extendMentionReplacementRange = (
+  editor: Parameters<
+    NonNullable<
+      SuggestionOptions<ComposerMentionOption, MentionNodeAttrs>["command"]
+    >
+  >[0]["editor"],
+  range: Parameters<
+    NonNullable<
+      SuggestionOptions<ComposerMentionOption, MentionNodeAttrs>["command"]
+    >
+  >[0]["range"],
+) => {
+  const doc = editor.state.doc;
+  const maxPos = doc.content.size;
+  const from = Math.max(0, range.from);
+  const to = Math.max(from, Math.min(range.to, maxPos));
+  const trailingText = doc.textBetween(to, maxPos, "\n", "\n");
+  const trailingMatch = trailingText.match(MENTION_TRAILING_TOKEN_PATTERN);
+
+  if (!trailingMatch || trailingMatch[0].length === 0) {
+    return { from, to };
+  }
+
+  return {
+    from,
+    to: Math.min(maxPos, to + trailingMatch[0].length),
+  };
+};
+
 const createMentionSuggestion = ({
   getItems,
   getSearchItems,
@@ -380,10 +411,11 @@ const createMentionSuggestion = ({
       return;
     }
     const mentionLabel = props.label?.trim() || mentionId;
+    const replacementRange = extendMentionReplacementRange(editor, range);
     editor
       .chain()
       .focus()
-      .insertContentAt(range, [
+      .insertContentAt(replacementRange, [
         {
           type: "mention",
           attrs: {

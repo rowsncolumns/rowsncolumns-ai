@@ -1745,6 +1745,7 @@ function SpreadsheetPane({
       <div className="rnc-workspace-grid-frame min-h-0 flex-1 flex relative overflow-hidden">
         <CanvasGrid
           {...spreadsheetColors}
+          autoFocus={false}
           SelectionTitleComponent={selectionTitleRenderer}
           enableQuickEdit={false}
           enableMagicFill={false}

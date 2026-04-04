@@ -468,8 +468,7 @@ export const resolveChatRequest = (
     normalizeInstructionText(defaults.systemInstructions),
   );
   const context = sanitizeSpreadsheetAssistantContext(body.context);
-  const docId =
-    body.docId?.trim() || body.docuId?.trim() || undefined;
+  const docId = body.docId?.trim() || body.docuId?.trim() || undefined;
 
   return {
     ok: true,

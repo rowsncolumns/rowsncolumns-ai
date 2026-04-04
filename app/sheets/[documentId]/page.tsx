@@ -44,47 +44,13 @@ const getRequestCountryCode = (headerStore: Headers): string | null =>
 
 export async function generateMetadata({
   params,
-  searchParams,
-}: PageProps): Promise<Metadata> {
+}: Pick<PageProps, "params">): Promise<Metadata> {
   const { documentId } = await params;
-  const resolvedSearchParams = await searchParams;
-  const shareToken = resolveShareToken(resolvedSearchParams.share);
   const shortId = toShortDocumentId(documentId);
-  const fallbackTitle = `Sheet ${shortId}`;
-  const fallbackDescription = `Spreadsheet workspace for sheet ${shortId}.`;
-
-  const session = await getServerSessionSafe();
-  if (!session?.user) {
-    return {
-      title: fallbackTitle,
-      description: fallbackDescription,
-    };
-  }
-
-  if (!(await documentExists(documentId))) {
-    return {
-      title: fallbackTitle,
-      description: fallbackDescription,
-    };
-  }
-
-  const access = await ensureDocumentAccess({
-    docId: documentId,
-    userId: session.user.id,
-    shareToken,
-  });
-  if (!access.canAccess) {
-    return {
-      title: fallbackTitle,
-      description: fallbackDescription,
-    };
-  }
-
-  const documentMetadata = await ensureDocumentMetadata({ docId: documentId });
 
   return {
-    title: documentMetadata.title,
-    description: `Spreadsheet workspace for ${documentMetadata.title}.`,
+    title: `Sheet ${shortId}`,
+    description: `Spreadsheet workspace for sheet ${shortId}.`,
   };
 }
 

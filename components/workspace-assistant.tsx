@@ -138,8 +138,10 @@ import {
   SPREADSHEET_TOOL_NAMES,
   SpreadsheetToolUIRegistry,
 } from "@/components/workspace-assistant/tools/tool-ui-registry";
+import { getToolMentionLabel } from "@/components/workspace-assistant/tools/tool-mention-labels";
 import { AssistantMarkdownLink } from "@/components/workspace-assistant/assistant-markdown-link";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
+import { CHAT_TOOL_MENTION_EXCLUDED } from "@/lib/chat/tool-metadata";
 import {
   HUMAN_IN_THE_LOOP_TOOL_NAMES,
   isHumanInTheLoopToolName,
@@ -3682,18 +3684,6 @@ type DocumentsApiResponse = {
   }>;
 };
 
-const formatToolMentionLabel = (toolName: string): string => {
-  const withoutPrefix = toolName
-    .replace(/^spreadsheet_/i, "")
-    .replace(/^assistant_/i, "")
-    .replace(/^web_/i, "");
-  return withoutPrefix
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-};
-
 const filterLocalMentionOptions = (
   items: ComposerMentionOption[],
   query: string,
@@ -3962,9 +3952,11 @@ function AssistantComposer({
 
   const toolMentionOptions = React.useMemo<ComposerMentionOption[]>(
     () =>
-      SPREADSHEET_TOOL_NAMES.map((toolName) => ({
+      SPREADSHEET_TOOL_NAMES.filter(
+        (toolName) => !CHAT_TOOL_MENTION_EXCLUDED.has(toolName),
+      ).map((toolName) => ({
         id: `${TOOLS_URI_PREFIX}${toolName}`,
-        label: formatToolMentionLabel(toolName),
+        label: getToolMentionLabel(toolName),
         category: "tool",
         description: toolName,
       })),
