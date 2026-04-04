@@ -677,8 +677,12 @@ export function AssistantComposerInput({
   const isEditorEmpty = normalizeComposerValue(value).length === 0;
 
   return (
-    <div className="relative">
-      <EditorContent editor={editor} onPasteCapture={handlePaste} />
+    <div className="relative min-h-12 sm:min-h-16">
+      <EditorContent
+        editor={editor}
+        className="min-h-12 sm:min-h-16"
+        onPasteCapture={handlePaste}
+      />
       {isEditorEmpty ? (
         <span className="pointer-events-none absolute left-0 top-0 select-none text-[16px] leading-6 text-[#7e8da7] sm:text-sm">
           {placeholder}
@@ -742,8 +746,6 @@ export function AssistantComposerInput({
                     if (!categoryItems || categoryItems.length === 0) {
                       return null;
                     }
-                    console.log("categoryItems", categoryItems);
-
                     return (
                       <CommandGroup
                         key={category}
