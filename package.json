@@ -42,7 +42,8 @@
     "db:migrate:billing": "tsx scripts/create-billing-tables.ts",
     "test:credits:buckets": "tsx scripts/test-credits-buckets.ts",
     "stripe:provision:billing-catalog": "tsx scripts/provision-stripe-billing-catalog.ts",
-    "stripe:migrate:pro-35": "tsx scripts/migrate-pro-subscriptions-to-35.ts"
+    "stripe:migrate:pro-35": "tsx scripts/migrate-pro-subscriptions-to-35.ts",
+    "benchmark:spreadsheet": "tsx scripts/run-spreadsheet-bench.ts"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.12.10",

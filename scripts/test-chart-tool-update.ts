@@ -142,6 +142,25 @@ const tests: TestCase[] = [
       ]);
     },
   },
+  {
+    name: "buildChartSeriesUpdate includes dataLabel when provided",
+    run: () => {
+      const result = buildChartSeriesUpdate([
+        { sheetId: 12, range: rangeA, dataLabel: "Revenue" },
+      ]);
+      assert.deepEqual(result, [
+        {
+          sources: [
+            {
+              sheetId: 12,
+              ...rangeA,
+            },
+          ],
+          dataLabel: "Revenue",
+        },
+      ]);
+    },
+  },
 ];
 
 const run = async () => {
@@ -160,4 +179,3 @@ run().catch((error) => {
   console.error("FAIL", error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
-

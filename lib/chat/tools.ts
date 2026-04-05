@@ -4143,16 +4143,27 @@ export const buildChartDomainsUpdate = (
   }));
 
 export const buildChartSeriesUpdate = (
-  input: { sheetId: number; range: GridRange }[],
+  input: { sheetId: number; range: GridRange; dataLabel?: string }[],
 ) =>
-  input.map(({ sheetId, range }) => ({
+  input.map(({ sheetId, range, dataLabel }) => ({
     sources: [
       {
         sheetId,
         ...range,
       },
     ],
+    ...(dataLabel ? { dataLabel } : {}),
   }));
+
+const parseChartSeriesInput = (
+  seriesInput: { range: string; label?: string },
+) => {
+  const dataLabel = seriesInput.label?.trim();
+  return {
+    range: seriesInput.range,
+    dataLabel: dataLabel && dataLabel.length > 0 ? dataLabel : undefined,
+  };
+};
 
 const handleSpreadsheetChart = async (
   input: SpreadsheetChartInput,
@@ -4204,17 +4215,22 @@ const handleSpreadsheetChart = async (
           }
 
           // Parse series ranges with potential sheet names
-          const seriesParsed = rest.series!.map((seriesRange: string) => {
+          const seriesParsed = rest.series!.map((seriesInput) => {
+            const parsedInput = parseChartSeriesInput(seriesInput);
             const parsed = parseRangeWithSheetName(
-              seriesRange,
+              parsedInput.range,
               spreadsheet,
               sheetId,
             );
             if (!parsed.selection?.range)
               throw new Error(
-                parsed.error || `Invalid series range: ${seriesRange}`,
+                parsed.error || `Invalid series range: ${parsedInput.range}`,
               );
-            return { range: parsed.selection.range, sheetId: parsed.sheetId };
+            return {
+              range: parsed.selection.range,
+              sheetId: parsed.sheetId,
+              dataLabel: parsedInput.dataLabel,
+            };
           });
 
           // Build chart spec with proper structure (using sheetId from parsed ranges)
@@ -4230,14 +4246,7 @@ const handleSpreadsheetChart = async (
                 ],
               },
             ],
-            series: seriesParsed.map((s) => ({
-              sources: [
-                {
-                  sheetId: s.sheetId,
-                  ...s.range,
-                },
-              ],
-            })),
+            series: buildChartSeriesUpdate(seriesParsed),
             ...(rest.title ? { title: rest.title } : {}),
             ...(rest.subtitle ? { subtitle: rest.subtitle } : {}),
             ...(rest.xAxisTitle
@@ -4363,20 +4372,22 @@ const handleSpreadsheetChart = async (
           }
 
           if (rest.series) {
-            specUpdates.series = rest.series.map((seriesRange: string) => {
+            specUpdates.series = rest.series.map((seriesInput) => {
+              const parsedInput = parseChartSeriesInput(seriesInput);
               const parsed = parseRangeWithSheetName(
-                seriesRange,
+                parsedInput.range,
                 spreadsheet,
                 seriesSheetId,
               );
               if (!parsed.selection?.range)
                 throw new Error(
-                  parsed.error || `Invalid series range: ${seriesRange}`,
+                  parsed.error || `Invalid series range: ${parsedInput.range}`,
                 );
               return buildChartSeriesUpdate([
                 {
                   sheetId: parsed.sheetId,
                   range: parsed.selection.range,
+                  dataLabel: parsedInput.dataLabel,
                 },
               ])[0];
             });
@@ -4497,7 +4508,7 @@ ACTIONS:
 
 IMPORTANT - DATA RANGES:
 - domain: Range for X-axis labels/categories (e.g., 'A2:A10'). Usually a single column. DO NOT include header row.
-- series: Array of ranges for data series (e.g., ['B2:B10', 'C2:C10']). Each range becomes a separate line/bar. DO NOT include header rows.
+- series: Array of series objects (e.g., [{ range: 'B2:B10', label: 'Revenue' }, { range: 'C2:C10', label: 'Profit' }]). DO NOT include header rows.
 
 CHART TYPES:
 1. 'bar' - Horizontal bars
@@ -4509,7 +4520,7 @@ CHART TYPES:
 
 PARAMETERS:
 - domain: A1 notation range for X-axis categories, excluding header (required)
-- series: Array of A1 notation ranges for data series, excluding headers (required)
+- series: Array of series objects ({ range, label }), excluding headers (required)
 - chartType: Type of chart (required)
 - title: Chart title
 - subtitle: Chart subtitle
@@ -4528,15 +4539,18 @@ Given data in A1:C5:
   | Feb   | 150   | 35     |
 
 Example 1 — Column chart with two series:
-  action: "create", sheetId: 1, domain: "A2:A5", series: ["B2:B5", "C2:C5"], chartType: "column", title: "Monthly Performance"
+  action: "create", sheetId: 1, domain: "A2:A5", series: [{ range: "B2:B5", label: "Sales" }, { range: "C2:C5", label: "Profit" }], chartType: "column", title: "Monthly Performance"
 
 Example 2 — Line chart with single series:
-  action: "create", sheetId: 1, domain: "A2:A5", series: ["B2:B5"], chartType: "line", title: "Sales Trend", anchorCell: "E1"
+  action: "create", sheetId: 1, domain: "A2:A5", series: [{ range: "B2:B5", label: "Sales" }], chartType: "line", title: "Sales Trend", anchorCell: "E1"
 
-Example 3 — Update chart title:
+Example 3 — Column chart with named series:
+  action: "create", sheetId: 1, domain: "A2:A5", series: [{ range: "B2:B5", label: "Revenue" }, { range: "C2:C5", label: "Profit" }], chartType: "column", title: "Revenue vs Profit"
+
+Example 4 — Update chart title:
   action: "update", chartId: "chart_123", title: "New Title"
 
-Example 4 — Delete chart:
+Example 5 — Delete chart:
   action: "delete", chartId: "chart_123"`,
   schema: SpreadsheetChartSchema,
 });

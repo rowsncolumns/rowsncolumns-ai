@@ -891,6 +891,18 @@ const StackedTypeSchema = z
     "Stacking mode for bar/column/area charts. 'stacked' = values stacked, 'percentStacked' = 100% stacked.",
   );
 
+const ChartSeriesInputSchema = z
+  .object({
+    range: z
+      .string()
+      .describe("A1 notation range for the series (e.g., 'B2:B10')."),
+    label: z
+      .string()
+      .optional()
+      .describe("Optional series name shown in chart legend."),
+  })
+  .describe("Series object with range and optional label.");
+
 // Spreadsheet CreateChart
 export const SpreadsheetCreateChartSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
@@ -901,9 +913,9 @@ export const SpreadsheetCreateChartSchema = z.object({
       "A1 notation range for X-axis categories/labels (e.g., 'A2:A10' for months). Usually a single column.",
     ),
   series: z
-    .array(z.string())
+    .array(ChartSeriesInputSchema)
     .describe(
-      "Array of A1 notation ranges for data series (e.g., ['B2:B10', 'C2:C10']). Each range becomes a separate series in the chart.",
+      "Array of series objects (e.g., [{ range: 'B2:B10', label: 'Revenue' }]).",
     ),
   chartType: ChartTypeSchema,
   title: z.string().optional().describe("Chart title displayed at the top."),
@@ -962,10 +974,10 @@ export const SpreadsheetUpdateChartSchema = z.object({
       "New A1 notation range for X-axis categories (e.g., 'A2:A10'). DO NOT include header row.",
     ),
   series: z
-    .array(z.string())
+    .array(ChartSeriesInputSchema)
     .optional()
     .describe(
-      "New array of A1 notation ranges for data series (e.g., ['B2:B10', 'C2:C10']). DO NOT include header rows.",
+      "New array of series objects (e.g., [{ range: 'B2:B10', label: 'Revenue' }]).",
     ),
   chartType: ChartTypeSchema.optional().describe("Change chart type."),
   stackedType: StackedTypeSchema,
@@ -1486,10 +1498,10 @@ export const SpreadsheetChartSchema = z.object({
       "A1 notation range for X-axis categories (e.g., 'A2:A10'). Required for 'create'.",
     ),
   series: z
-    .array(z.string())
+    .array(ChartSeriesInputSchema)
     .optional()
     .describe(
-      "Array of A1 notation ranges for data series (e.g., ['B2:B10', 'C2:C10']). Required for 'create'.",
+      "Array of series objects (e.g., [{ range: 'B2:B10', label: 'Revenue' }]).",
     ),
   chartType: ChartTypeSchema.optional().describe(
     "Chart type. Required for 'create'.",

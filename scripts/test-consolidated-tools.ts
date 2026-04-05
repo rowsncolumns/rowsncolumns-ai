@@ -147,7 +147,40 @@ const tests: TestCase[] = [
         sheetId: 1,
         action: "create" as const,
         domain: "A2:A10",
+        series: [{ range: "B2:B10" }, { range: "C2:C10" }],
+        chartType: "column" as const,
+      };
+      const result = SpreadsheetChartSchema.safeParse(validInput);
+      assert.equal(result.success, true);
+    },
+  },
+  {
+    name: "spreadsheet_chart rejects legacy string series",
+    run: () => {
+      const invalidInput = {
+        docId: "doc123",
+        sheetId: 1,
+        action: "create" as const,
+        domain: "A2:A10",
         series: ["B2:B10", "C2:C10"],
+        chartType: "column" as const,
+      };
+      const result = SpreadsheetChartSchema.safeParse(invalidInput);
+      assert.equal(result.success, false);
+    },
+  },
+  {
+    name: "spreadsheet_chart validates create action with named series objects",
+    run: () => {
+      const validInput = {
+        docId: "doc123",
+        sheetId: 1,
+        action: "create" as const,
+        domain: "A2:A10",
+        series: [
+          { range: "B2:B10", label: "Revenue" },
+          { range: "C2:C10", label: "Profit" },
+        ],
         chartType: "column" as const,
       };
       const result = SpreadsheetChartSchema.safeParse(validInput);
@@ -162,6 +195,19 @@ const tests: TestCase[] = [
         action: "update" as const,
         chartId: "chart_123",
         title: "Updated Title",
+      };
+      const result = SpreadsheetChartSchema.safeParse(validInput);
+      assert.equal(result.success, true);
+    },
+  },
+  {
+    name: "spreadsheet_chart validates update action with named series objects",
+    run: () => {
+      const validInput = {
+        docId: "doc123",
+        action: "update" as const,
+        chartId: "chart_123",
+        series: [{ range: "B2:B10", label: "Net Revenue" }],
       };
       const result = SpreadsheetChartSchema.safeParse(validInput);
       assert.equal(result.success, true);
@@ -189,7 +235,7 @@ const tests: TestCase[] = [
           sheetId: 1,
           action: "create" as const,
           domain: "A1:A10",
-          series: ["B1:B10"],
+          series: [{ range: "B1:B10" }],
           chartType,
         };
         const result = SpreadsheetChartSchema.safeParse(input);
@@ -207,7 +253,7 @@ const tests: TestCase[] = [
         sheetId: 1,
         action: "create" as const,
         domain: "B2:B11",
-        series: ["F2:F11"],
+        series: [{ range: "F2:F11" }],
         chartType: "column" as const,
         title: "Sales by Product",
         subtitle: "Q1 2024",
