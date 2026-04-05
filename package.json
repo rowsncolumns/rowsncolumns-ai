@@ -74,7 +74,7 @@
     "@rowsncolumns/sharedb": "^1.0.37",
     "@rowsncolumns/spreadsheet": "^8.0.36",
     "@rowsncolumns/spreadsheet-state": "^21.0.62",
-    "@rowsncolumns/toolkit": "^22.0.26",
+    "@rowsncolumns/toolkit": "^22.0.31",
     "@rowsncolumns/ui": "^8.0.18",
     "@rowsncolumns/utils": "^7.0.17",
     "@tiptap/extension-mention": "^3.22.1",
