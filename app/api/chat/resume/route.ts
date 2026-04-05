@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
 import {
+  completeChatRun,
   getChatRun,
   getChatRunEvents,
   getLatestChatRunForThread,
+  isRunStale,
 } from "@/lib/chat/runs-repository";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 
@@ -95,6 +97,9 @@ export async function GET(request: Request) {
         }, SSE_HEARTBEAT_INTERVAL_MS);
 
         try {
+          let noNewEventsCount = 0;
+          const STALE_THRESHOLD_ITERATIONS = 20; // ~10 seconds with 500ms poll
+
           while (iterations < maxIterations) {
             // Get new events
             const events = await getChatRunEvents({
@@ -103,12 +108,17 @@ export async function GET(request: Request) {
             });
 
             // Stream each event
-            for (const event of events) {
-              const encoded = encoder.encode(
-                encodeChatStreamEvent(event.eventData),
-              );
-              controller.enqueue(encoded);
-              currentLastEventId = Math.max(currentLastEventId, event.id);
+            if (events.length > 0) {
+              noNewEventsCount = 0; // Reset counter when we get events
+              for (const event of events) {
+                const encoded = encoder.encode(
+                  encodeChatStreamEvent(event.eventData),
+                );
+                controller.enqueue(encoded);
+                currentLastEventId = Math.max(currentLastEventId, event.id);
+              }
+            } else {
+              noNewEventsCount++;
             }
 
             // Check if run is complete
@@ -116,6 +126,38 @@ export async function GET(request: Request) {
             if (!updatedRun || updatedRun.status !== "running") {
               isRunning = false;
               break;
+            }
+
+            // Check for stale run (no events for too long while supposedly running)
+            // This catches server restarts where the run is stuck in "running" state
+            if (noNewEventsCount >= STALE_THRESHOLD_ITERATIONS) {
+              const stale = await isRunStale({
+                runId: currentRunId,
+                noEventsForSeconds: 15,
+              });
+              if (stale) {
+                console.warn(
+                  "[api/chat/resume] Detected stale run, marking as failed:",
+                  currentRunId,
+                );
+                await completeChatRun({
+                  runId: currentRunId,
+                  status: "failed",
+                  errorMessage:
+                    "Connection lost due to server restart. Please try again.",
+                });
+                // Send error event to client
+                controller.enqueue(
+                  encoder.encode(
+                    encodeChatStreamEvent({
+                      type: "error",
+                      error:
+                        "Connection lost due to server restart. Please try again.",
+                    }),
+                  ),
+                );
+                break;
+              }
             }
 
             // Wait before next poll

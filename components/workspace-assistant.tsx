@@ -1095,9 +1095,10 @@ async function* streamAssistantResponse(
 }
 
 // Standard SSE reconnection with exponential backoff
-const SSE_RECONNECT_MAX_RETRIES = 3;
-const SSE_RECONNECT_BASE_DELAY_MS = 1000;
-const SSE_RECONNECT_MAX_DELAY_MS = 8000;
+// Increased retries and delays to handle Railway cold starts (~10-30s)
+const SSE_RECONNECT_MAX_RETRIES = 5;
+const SSE_RECONNECT_BASE_DELAY_MS = 2000;
+const SSE_RECONNECT_MAX_DELAY_MS = 15000;
 
 const computeReconnectDelay = (attempt: number): number => {
   const exponential = SSE_RECONNECT_BASE_DELAY_MS * 2 ** attempt;

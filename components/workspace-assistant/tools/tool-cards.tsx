@@ -547,9 +547,9 @@ export function ConfirmPlanExecutionToolCard({
           size="sm"
           onClick={handleApprove}
           disabled={isSubmitted}
-          className="rounded-md"
+          className="h-7 rounded-md px-2.5 text-xs"
         >
-          <Check className="h-3.5 w-3.5" />
+          <Check className="h-3 w-3" />
           {isSubmitted ? "Submitted" : "Approve & Apply"}
         </Button>
 
@@ -563,8 +563,9 @@ export function ConfirmPlanExecutionToolCard({
               setIsRequestingChanges(true);
             }}
             disabled={isSubmitted}
+            className="h-7 px-2.5 text-xs"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3 w-3" />
             Suggest Edits
           </Button>
         ) : (
@@ -574,7 +575,7 @@ export function ConfirmPlanExecutionToolCard({
             variant="secondary"
             onClick={handleSubmitChangesRequest}
             disabled={isSubmitted}
-            className="rounded-md"
+            className="h-7 rounded-md px-2.5 text-xs"
           >
             Submit Edits
           </Button>

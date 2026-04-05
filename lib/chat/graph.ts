@@ -35,6 +35,7 @@ import {
   listAssistantSessions,
   upsertAssistantSession,
 } from "@/lib/chat/sessions-repository";
+import { markStaleRunsAsFailed } from "@/lib/chat/runs-repository";
 import { spreadsheetTools } from "@/lib/chat/tools";
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.2-chat-latest";
@@ -666,6 +667,16 @@ const getCheckpointer = async () => {
           schema,
         });
         await checkpointer.setup();
+
+        // On server startup, mark any stale runs from previous instances as failed
+        // This handles cases where the server crashed/restarted mid-stream
+        markStaleRunsAsFailed({ staleAfterMinutes: 2 }).catch((error) => {
+          console.error(
+            "[graph] Failed to cleanup stale runs on startup:",
+            error,
+          );
+        });
+
         return checkpointer;
       } catch (error) {
         console.error(
@@ -2448,11 +2459,32 @@ const repairOrphanedToolCalls = async (input: {
       lastAIMessageIndex + 1,
     );
 
+    // Check if there's a user message after the AI message with tool calls
+    // This indicates the user tried to continue, potentially corrupting the state
+    const hasUserMessageAfterToolCalls = messages
+      .slice(lastAIMessageIndex + 1)
+      .some((msg) => {
+        if (!msg || typeof msg !== "object") return false;
+        const constructorName = msg.constructor?.name;
+        return (
+          constructorName === "HumanMessage" ||
+          constructorName === "HumanMessageChunk"
+        );
+      });
+
     // Find orphaned tool calls (no response)
-    const missingResponses = orphanedToolCalls.filter(
-      (tc) =>
-        !respondedToolCallIds.has(tc.id) && !isHumanInTheLoopToolName(tc.name),
-    );
+    // Include HITL tools if there's a user message after them (indicates corrupt state)
+    const missingResponses = orphanedToolCalls.filter((tc) => {
+      if (respondedToolCallIds.has(tc.id)) {
+        return false;
+      }
+      // Always repair non-HITL orphaned tools
+      if (!isHumanInTheLoopToolName(tc.name)) {
+        return true;
+      }
+      // Repair HITL tools only if user tried to continue (corrupt state)
+      return hasUserMessageAfterToolCalls;
+    });
 
     if (missingResponses.length === 0) {
       return;

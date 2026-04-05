@@ -329,3 +329,65 @@ export async function cleanupOldChatRuns(input: {
 
   return rows.length;
 }
+
+/**
+ * Marks stale "running" runs as failed.
+ * A run is considered stale if it's been running for too long without completing.
+ * This handles cases where the server crashes/restarts mid-stream.
+ */
+export async function markStaleRunsAsFailed(input: {
+  staleAfterMinutes?: number;
+}): Promise<number> {
+  await ensureTables();
+  const minutes = input.staleAfterMinutes ?? 5;
+
+  const rows = await db<{ run_id: string }[]>`
+    UPDATE public.chat_runs
+    SET
+      status = 'failed',
+      error_message = 'Run interrupted due to server restart. Please try again.',
+      completed_at = NOW()
+    WHERE status = 'running'
+      AND started_at < NOW() - INTERVAL '${minutes} minutes'
+    RETURNING run_id
+  `;
+
+  if (rows.length > 0) {
+    console.log(
+      `[runs-repository] Marked ${rows.length} stale runs as failed:`,
+      rows.map((r) => r.run_id),
+    );
+  }
+
+  return rows.length;
+}
+
+/**
+ * Check if a specific run appears to be stale (no recent events).
+ * Returns true if the run is running but hasn't had events in the specified time.
+ */
+export async function isRunStale(input: {
+  runId: string;
+  noEventsForSeconds?: number;
+}): Promise<boolean> {
+  await ensureTables();
+  const seconds = input.noEventsForSeconds ?? 30;
+
+  const rows = await db<{ is_stale: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.chat_runs r
+      WHERE r.run_id = ${input.runId}
+        AND r.status = 'running'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.chat_run_events e
+          WHERE e.run_id = r.run_id
+            AND e.created_at > NOW() - INTERVAL '${seconds} seconds'
+        )
+        AND r.started_at < NOW() - INTERVAL '${seconds} seconds'
+    ) AS is_stale
+  `;
+
+  return rows[0]?.is_stale === true;
+}
