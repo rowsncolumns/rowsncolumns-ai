@@ -3773,6 +3773,13 @@ function AssistantComposer({
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const dragDepthRef = React.useRef(0);
   const isThreadRunning = useThread((thread) => thread.isRunning);
+  const hasPendingHumanToolCall = useThread((thread) => {
+    const lastMessage = thread.messages[thread.messages.length - 1];
+    return (
+      lastMessage?.role === "assistant" &&
+      lastMessage.status?.type === "requires-action"
+    );
+  });
   const composerText = useComposer((composer) => composer.text);
   const [composerImages, setComposerImages] = React.useState<
     ComposerImageAttachment[]
@@ -4519,7 +4526,9 @@ function AssistantComposer({
   }, [addImageFilesToComposer, onPanelImageDropHandled, panelImageDrop]);
 
   React.useEffect(() => {
-    if (isThreadRunning) {
+    // Don't dispatch if thread is running OR if there's a pending HITL tool call
+    // awaiting user response (requires-action status)
+    if (isThreadRunning || hasPendingHumanToolCall) {
       hasQueuedDispatchRef.current = false;
       return;
     }
@@ -4542,7 +4551,7 @@ function AssistantComposer({
       runConfig: composerRuntime.getState().runConfig,
       startRun: true,
     });
-  }, [composerRuntime, isThreadRunning, threadRuntime]);
+  }, [composerRuntime, hasPendingHumanToolCall, isThreadRunning, threadRuntime]);
 
   return (
     <ComposerPrimitive.Root
