@@ -73,7 +73,7 @@
     "@rowsncolumns/pivot": "^3.0.22",
     "@rowsncolumns/sharedb": "^1.0.35",
     "@rowsncolumns/spreadsheet": "^8.0.34",
-    "@rowsncolumns/spreadsheet-state": "^21.0.58",
+    "@rowsncolumns/spreadsheet-state": "^21.0.60",
     "@rowsncolumns/toolkit": "^22.0.26",
     "@rowsncolumns/ui": "^8.0.18",
     "@rowsncolumns/utils": "^7.0.17",

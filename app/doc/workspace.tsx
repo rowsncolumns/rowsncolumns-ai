@@ -1301,6 +1301,7 @@ function SpreadsheetPane({
       theme,
       cellXfs,
       sharedStrings,
+      citations,
     });
   }, [
     documentId,
@@ -1316,6 +1317,7 @@ function SpreadsheetPane({
     theme,
     cellXfs,
     sharedStrings,
+    citations,
   ]);
 
   const handleExportCSV = useCallback(async () => {

@@ -200,11 +200,7 @@ const initialSheets = [
   createNewSheet(2, "Sheet2"),
 ];
 
-function SpreadsheetRootProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function SpreadsheetRootProvider({ children }: { children: React.ReactNode }) {
   return (
     <JotaiProvider>
       <ModalProvider>
@@ -966,6 +962,7 @@ function SpreadsheetDocumentView({
       theme,
       cellXfs,
       sharedStrings,
+      citations,
     });
   }, [
     docId,
@@ -982,6 +979,7 @@ function SpreadsheetDocumentView({
     theme,
     cellXfs,
     sharedStrings,
+    citations,
   ]);
 
   const handleExportCSV = useCallback(async () => {
@@ -1781,7 +1779,9 @@ function App() {
   const hasHostBridge = window.parent !== window;
   const [docId, setDocId] = useState<string | null>(initialState.docId);
   const [docUrl, setDocUrl] = useState<string | null>(initialState.docUrl);
-  const [mcpToken, setMcpToken] = useState<string | null>(initialState.mcpToken);
+  const [mcpToken, setMcpToken] = useState<string | null>(
+    initialState.mcpToken,
+  );
   const [meta, setMeta] = useState(initialState.meta);
   const [openUrl, setOpenUrl] = useState<string | null>(initialState.openUrl);
   const [locale, setLocale] = useState(initialState.locale);
