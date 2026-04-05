@@ -62,6 +62,8 @@ import {
   SpreadsheetClearCellsSchema,
   type SpreadsheetGetAuditSnapshotInput,
   SpreadsheetGetAuditSnapshotSchema,
+  type SpreadsheetNamedRangeInput,
+  SpreadsheetNamedRangeSchema,
   // Legacy schemas kept for internal use
   type SpreadsheetCreateTableInput,
   type SpreadsheetCreateDataValidationInput,
@@ -2827,6 +2829,243 @@ Example 3 — Delete a note from a cell:
   docId: "abc123"
   cell: "A1"`,
   schema: SpreadsheetNoteSchema,
+});
+
+/**
+ * Consolidated handler for spreadsheet_named_range tool (create/delete)
+ */
+const handleSpreadsheetNamedRange = async (
+  input: SpreadsheetNamedRangeInput,
+): Promise<string> => {
+  const { docId, action, name, range, sheetId } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  if (!name || name.trim().length === 0) {
+    return failTool("MISSING_NAME", "name is required", { field: "name" });
+  }
+
+  // Validate named range name format
+  const validNamePattern = /^[A-Za-z_][A-Za-z0-9_.]*$/;
+  if (!validNamePattern.test(name)) {
+    return failTool(
+      "INVALID_NAME",
+      "Named range name must start with a letter or underscore, and contain only letters, numbers, underscores, and periods.",
+      { field: "name", value: name },
+    );
+  }
+
+  if (action === "create") {
+    if (!range) {
+      return failTool("MISSING_RANGE", "range is required for create action", {
+        field: "range",
+      });
+    }
+
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data) {
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+          }
+
+          const spreadsheet = createSpreadsheetInterface(data, false);
+
+          // Check if name already exists
+          const existingNamedRanges = (spreadsheet.namedRanges ?? []) as Array<{
+            name: string;
+            namedRangeId?: string;
+          }>;
+          const existingIndex = existingNamedRanges.findIndex(
+            (nr) => nr.name.toLowerCase() === name.toLowerCase(),
+          );
+          if (existingIndex !== -1) {
+            return failTool(
+              "NAME_EXISTS",
+              `A named range with name "${name}" already exists`,
+              { field: "name", value: name },
+            );
+          }
+
+          // Parse range with sheet name support
+          const defaultSheetId = sheetId ?? 1;
+          const rangeParsed = parseRangeWithSheetName(
+            range,
+            spreadsheet,
+            defaultSheetId,
+          );
+
+          if (!rangeParsed.selection?.range) {
+            return failTool(
+              "INVALID_RANGE",
+              rangeParsed.error || `Invalid range: ${range}`,
+              { field: "range", value: range },
+            );
+          }
+
+          const resolvedSheetId = rangeParsed.sheetId;
+          const namedRangeId = uuidString();
+          const newNamedRange = {
+            namedRangeId,
+            name: name.trim(),
+            range: {
+              sheetId: resolvedSheetId,
+              startRowIndex: rangeParsed.selection.range.startRowIndex,
+              startColumnIndex: rangeParsed.selection.range.startColumnIndex,
+              endRowIndex: rangeParsed.selection.range.endRowIndex,
+              endColumnIndex: rangeParsed.selection.range.endColumnIndex,
+            },
+          };
+
+          // Use spreadsheet interface to create the named range
+          spreadsheet.createNamedRange(resolvedSheetId, newNamedRange);
+
+          // Persist changes
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          const sheetName = spreadsheet.sheets.find(
+            (s) => s.sheetId === resolvedSheetId,
+          )?.title;
+          const rangeAddress = selectionToAddress(
+            { range: rangeParsed.selection.range },
+            sheetName,
+          );
+
+          return JSON.stringify({
+            success: true,
+            message: `Created named range "${name}" referencing ${rangeAddress}`,
+            namedRangeId,
+            name: name.trim(),
+            range: rangeAddress,
+            sheetId: resolvedSheetId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "CREATE_NAMED_RANGE_ERROR",
+          error instanceof Error
+            ? error.message
+            : "Failed to create named range",
+        );
+      }
+    });
+  }
+
+  if (action === "delete") {
+    return withDocumentWriteLock(docId, async () => {
+      try {
+        const { doc, close } = await getShareDBDocument(docId);
+
+        try {
+          const data = doc.data as ShareDBSpreadsheetDoc | null;
+          if (!data) {
+            return failTool("NO_DOCUMENT_DATA", "Document has no data");
+          }
+
+          const spreadsheet = createSpreadsheetInterface(data, false);
+
+          // Find the named range by name
+          const existingNamedRanges = spreadsheet.namedRanges ?? [];
+          const targetRange = existingNamedRanges.find(
+            (nr) => nr.name.toLowerCase() === name.toLowerCase(),
+          );
+
+          if (!targetRange || !targetRange.namedRangeId) {
+            return failTool(
+              "NAMED_RANGE_NOT_FOUND",
+              `Named range "${name}" not found`,
+              { field: "name", value: name },
+            );
+          }
+
+          // Use spreadsheet interface to delete the named range
+          spreadsheet.deleteNamedRange(targetRange.namedRangeId);
+
+          // Persist changes
+          await persistSpreadsheetPatches(doc, spreadsheet);
+
+          return JSON.stringify({
+            success: true,
+            message: `Deleted named range "${targetRange.name}"`,
+            name: targetRange.name,
+            namedRangeId: targetRange.namedRangeId,
+          });
+        } finally {
+          close();
+        }
+      } catch (error) {
+        return failTool(
+          "DELETE_NAMED_RANGE_ERROR",
+          error instanceof Error
+            ? error.message
+            : "Failed to delete named range",
+        );
+      }
+    });
+  }
+
+  return failTool("INVALID_ACTION", `Unknown action: ${action}`, {
+    field: "action",
+    value: action,
+  });
+};
+
+export const spreadsheetNamedRangeTool = tool(handleSpreadsheetNamedRange, {
+  name: "spreadsheet_named_range",
+  description: `Manage named ranges in the spreadsheet - create or delete.
+
+OVERVIEW:
+Named ranges allow you to assign a name to a cell range, making formulas more readable and easier to maintain. For example, instead of =SUM(A1:A10), you can use =SUM(Revenue).
+
+WHEN TO USE THIS TOOL:
+- Creating named ranges for frequently referenced data
+- Making formulas more readable with descriptive names
+- Setting up dynamic ranges for charts or data validation
+- Removing named ranges that are no longer needed
+
+ACTIONS:
+- "create": Create a new named range (requires name and range)
+- "delete": Remove an existing named range (requires name)
+
+NAMING RULES:
+- Must start with a letter or underscore
+- Can contain letters, numbers, underscores, and periods
+- Cannot contain spaces or special characters
+- Must be unique within the workbook (case-insensitive)
+
+PARAMETERS:
+- docId: The document ID (required)
+- action: "create" | "delete" (required)
+- name: The name for the named range (required)
+- range: A1 notation range, can include sheet name (required for create)
+- sheetId: Sheet ID for scoping (optional, defaults to active sheet)
+
+EXAMPLES:
+
+Example 1 — Create a named range:
+  action: "create"
+  docId: "abc123"
+  name: "Revenue"
+  range: "A1:A100"
+
+Example 2 — Create a named range on a specific sheet:
+  action: "create"
+  docId: "abc123"
+  name: "SalesData"
+  range: "Sales!B2:D50"
+
+Example 3 — Delete a named range:
+  action: "delete"
+  docId: "abc123"
+  name: "OldRange"`,
+  schema: SpreadsheetNamedRangeSchema,
 });
 
 /**
@@ -6499,6 +6738,7 @@ export const spreadsheetTools = [
   spreadsheetApplyFillTool,
   // Consolidated tools
   spreadsheetNoteTool,
+  spreadsheetNamedRangeTool,
   spreadsheetClearCellsTool,
   spreadsheetTableTool,
   spreadsheetChartTool,

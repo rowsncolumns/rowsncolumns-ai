@@ -619,6 +619,40 @@ export const SpreadsheetNoteSchema = z.object({
 
 export type SpreadsheetNoteInput = z.infer<typeof SpreadsheetNoteSchema>;
 
+// Consolidated Named Range tool schema (create/delete)
+export const SpreadsheetNamedRangeSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet"),
+  action: z
+    .enum(["create", "delete"])
+    .describe(
+      "The action to perform: 'create' to add a new named range, 'delete' to remove an existing named range",
+    ),
+  name: z
+    .string()
+    .min(1)
+    .describe(
+      "The name of the named range (required). Must be unique within the workbook. Valid names start with a letter or underscore, contain only letters, numbers, underscores, and periods.",
+    ),
+  range: z
+    .string()
+    .optional()
+    .describe(
+      "The A1 notation range for the named range (required for 'create' action). Can include sheet name, e.g., 'Sheet1!A1:B10' or 'A1:B10'.",
+    ),
+  sheetId: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "The sheet ID where the named range is scoped (optional). If not provided, defaults to the active sheet for create, or searches all sheets for delete.",
+    ),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetNamedRangeInput = z.infer<
+  typeof SpreadsheetNamedRangeSchema
+>;
+
 // Spreadsheet DeleteRows
 export const SpreadsheetDeleteRowsSchema = z.object({
   docId: z.string().describe("The document ID of the spreadsheet"),
