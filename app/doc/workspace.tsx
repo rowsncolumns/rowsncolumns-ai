@@ -1169,10 +1169,7 @@ function SpreadsheetPane({
 
   const gridFooterComponent = useMemo(
     () => (
-      <GridFooter
-        onRequestAddRows={onRequestAddRows}
-        sheetId={activeSheetId}
-      />
+      <GridFooter onRequestAddRows={onRequestAddRows} sheetId={activeSheetId} />
     ),
     [activeSheetId, onRequestAddRows],
   );

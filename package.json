@@ -23,6 +23,7 @@
     "test:chart-tool-update": "tsx scripts/test-chart-tool-update.ts",
     "import:parse-snapshot": "tsx scripts/parse-spreadsheet-snapshot.ts",
     "test:consolidated-tools": "tsx scripts/test-consolidated-tools.ts",
+    "test:conditional-format-tool": "tsx scripts/test-conditional-format-tool.ts",
     "test:operation-history": "tsx scripts/test-operation-history.ts",
     "test:sharedb:auth-acl": "tsx scripts/test-sharedb-auth-acl.ts",
     "test:changebatch:large": "tsx scripts/test-changebatch-large.ts",

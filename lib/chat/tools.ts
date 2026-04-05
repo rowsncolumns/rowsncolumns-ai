@@ -5012,6 +5012,136 @@ Example 8 — Delete validation:
 /**
  * Consolidated handler for conditional format operations (create/update/delete/query)
  */
+type ConditionalFormatRuleType = "condition" | "colorScale" | "topBottom" | "duplicates";
+
+type ConditionalFormatCreatePayloadInput = {
+  ruleType: ConditionalFormatRuleType;
+  conditionType?: string;
+  conditionValues?: Array<string | number>;
+  customFormula?: string;
+  colorScaleType?: "2color" | "3color";
+  minColor?: string;
+  midColor?: string;
+  maxColor?: string;
+  topBottomType?: "top" | "bottom";
+  rank?: number;
+  isPercent?: boolean;
+  duplicateType?: "duplicate" | "unique";
+  backgroundColor?: string;
+  textColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+};
+
+const buildConditionalFormatStyle = (
+  input: Pick<
+    ConditionalFormatCreatePayloadInput,
+    "backgroundColor" | "textColor" | "bold" | "italic"
+  >,
+): CellFormat => {
+  const format: CellFormat = {};
+  if (input.backgroundColor) format.backgroundColor = input.backgroundColor;
+  if (input.textColor) format.textFormat = { color: input.textColor };
+  if (input.bold) format.textFormat = { ...format.textFormat, bold: true };
+  if (input.italic)
+    format.textFormat = { ...format.textFormat, italic: true };
+  return format;
+};
+
+export const getConditionalFormatRuleType = (
+  rule: Pick<
+    ConditionalFormatRule,
+    "gradientRule" | "topBottomRule" | "distinctRule"
+  >,
+): ConditionalFormatRuleType =>
+  rule.gradientRule
+    ? "colorScale"
+    : rule.topBottomRule
+      ? "topBottom"
+      : rule.distinctRule
+        ? "duplicates"
+        : "condition";
+
+export const buildConditionalFormatCreatePayload = (
+  input: ConditionalFormatCreatePayloadInput,
+): Pick<
+  ConditionalFormatRule,
+  "booleanRule" | "gradientRule" | "topBottomRule" | "distinctRule"
+> => {
+  const format = buildConditionalFormatStyle(input);
+
+  if (input.ruleType === "colorScale") {
+    return {
+      gradientRule: {
+        minpoint: {
+          type: "MIN",
+          color: input.minColor || "#FF0000",
+        },
+        maxpoint: {
+          type: "MAX",
+          color: input.maxColor || "#00FF00",
+        },
+        ...(input.colorScaleType === "3color" && input.midColor
+          ? {
+              midpoint: {
+                type: "PERCENTILE",
+                value: "50",
+                color: input.midColor,
+              },
+            }
+          : {}),
+      },
+    };
+  }
+
+  if (input.ruleType === "topBottom") {
+    return {
+      topBottomRule: {
+        type: input.topBottomType === "bottom" ? "BOTTOM" : "TOP",
+        rank: input.rank && input.rank > 0 ? input.rank : 10,
+        isPercent: input.isPercent ?? false,
+        format,
+      },
+    };
+  }
+
+  if (input.ruleType === "duplicates") {
+    return {
+      distinctRule: {
+        type: input.duplicateType === "unique" ? "UNIQUE" : "DUPLICATE",
+        format,
+      },
+    };
+  }
+
+  let condition: {
+    type: ConditionType;
+    values?: Array<{ userEnteredValue: string }>;
+  };
+  const conditionType = mapConditionalFormatCondition(
+    input.conditionType || "greaterThan",
+  );
+  condition = {
+    type: conditionType,
+    values: input.conditionValues?.map((v) => ({
+      userEnteredValue: String(v),
+    })),
+  };
+  if (input.customFormula) {
+    condition = {
+      type: "CUSTOM_FORMULA",
+      values: [{ userEnteredValue: input.customFormula }],
+    };
+  }
+
+  return {
+    booleanRule: {
+      condition,
+      format,
+    },
+  };
+};
+
 const handleSpreadsheetConditionalFormat = async (
   input: SpreadsheetConditionalFormatInput,
 ): Promise<string> => {
@@ -5063,8 +5193,11 @@ const handleSpreadsheetConditionalFormat = async (
             ruleId: r.id,
             sheetId: (r as Record<string, unknown>).sheetId,
             ranges: r.ranges?.map((range) => selectionToAddress({ range })),
+            ruleType: getConditionalFormatRuleType(r),
             booleanRule: r.booleanRule,
             gradientRule: r.gradientRule,
+            topBottomRule: r.topBottomRule,
+            distinctRule: r.distinctRule,
             enabled: r.enabled,
           }));
 
@@ -5092,7 +5225,8 @@ const handleSpreadsheetConditionalFormat = async (
     if (!rest.range) {
       return failTool("MISSING_RANGE", "range is required for create");
     }
-    if (!rest.ruleType) {
+    const ruleType = rest.ruleType;
+    if (!ruleType) {
       return failTool("MISSING_RULE_TYPE", "ruleType is required for create");
     }
 
@@ -5136,87 +5270,27 @@ const handleSpreadsheetConditionalFormat = async (
             enabled: true,
           } as ConditionalFormatRule;
 
-          // Build the rule based on type
-          if (rest.ruleType === "colorScale") {
-            rule.gradientRule = {
-              minpoint: {
-                type: "MIN",
-                color: rest.minColor || "#FF0000",
-              },
-              maxpoint: {
-                type: "MAX",
-                color: rest.maxColor || "#00FF00",
-              },
-              ...(rest.colorScaleType === "3color" && rest.midColor
-                ? {
-                    midpoint: {
-                      type: "PERCENTILE",
-                      value: "50",
-                      color: rest.midColor,
-                    },
-                  }
-                : {}),
-            };
-          } else {
-            // Build format
-            const format: CellFormat = {};
-            if (rest.backgroundColor)
-              format.backgroundColor = rest.backgroundColor;
-            if (rest.textColor) format.textFormat = { color: rest.textColor };
-            if (rest.bold)
-              format.textFormat = { ...format.textFormat, bold: true };
-            if (rest.italic)
-              format.textFormat = { ...format.textFormat, italic: true };
-
-            // Build condition based on ruleType - using string type to handle all condition types
-            let condition: {
-              type: string;
-              values?: Array<{ userEnteredValue: string }>;
-            };
-
-            if (rest.ruleType === "condition") {
-              const conditionType = mapConditionalFormatCondition(
-                rest.conditionType || "greaterThan",
-              );
-              condition = {
-                type: conditionType,
-                values: rest.conditionValues?.map((v) => ({
-                  userEnteredValue: String(v),
-                })),
-              };
-              if (rest.customFormula) {
-                condition = {
-                  type: "CUSTOM_FORMULA",
-                  values: [{ userEnteredValue: rest.customFormula }],
-                };
-              }
-            } else if (rest.ruleType === "topBottom") {
-              condition = {
-                type:
-                  rest.topBottomType === "bottom"
-                    ? rest.isPercent
-                      ? "BOTTOM_PERCENT"
-                      : "BOTTOM"
-                    : rest.isPercent
-                      ? "TOP_PERCENT"
-                      : "TOP",
-                values: rest.rank
-                  ? [{ userEnteredValue: String(rest.rank) }]
-                  : undefined,
-              };
-            } else if (rest.ruleType === "duplicates") {
-              condition = {
-                type: rest.duplicateType === "unique" ? "UNIQUE" : "DUPLICATE",
-              };
-            } else {
-              condition = { type: "CUSTOM_FORMULA" };
-            }
-
-            (rule as Record<string, unknown>).booleanRule = {
-              condition,
-              format,
-            };
-          }
+          Object.assign(
+            rule,
+            buildConditionalFormatCreatePayload({
+              ruleType,
+              conditionType: rest.conditionType,
+              conditionValues: rest.conditionValues,
+              customFormula: rest.customFormula,
+              colorScaleType: rest.colorScaleType,
+              minColor: rest.minColor,
+              midColor: rest.midColor,
+              maxColor: rest.maxColor,
+              topBottomType: rest.topBottomType,
+              rank: rest.rank,
+              isPercent: rest.isPercent,
+              duplicateType: rest.duplicateType,
+              backgroundColor: rest.backgroundColor,
+              textColor: rest.textColor,
+              bold: rest.bold,
+              italic: rest.italic,
+            }),
+          );
 
           spreadsheet.createConditionalFormattingRule(rule);
 
@@ -5288,31 +5362,141 @@ const handleSpreadsheetConditionalFormat = async (
 
           if (rest.enabled !== undefined) updates.enabled = rest.enabled;
 
-          // Handle format updates for boolean rules
+          // Update style payload based on the existing rule shape
           if (
             rest.backgroundColor ||
             rest.textColor ||
             rest.bold !== undefined ||
             rest.italic !== undefined
           ) {
-            const format: CellFormat = {
-              ...(existingRule.booleanRule?.format || {}),
-            };
-            if (rest.backgroundColor)
-              format.backgroundColor = rest.backgroundColor;
-            if (rest.textColor)
-              format.textFormat = {
-                ...format.textFormat,
-                color: rest.textColor,
+            if (existingRule.booleanRule) {
+              const format: CellFormat = {
+                ...(existingRule.booleanRule.format || {}),
               };
-            if (rest.bold !== undefined)
-              format.textFormat = { ...format.textFormat, bold: rest.bold };
-            if (rest.italic !== undefined)
-              format.textFormat = { ...format.textFormat, italic: rest.italic };
+              if (rest.backgroundColor)
+                format.backgroundColor = rest.backgroundColor;
+              if (rest.textColor)
+                format.textFormat = {
+                  ...format.textFormat,
+                  color: rest.textColor,
+                };
+              if (rest.bold !== undefined)
+                format.textFormat = { ...format.textFormat, bold: rest.bold };
+              if (rest.italic !== undefined)
+                format.textFormat = {
+                  ...format.textFormat,
+                  italic: rest.italic,
+                };
 
+              updates.booleanRule = {
+                ...existingRule.booleanRule,
+                format,
+              };
+            } else if (existingRule.topBottomRule) {
+              const format: CellFormat = {
+                ...(existingRule.topBottomRule.format || {}),
+              };
+              if (rest.backgroundColor)
+                format.backgroundColor = rest.backgroundColor;
+              if (rest.textColor)
+                format.textFormat = {
+                  ...format.textFormat,
+                  color: rest.textColor,
+                };
+              if (rest.bold !== undefined)
+                format.textFormat = { ...format.textFormat, bold: rest.bold };
+              if (rest.italic !== undefined)
+                format.textFormat = {
+                  ...format.textFormat,
+                  italic: rest.italic,
+                };
+
+              updates.topBottomRule = {
+                ...existingRule.topBottomRule,
+                format,
+              };
+            } else if (existingRule.distinctRule) {
+              const format: CellFormat = {
+                ...(existingRule.distinctRule.format || {}),
+              };
+              if (rest.backgroundColor)
+                format.backgroundColor = rest.backgroundColor;
+              if (rest.textColor)
+                format.textFormat = {
+                  ...format.textFormat,
+                  color: rest.textColor,
+                };
+              if (rest.bold !== undefined)
+                format.textFormat = { ...format.textFormat, bold: rest.bold };
+              if (rest.italic !== undefined)
+                format.textFormat = {
+                  ...format.textFormat,
+                  italic: rest.italic,
+                };
+
+              updates.distinctRule = {
+                ...existingRule.distinctRule,
+                format,
+              };
+            }
+          }
+
+          // Update top/bottom fields
+          if (
+            existingRule.topBottomRule &&
+            (rest.topBottomType || rest.rank !== undefined || rest.isPercent !== undefined)
+          ) {
+            updates.topBottomRule = {
+              ...(updates.topBottomRule as Record<string, unknown>),
+              ...existingRule.topBottomRule,
+              ...(rest.topBottomType
+                ? { type: rest.topBottomType === "bottom" ? "BOTTOM" : "TOP" }
+                : {}),
+              ...(rest.rank !== undefined
+                ? { rank: rest.rank > 0 ? rest.rank : 1 }
+                : {}),
+              ...(rest.isPercent !== undefined
+                ? { isPercent: rest.isPercent }
+                : {}),
+            };
+          }
+
+          // Update duplicate/unique selector
+          if (existingRule.distinctRule && rest.duplicateType) {
+            updates.distinctRule = {
+              ...(updates.distinctRule as Record<string, unknown>),
+              ...existingRule.distinctRule,
+              type: rest.duplicateType === "unique" ? "UNIQUE" : "DUPLICATE",
+            };
+          }
+
+          // Update boolean condition-specific fields
+          if (
+            existingRule.booleanRule &&
+            (rest.conditionType || rest.conditionValues || rest.customFormula)
+          ) {
+            const conditionType = mapConditionalFormatCondition(
+              rest.conditionType || "greaterThan",
+            );
+            let condition: {
+              type: string;
+              values?: Array<{ userEnteredValue: string }>;
+            } = {
+              type: conditionType,
+              values: rest.conditionValues?.map((v) => ({
+                userEnteredValue: String(v),
+              })),
+            };
+            if (rest.customFormula) {
+              condition = {
+                type: "CUSTOM_FORMULA",
+                values: [{ userEnteredValue: rest.customFormula }],
+              };
+            }
             updates.booleanRule = {
+              ...(updates.booleanRule as Record<string, unknown>),
               ...existingRule.booleanRule,
-              format,
+              condition,
             };
           }
 
@@ -5719,9 +5903,17 @@ const handleSpreadsheetGetAuditSnapshot = async (
           .map((r) => ({
             ruleId: r.id,
             ranges: r.ranges?.map((range) => selectionToAddress({ range })),
-            ruleType: r.gradientRule ? "colorScale" : "condition",
+            ruleType: r.gradientRule
+              ? "colorScale"
+              : r.topBottomRule
+                ? "topBottom"
+                : r.distinctRule
+                  ? "duplicates"
+                  : "condition",
             booleanRule: r.booleanRule,
             gradientRule: r.gradientRule,
+            topBottomRule: r.topBottomRule,
+            distinctRule: r.distinctRule,
             enabled: r.enabled,
           }));
 
