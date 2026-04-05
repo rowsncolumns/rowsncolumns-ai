@@ -617,7 +617,11 @@ const collectOpsFromPatchTuples = (
 ): ShareDBOp[] => {
   const allOps: ShareDBOp[] = [];
   const recalcUserId = source ?? "agent";
-  const recalcCellPatches: Array<{ op: string; path: (string | number)[]; value: unknown }> = [];
+  const recalcCellPatches: Array<{
+    op: string;
+    path: (string | number)[];
+    value: unknown;
+  }> = [];
   let recalcCellsLength = Array.isArray(doc.data?.recalcCells)
     ? doc.data.recalcCells.length
     : 0;
@@ -661,13 +665,21 @@ const collectOpsFromPatchTuples = (
 
     if (patch.conditionalFormats) {
       const conditionalFormatsPatches = patch.conditionalFormats[patchKey];
-      const ops = collectArrayOps(doc, "conditionalFormats", conditionalFormatsPatches);
+      const ops = collectArrayOps(
+        doc,
+        "conditionalFormats",
+        conditionalFormatsPatches,
+      );
       allOps.push(...ops);
     }
 
     if (patch.dataValidations) {
       const dataValidationsPatches = patch.dataValidations[patchKey];
-      const ops = collectArrayOps(doc, "dataValidations", dataValidationsPatches);
+      const ops = collectArrayOps(
+        doc,
+        "dataValidations",
+        dataValidationsPatches,
+      );
       allOps.push(...ops);
     }
 
@@ -685,7 +697,11 @@ const collectOpsFromPatchTuples = (
 
     if (patch.protectedRanges) {
       const protectedRangesPatches = patch.protectedRanges[patchKey];
-      const ops = collectArrayOps(doc, "protectedRanges", protectedRangesPatches);
+      const ops = collectArrayOps(
+        doc,
+        "protectedRanges",
+        protectedRangesPatches,
+      );
       allOps.push(...ops);
     }
 
@@ -731,11 +747,13 @@ const collectOpsFromPatchTuples = (
         path: [recalcCellsLength],
         value: {
           userId: recalcUserId,
-          patches: Array.from(patch.recalcCells[type]).map((value: [unknown, unknown]) => [
-            value[0],
-            value[1],
-            source ?? "agent",
-          ]),
+          patches: Array.from(patch.recalcCells[type]).map(
+            (value: [unknown, unknown]) => [
+              value[0],
+              value[1],
+              source ?? "agent",
+            ],
+          ),
         },
       });
       recalcCellsLength += 1;
@@ -747,7 +765,13 @@ const collectOpsFromPatchTuples = (
     if (!Array.isArray(doc.data?.recalcCells)) {
       allOps.push({ p: ["recalcCells"], oi: [] });
     }
-    allOps.push(...collectArrayOps(doc, "recalcCells", recalcCellPatches as unknown as import("immer").Patch[]));
+    allOps.push(
+      ...collectArrayOps(
+        doc,
+        "recalcCells",
+        recalcCellPatches as unknown as import("immer").Patch[],
+      ),
+    );
   }
 
   return allOps;

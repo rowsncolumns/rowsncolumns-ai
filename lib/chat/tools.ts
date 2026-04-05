@@ -4102,7 +4102,9 @@ const getFirstChartSourceSheetId = (
     return undefined;
   }
 
-  const firstSource = firstGroup.sources[0] as Record<string, unknown> | undefined;
+  const firstSource = firstGroup.sources[0] as
+    | Record<string, unknown>
+    | undefined;
   if (!firstSource || typeof firstSource.sheetId !== "number") {
     return undefined;
   }
@@ -4155,9 +4157,10 @@ export const buildChartSeriesUpdate = (
     ...(dataLabel ? { dataLabel } : {}),
   }));
 
-const parseChartSeriesInput = (
-  seriesInput: { range: string; label?: string },
-) => {
+const parseChartSeriesInput = (seriesInput: {
+  range: string;
+  label?: string;
+}) => {
   const dataLabel = seriesInput.label?.trim();
   return {
     range: seriesInput.range,
@@ -5026,7 +5029,11 @@ Example 8 — Delete validation:
 /**
  * Consolidated handler for conditional format operations (create/update/delete/query)
  */
-type ConditionalFormatRuleType = "condition" | "colorScale" | "topBottom" | "duplicates";
+type ConditionalFormatRuleType =
+  | "condition"
+  | "colorScale"
+  | "topBottom"
+  | "duplicates";
 
 type ConditionalFormatCreatePayloadInput = {
   ruleType: ConditionalFormatRuleType;
@@ -5057,8 +5064,7 @@ const buildConditionalFormatStyle = (
   if (input.backgroundColor) format.backgroundColor = input.backgroundColor;
   if (input.textColor) format.textFormat = { color: input.textColor };
   if (input.bold) format.textFormat = { ...format.textFormat, bold: true };
-  if (input.italic)
-    format.textFormat = { ...format.textFormat, italic: true };
+  if (input.italic) format.textFormat = { ...format.textFormat, italic: true };
   return format;
 };
 
@@ -5458,7 +5464,9 @@ const handleSpreadsheetConditionalFormat = async (
           // Update top/bottom fields
           if (
             existingRule.topBottomRule &&
-            (rest.topBottomType || rest.rank !== undefined || rest.isPercent !== undefined)
+            (rest.topBottomType ||
+              rest.rank !== undefined ||
+              rest.isPercent !== undefined)
           ) {
             updates.topBottomRule = {
               ...(updates.topBottomRule as Record<string, unknown>),
