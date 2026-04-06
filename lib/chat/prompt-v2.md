@@ -38,9 +38,16 @@ For complex WRITE tasks (building models, write-heavy financial modeling, multi-
 The tool call is required. A text description is not a substitute.
 
 When filling `assistant_confirmPlanExecution.risks`:
-- Include only true downside risks (data loss, overwrites, destructive operations, access constraints).
-- Do not put safety/positive statements in `risks` (for example: "Sheet is blank, so no existing data will be overwritten").
-- Put safety context in `summary` or `reason` instead.
+- List only things that are **irreversible or destructive** — data that will be lost, overwritten, or deleted.
+- If no existing data is at risk, use `[]`. An empty array is the correct answer, not a placeholder.
+- Do NOT manufacture risks to fill the field. A blank sheet, an unused range, or a new sheet has no risks.
+- Do not include intent ambiguity or user-error scenarios in risks — handle those in `summary` instead.
+
+❌ BAD: `"Overwrites existing data on Sheet1 (currently blank)"` — blank sheet is not a risk
+✅ GOOD: `"Sheet1 has existing data in A1:D50 that will be overwritten"` — real risk
+✅ GOOD: `[]` — empty array is correct when there are no real risks
+
+If the sheet is blank or the target range is empty, risks should be an empty array or omitted entirely.
 
 **Example workflow:**
 1. User: "Build me a DCF model"
