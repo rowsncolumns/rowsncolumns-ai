@@ -1,6 +1,5 @@
 @import "tailwindcss";
 
-@import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css" layer(base);
 :root {
   --background: #f6efe6;
   --foreground: #111827;
@@ -116,6 +115,34 @@ body.rnc-dark {
   --color-foreground: var(--foreground);
   --font-sans: var(--font-jakarta);
   --font-mono: var(--font-plex-mono);
+
+  /* RNC theme colors */
+  --color-rnc-background: hsl(var(--rnc-background));
+  --color-rnc-foreground: hsl(var(--rnc-foreground));
+  --color-rnc-muted: hsl(var(--rnc-muted));
+  --color-rnc-muted-foreground: hsl(var(--rnc-muted-foreground));
+  --color-rnc-popover: hsl(var(--rnc-popover));
+  --color-rnc-popover-foreground: hsl(var(--rnc-popover-foreground));
+  --color-rnc-card: hsl(var(--rnc-card));
+  --color-rnc-card-foreground: hsl(var(--rnc-card-foreground));
+  --color-rnc-border: hsl(var(--rnc-border));
+  --color-rnc-input: hsl(var(--rnc-input));
+  --color-rnc-primary: hsl(var(--rnc-primary));
+  --color-rnc-primary-foreground: hsl(var(--rnc-primary-foreground));
+  --color-rnc-secondary: hsl(var(--rnc-secondary));
+  --color-rnc-secondary-foreground: hsl(var(--rnc-secondary-foreground));
+  --color-rnc-accent: hsl(var(--rnc-accent));
+  --color-rnc-accent-foreground: hsl(var(--rnc-accent-foreground));
+  --color-rnc-destructive: hsl(var(--rnc-destructive));
+  --color-rnc-destructive-foreground: hsl(var(--rnc-destructive-foreground));
+  --color-rnc-warning: hsl(var(--rnc-warning));
+  --color-rnc-warning-foreground: hsl(var(--rnc-warning-foreground));
+  --color-rnc-success: hsl(var(--rnc-success));
+  --color-rnc-success-foreground: hsl(var(--rnc-success-foreground));
+  --color-rnc-ring: hsl(var(--rnc-ring));
+  --color-rnc-scrollbar-border: hsl(var(--rnc-scrollbar-border));
+  --color-rnc-scrollbar-background: hsl(var(--rnc-scrollbar-background));
+  --color-rnc-scrollbar-thumb: hsl(var(--rnc-scrollbar-thumb));
 }
 
 * {
@@ -836,4 +863,99 @@ body.rnc-dark .prose hr {
     height: auto !important;
     overflow: visible !important;
   }
+}
+
+
+
+:root {
+  --rnc-background: 0 0% 100%;
+  --rnc-foreground: 222.2 47.4% 11.2%;
+
+  --rnc-muted: 0 0% 90.9%;
+  --rnc-muted-foreground: 215.4 16.3% 46.9%;
+
+  --rnc-popover: 0 0% 100%;
+  --rnc-popover-foreground: 222.2 47.4% 11.2%;
+
+  --rnc-card: 0 0% 100%;
+  --rnc-card-foreground: 222.2 47.4% 11.2%;
+
+  --rnc-border: 0 0% 78.0%;
+  --rnc-input: 0 0% 82%;
+
+  --rnc-primary: 211 100%  43.2%;
+  --rnc-primary-foreground: 210 40% 98%;
+
+  --rnc-secondary: 210 40% 96.1%;
+  --rnc-secondary-foreground: 222.2 47.4% 11.2%;
+
+  --rnc-accent: 0 0% 90.9%;
+  --rnc-accent-foreground: 222.2 47.4% 11.2%;
+
+  --rnc-destructive: 0 100% 50%;
+  --rnc-destructive-foreground: 210 40% 98%;
+
+  --rnc-warning: 24 100% 46.5%;
+  --rnc-warning-foreground: 210 40% 98%;
+
+  --rnc-success: 120 100% 40%;
+  --rnc-success-foreground: 210 40% 98%;
+
+  --rnc-ring: 215 20.2% 65.1%;
+
+  --rnc-radius: 0.5rem;
+
+  /* Scrollbar */
+  --rnc-scrollbar-border: 0 0% 85.8%;
+  --rnc-scrollbar-background: 0 0% 97.3%;
+  --rnc-scrollbar-thumb: 0 0% 78.0%;
+
+  /* Fonts */
+  --rnc-formula-font-family: "Inconsolata";
+  --rnc-header-font-family: "Arial";
+  
+}
+
+.rnc-dark {
+  --rnc-background: 224 71% 4%;
+  --rnc-foreground: 213 31% 91%;
+
+  --rnc-muted: 0 0% 17.9%;
+  --rnc-muted-foreground: 215.4 16.3% 56.9%;
+
+  --rnc-popover: 224 71% 4%;
+  --rnc-popover-foreground: 215 20.2% 65.1%;
+
+  --rnc-card: 224 71% 4%;
+  --rnc-card-foreground: 213 31% 91%;
+
+  --rnc-border: 0 0% 31.2%;
+  --rnc-input: 216 34% 17%;
+
+  --rnc-primary: 210 40% 98%;
+  --rnc-primary-foreground: 222.2 47.4% 1.2%;
+
+  --rnc-secondary: 222.2 47.4% 11.2%;
+  --rnc-secondary-foreground: 210 40% 98%;
+
+  --rnc-accent: 216 34% 17%;
+  --rnc-accent-foreground: 210 40% 98%;
+
+  --rnc-destructive: 0 100% 50%;
+  --rnc-destructive-foreground: 210 40% 98%;
+
+  --rnc-warning: 24 100% 58.5%;
+  --rnc-warning-foreground: 210 40% 98%;
+
+  --rnc-success: 120 100% 40%;
+  --rnc-success-foreground: 210 40% 98%;
+
+  --rnc-ring: 216 34% 17%;
+
+  --rnc-radius: 0.5rem;
+
+  /* Scrollbar */
+  --rnc-scrollbar-border: 0 0% 24.3%;
+  --rnc-scrollbar-background: 0 0% 11.0%;
+  --rnc-scrollbar-thumb: 0 0% 31.2%;
 }

@@ -119,9 +119,8 @@ export function FileMenu({
     }
   }, [onExportCSV]);
 
-  const hasShareOption = shareDocumentId?.trim().length
-    ? true
-    : false;
+  const normalizedShareDocumentId = shareDocumentId?.trim() ?? "";
+  const hasShareOption = normalizedShareDocumentId.length > 0;
   const hasImportOptions = allowImport && (onImportExcel || onImportCSV);
   const hasActionsBeforeExports = allowCreateNew || hasShareOption || hasImportOptions;
 
@@ -178,7 +177,7 @@ export function FileMenu({
           ) : null}
           {hasShareOption ? (
             <ShareDocumentButton
-              documentId={shareDocumentId}
+              documentId={normalizedShareDocumentId}
               canManageShare={canManageShare}
               triggerStyle="menu-item"
               label="Share"
