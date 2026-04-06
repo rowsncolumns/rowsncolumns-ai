@@ -188,15 +188,16 @@ export default async function TemplateDetailsPage({
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-xl border border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
+          <div className="overflow-hidden rounded-xl border border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
             {template.previewImageUrl ? (
               <Image
                 src={template.previewImageUrl}
                 alt={`${template.templateTitle} preview`}
-                fill
+                width={1600}
+                height={900}
                 unoptimized
                 sizes="(min-width: 1024px) 42vw, 100vw"
-                className="object-cover"
+                className="h-full w-full object-cover"
               />
             ) : (
               <div className="flex aspect-[16/9] h-full items-center justify-center p-6 text-center text-sm text-(--muted-foreground)">
