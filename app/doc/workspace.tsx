@@ -1262,7 +1262,7 @@ function SpreadsheetPane({
             </PopoverTrigger>
             <PopoverContent
               className={cn(
-                "selection-title-popover border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs",
+                "selection-title-popover border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs shadow-2xl",
                 isCollaborator && "px-2 py-0.5 w-auto rounded-2xl",
               )}
               style={
