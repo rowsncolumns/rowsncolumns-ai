@@ -67,6 +67,11 @@ type TemplateCatalogRow = {
   updated_at: Date | string;
 };
 
+type TemplateSitemapRow = {
+  doc_id: string;
+  updated_at: Date | string;
+};
+
 export type DocumentOwnerRecord = {
   docId: string;
   userId: string;
@@ -115,6 +120,11 @@ export type TemplateCatalogItem = {
   descriptionMarkdown: string;
   tags: string[];
   previewImageUrl: string;
+  updatedAt: string;
+};
+
+export type TemplateSitemapItem = {
+  docId: string;
   updatedAt: string;
 };
 
@@ -1150,6 +1160,33 @@ export async function listTemplateDocuments({
     `;
 
     return rows.map(mapTemplateCatalogRow);
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function listTemplateSitemapEntries(): Promise<
+  TemplateSitemapItem[]
+> {
+  try {
+    const rows = await db<TemplateSitemapRow[]>`
+      SELECT
+        metadata.doc_id,
+        metadata.updated_at
+      FROM public.document_metadata AS metadata
+      INNER JOIN public.document_owners AS owners
+        ON owners.doc_id = metadata.doc_id
+      WHERE metadata.is_template = TRUE
+      ORDER BY metadata.updated_at DESC
+    `;
+
+    return rows.map((row) => ({
+      docId: row.doc_id,
+      updatedAt: toIsoTimestamp(row.updated_at),
+    }));
   } catch (error) {
     if (isMissingColumnError(error) || isMissingRelationError(error)) {
       return [];
