@@ -1,15 +1,42 @@
 import { z } from "zod";
 
-// ThemeColor schema
-const ThemeColorSchema = z.object({
-  theme: z.number().int().min(0).max(10).describe("Theme color index (0-10)"),
-  tint: z.number().nullable().optional().describe("Tint adjustment"),
-});
+// ThemeColor schema - PREFERRED for consistent document theming
+const ThemeColorSchema = z
+  .object({
+    theme: z
+      .number()
+      .int()
+      .min(0)
+      .max(10)
+      .describe(
+        "Theme color index: 0=background1 (usually white), 1=text1 (usually black), " +
+          "2=background2, 3=text2, 4=accent1 (primary brand color), 5=accent2, " +
+          "6=accent3, 7=accent4, 8=accent5, 9=accent6, 10=hyperlink",
+      ),
+    tint: z
+      .number()
+      .nullable()
+      .optional()
+      .describe(
+        "Tint adjustment (-1 to 1). Negative = darker, positive = lighter. " +
+          "E.g., -0.5 = 50% darker, 0.4 = 40% lighter. Omit for pure theme color.",
+      ),
+  })
+  .describe(
+    "Theme-based color reference. PREFERRED over hex colors for professional, consistent styling " +
+      "that adapts to the document's theme. Use {theme: 4} for primary accent, {theme: 4, tint: 0.6} for lighter variant.",
+  );
 
-// Color schema - hex string or theme reference
+// Color schema - theme reference (preferred) or hex string (for specific colors)
 const ColorSchema = z.union([
-  z.string().describe("Hex color string (e.g., '#FF0000')"),
-  ThemeColorSchema,
+  ThemeColorSchema.describe(
+    "PREFERRED: Theme color for consistent document styling. Example: {theme: 4} for accent color, {theme: 4, tint: 0.4} for lighter variant.",
+  ),
+  z
+    .string()
+    .describe(
+      "Hex color string (e.g., '#FF0000'). Use only when a specific color is required that doesn't match theme colors.",
+    ),
 ]);
 
 // Border style enum
@@ -28,7 +55,7 @@ const BorderSchema = z
     style: BorderStyleSchema.describe("Border style"),
     width: z.number().int().describe("Border width in pixels"),
     color: ColorSchema.optional().describe(
-      "Border color as hex string (e.g., '#FF0000') or theme reference",
+      "Border color. PREFER theme colors (e.g., {theme: 1} for text color, {theme: 4} for accent) over hex.",
     ),
   })
   .optional();
@@ -50,7 +77,7 @@ const BordersSchema = z
 const TextFormatSchema = z
   .object({
     color: ColorSchema.optional().describe(
-      "Text color as hex string (e.g., '#FF0000') or theme reference",
+      "Text color. PREFER theme colors (e.g., {theme: 1} for standard text, {theme: 4} for accent) over hex.",
     ),
     fontFamily: z.string().optional().describe("Font family name"),
     fontSize: z.number().int().optional().describe("Font size in points"),
@@ -95,7 +122,7 @@ const NumberFormatSchema = z
 const CellFormatSchema = z
   .object({
     backgroundColor: ColorSchema.optional().describe(
-      "Background color as hex string (e.g., '#FF0000') or theme reference",
+      "Background color. PREFER theme colors (e.g., {theme: 4, tint: 0.8} for light accent fill) over hex.",
     ),
     borders: BordersSchema.describe("Cell borders"),
     textFormat: TextFormatSchema.describe("Text formatting"),
@@ -219,7 +246,7 @@ const SheetSpecSchema = z
     tabColor: ColorSchema.nullable()
       .optional()
       .describe(
-        "Tab color as hex string (e.g., '#FF0000'), theme reference ({theme: 0-10, tint?: number}), or null to remove the color.",
+        "Tab color. PREFER theme colors (e.g., {theme: 4} for accent, {theme: 5} for secondary) over hex. Set null to remove.",
       ),
     showGridLines: z
       .boolean()
@@ -760,16 +787,16 @@ export type TableColumn = z.infer<typeof TableColumnSchema>;
 // Banding properties for alternating row/column colors
 const BandingPropertiesSchema = z.object({
   headerColor: ColorSchema.optional().describe(
-    "Header band color as hex string (e.g., '#4472C4') or theme reference",
+    "Header band color. Prefer theme (e.g., {theme: 4}) for consistent styling, or hex for specific colors.",
   ),
   footerColor: ColorSchema.optional().describe(
-    "Footer band color as hex string or theme reference",
+    "Footer band color. Prefer theme or hex for specific colors.",
   ),
   firstBandColor: ColorSchema.optional().describe(
-    "First (odd) alternating band color as hex string (e.g., '#D6DCE5') or theme reference",
+    "First (odd) band color. Prefer theme (e.g., {theme: 4, tint: 0.8}) or hex for specific colors.",
   ),
   secondBandColor: ColorSchema.optional().describe(
-    "Second (even) alternating band color as hex string (e.g., '#FFFFFF') or theme reference",
+    "Second (even) band color. Prefer theme (e.g., {theme: 0}) or hex for specific colors.",
   ),
   headerBorder: BordersSchema.describe("Header row border"),
   footerBorder: BordersSchema.describe("Footer row border"),
