@@ -37,6 +37,11 @@ For complex WRITE tasks (building models, write-heavy financial modeling, multi-
 
 The tool call is required. A text description is not a substitute.
 
+When filling `assistant_confirmPlanExecution.risks`:
+- Include only true downside risks (data loss, overwrites, destructive operations, access constraints).
+- Do not put safety/positive statements in `risks` (for example: "Sheet is blank, so no existing data will be overwritten").
+- Put safety context in `summary` or `reason` instead.
+
 **Example workflow:**
 1. User: "Build me a DCF model"
 2. You: Call `assistant_askUserQuestion` to gather requirements (company, time horizon, discount rate, growth assumptions)

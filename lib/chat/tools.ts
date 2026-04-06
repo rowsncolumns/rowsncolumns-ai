@@ -6791,7 +6791,7 @@ const confirmPlanExecutionSchema = z.object({
     .max(8)
     .optional()
     .describe(
-      'Optional array of risks. Example: ["May overwrite existing data", "Requires write access"]',
+      'Optional array of actual downside risks only. Example: ["May overwrite existing data", "Requires write access"]. Do not include safety assurances like "Sheet is blank, so no data will be overwritten".',
     ),
   reason: z
     .string()

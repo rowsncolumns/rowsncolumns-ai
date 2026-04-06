@@ -356,7 +356,7 @@ export function AskUserQuestionToolCard({
                       )
                     }
                     placeholder={DEFAULT_CUSTOM_ANSWER_PLACEHOLDER}
-                    className="mt-2 min-h-[72px] text-xs"
+                    className="mt-2 min-h-8 text-xs"
                     disabled={isSubmitted}
                   />
                 </div>
@@ -507,26 +507,26 @@ export function ConfirmPlanExecutionToolCard({
               ))}
             </ol>
 
-            {plan.risks.length > 0 ? (
-              <div className="mt-3 rounded border border-red-200 bg-red-50 px-2 py-2">
-                <div className="text-[11px] font-semibold text-red-700">
-                  Risks
-                </div>
-                <ol className="!mt-0 !mb-0 ml-2 list-decimal">
-                  {plan.risks.map((risk, index) => (
-                    <li
-                      key={`${toolCallId}-risk-${index}`}
-                      className="!m-0 pb-1 text-red-700"
-                    >
-                      {risk}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
+	            {plan.risks.length > 0 ? (
+	              <div className="mt-3 rounded border border-red-200 bg-red-50 px-2 py-2">
+	                <div className="text-[11px] font-semibold text-red-700">
+	                  Risks
+	                </div>
+	                <ol className="!mt-0 !mb-0 ml-2 list-decimal">
+	                  {plan.risks.map((risk, index) => (
+	                    <li
+	                      key={`${toolCallId}-risk-${index}`}
+	                      className="!m-0 pb-1 text-red-700"
+	                    >
+	                      {risk}
+	                    </li>
+	                  ))}
+	                </ol>
+	              </div>
+	            ) : null}
+	          </div>
+	        </div>
+	      </div>
 
       <div className="mt-3 rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2">
         <div className="text-xs font-medium text-foreground">
@@ -539,8 +539,9 @@ export function ConfirmPlanExecutionToolCard({
             setFeedback(event.target.value);
           }}
           placeholder="Share feedback for the agent."
-          className="mt-2 min-h-[84px] text-xs"
+          className="mt-2 min-h-6 text-xs"
           disabled={isSubmitted}
+          rows={1}
         />
       </div>
 
