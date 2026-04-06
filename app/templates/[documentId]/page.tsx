@@ -15,7 +15,6 @@ import {
   listOwnedDocumentIds,
   listTemplateDocuments,
 } from "@/lib/documents/repository";
-import { passthroughImageLoader } from "@/lib/image/passthrough-loader";
 
 type RouteParams = Promise<{ documentId: string }>;
 
@@ -192,7 +191,6 @@ export default async function TemplateDetailsPage({
           <div className="relative overflow-hidden rounded-xl border border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
             {template.previewImageUrl ? (
               <Image
-                loader={passthroughImageLoader}
                 src={template.previewImageUrl}
                 alt={`${template.templateTitle} preview`}
                 fill
@@ -309,7 +307,6 @@ export default async function TemplateDetailsPage({
                 <div className="relative aspect-[16/9] bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
                   {item.previewImageUrl ? (
                     <Image
-                      loader={passthroughImageLoader}
                       src={item.previewImageUrl}
                       alt={`${item.templateTitle} preview`}
                       fill

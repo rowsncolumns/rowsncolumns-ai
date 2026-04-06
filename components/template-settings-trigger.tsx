@@ -7,7 +7,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { passthroughImageLoader } from "@/lib/image/passthrough-loader";
 import {
   isSupportedImageFile,
   uploadAssistantImage,
@@ -546,7 +545,6 @@ export function TemplateSettingsTrigger({
               <div className="relative aspect-[16/9] bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
                 {form.previewImageUrl.trim() ? (
                   <Image
-                    loader={passthroughImageLoader}
                     src={form.previewImageUrl.trim()}
                     alt="Template preview"
                     fill

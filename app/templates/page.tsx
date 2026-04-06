@@ -11,7 +11,6 @@ import {
   listOwnedDocumentIds,
   listTemplateDocuments,
 } from "@/lib/documents/repository";
-import { passthroughImageLoader } from "@/lib/image/passthrough-loader";
 import { cn } from "@/lib/utils";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -267,7 +266,6 @@ export default async function TemplatesPage({
                         >
                           {template.previewImageUrl ? (
                             <Image
-                              loader={passthroughImageLoader}
                               src={template.previewImageUrl}
                               alt={`${displayTitle} preview`}
                               fill
