@@ -2217,7 +2217,7 @@ function AssistantTextPart() {
 
   return (
     <Card className="rnc-assistant-bubble-ai w-fit max-w-[92%] border-black/10 bg-[#fff7f1]">
-      <CardContent className="py-2 px-3">
+      <CardContent className="py-2 px-3 sm:py-2 sm:px-3">
         <div className="prose text-sm text-foreground overflow-hidden">
           <MarkdownText />
         </div>
@@ -2602,7 +2602,7 @@ function AssistantMessageBody() {
           )}
         {role === "assistant" && showTypingIndicatorBeforeText && (
           <Card className="rnc-assistant-bubble-ai w-fit border-black/10 bg-[#fff7f1]">
-            <CardContent className="py-2 px-3">
+            <CardContent className="py-2 px-3 sm:py-2 sm:px-3">
               <div className="prose text-sm text-foreground overflow-hidden">
                 <TypingIndicator />
               </div>
@@ -2611,7 +2611,7 @@ function AssistantMessageBody() {
         )}
         {role === "assistant" && showRunningLoadingSpinner && (
           <Card className="rnc-assistant-bubble-ai w-fit border-black/10 bg-[#fff7f1]">
-            <CardContent className="py-2 px-3">
+            <CardContent className="py-2 px-3 sm:py-2 sm:px-3">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
               </div>
@@ -2630,7 +2630,7 @@ function AssistantMessageBody() {
             </div>
             {hasUserText && (
               <Card className="rnc-assistant-bubble-user w-fit max-w-full border-black/10 bg-foreground text-white">
-                <CardContent className="py-2 px-3">
+                <CardContent className="py-2 px-3 sm:py-2 sm:px-3">
                   <div className="whitespace-normal break-words text-sm leading-6 text-white/90">
                     <MessagePrimitive.Content
                       components={{
@@ -3365,7 +3365,7 @@ function SkillsManagerButton({
                               key={skill.id}
                               className="border-(--card-border) bg-(--card-bg-solid) shadow-none"
                             >
-                              <CardContent className="space-y-3 px-4 py-3">
+                              <CardContent className="space-y-3 px-4 py-3 sm:px-4 sm:py-3">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">
                                     <div className="truncate text-base font-semibold text-foreground">
