@@ -8,6 +8,7 @@ import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { SheetsTable } from "@/components/sheets-table";
+import { isAdminUser } from "@/lib/auth/admin";
 import { Button, getButtonClassName } from "@/components/ui/button";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import {
@@ -44,7 +45,12 @@ const parsePageNumber = (raw: string | null): number => {
 };
 
 const parseFilter = (raw: string | null): DocumentListFilter => {
-  if (raw === "owned" || raw === "shared" || raw === "my_shared") {
+  if (
+    raw === "owned" ||
+    raw === "shared" ||
+    raw === "my_shared" ||
+    raw === "templates"
+  ) {
     return raw;
   }
   return "owned";
@@ -119,10 +125,15 @@ export default async function SheetsPage({
     filter,
     query,
   });
+  const isAdmin = isAdminUser({
+    id: session.user.id,
+    email: session.user.email,
+  });
   const descriptionByFilter: Record<DocumentListFilter, string> = {
     owned: "Sheets created by your account.",
     shared: "Sheets shared with you by other users.",
     my_shared: "Sheets you created that are currently shared.",
+    templates: "Template sheets available in your workspace.",
   };
 
   return (
@@ -175,7 +186,6 @@ export default async function SheetsPage({
                   <SheetsFilterPicker
                     value={result.filter}
                     query={query}
-                    hideLabelOnMobile
                     buttonClassName="w-auto"
                   />
                 </div>
@@ -218,6 +228,7 @@ export default async function SheetsPage({
             totalCount={result.totalCount}
             filter={result.filter}
             query={query}
+            isAdmin={isAdmin}
           />
         </section>
       </div>

@@ -16,6 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { Button } from "@/components/ui/button";
 import type { DocumentListFilter } from "@/lib/documents/repository";
 import { IconButton } from "@rowsncolumns/ui";
@@ -26,6 +27,7 @@ type SheetListItem = {
   createdAt: string;
   lastModifiedAt: string;
   isShared: boolean;
+  isTemplate: boolean;
   isFavorite: boolean;
 };
 
@@ -36,6 +38,7 @@ type SheetsTableProps = {
   totalCount: number;
   filter: DocumentListFilter;
   query?: string | null;
+  isAdmin?: boolean;
 };
 
 type DeleteDocumentResponse = {
@@ -100,6 +103,7 @@ export function SheetsTable({
   totalCount,
   filter,
   query,
+  isAdmin = false,
 }: SheetsTableProps) {
   const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<SheetListItem | null>(null);
@@ -126,10 +130,18 @@ export function SheetsTable({
   const hasNextPage = page < totalPages;
   const emptyStateMessage = query?.trim()
     ? "No sheets match your search."
-    : "No sheets yet. Create your first sheet to get started.";
+    : filter === "templates"
+      ? "No template sheets found."
+      : "No sheets yet. Create your first sheet to get started.";
 
   const handleDelete = async () => {
     if (!deleteTarget || isDeleting) {
+      return;
+    }
+
+    if (deleteTarget.isTemplate) {
+      toast.error("Template sheets cannot be deleted.");
+      setDeleteTarget(null);
       return;
     }
 
@@ -261,14 +273,19 @@ export function SheetsTable({
             </div>
           ) : (
             <ul className="divide-y divide-(--card-border)">
-              {documents.map((document) => {
-                const isRowDeleting =
-                  isDeleting && deletingDocId === document.docId;
-                const isRowFavoriting = favoritingDocId === document.docId;
-                const isRowDuplicating = duplicatingDocId === document.docId;
+	              {documents.map((document) => {
+	                const isRowDeleting =
+	                  isDeleting && deletingDocId === document.docId;
+	                const isRowFavoriting = favoritingDocId === document.docId;
+	                const isRowDuplicating = duplicatingDocId === document.docId;
+                  const isDeleteDisabled =
+                    document.isTemplate ||
+                    isDeleting ||
+                    favoritingDocId !== null ||
+                    duplicatingDocId !== null;
 
-                return (
-                  <li key={document.docId} className="space-y-3 px-4 py-4">
+	                return (
+	                  <li key={document.docId} className="space-y-3 px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <Link
                         href={`/sheets/${document.docId}`}
@@ -279,16 +296,23 @@ export function SheetsTable({
                         ) : null}
                         {document.title}
                       </Link>
-                      <span
-                        className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          document.isShared
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-(--assistant-chip-bg) text-(--muted-foreground)"
-                        }`}
-                      >
-                        {document.isShared ? "Shared" : "Private"}
-                      </span>
-                    </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {document.isTemplate ? (
+                            <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">
+                              Template
+                            </span>
+                          ) : null}
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              document.isShared
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-(--assistant-chip-bg) text-(--muted-foreground)"
+                            }`}
+                          >
+                            {document.isShared ? "Shared" : "Private"}
+                          </span>
+                        </div>
+	                    </div>
 
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
                       <div className="space-y-0.5">
@@ -313,8 +337,8 @@ export function SheetsTable({
                       </div>
                     </dl>
 
-                    <div className="flex items-center justify-start">
-                      <Button
+                    <div className="flex flex-wrap items-center justify-start gap-1">
+	                      <Button
                         type="button"
                         size="sm"
                         variant="ghost"
@@ -364,21 +388,35 @@ export function SheetsTable({
                         )}
                         Duplicate
                       </Button>
+                      {isAdmin ? (
+                        <TemplateSettingsTrigger
+                          template={document}
+                          triggerMode="button"
+                          triggerLabel="Template"
+                          triggerClassName="h-9 rounded-lg px-3 text-violet-600 hover:bg-violet-50 hover:text-violet-700"
+                          disabled={
+                            isDeleting ||
+                            favoritingDocId !== null ||
+                            duplicatingDocId !== null
+                          }
+                        />
+                      ) : null}
                       <Button
                         type="button"
                         size="sm"
                         variant="ghost"
                         className="h-9 rounded-lg px-3 text-red-500 hover:bg-red-50 hover:text-red-600"
-                        disabled={
-                          isDeleting ||
-                          favoritingDocId !== null ||
-                          duplicatingDocId !== null
-                        }
-                        onClick={() => {
-                          setDeleteTarget(document);
-                        }}
-                        aria-label={`Delete ${document.title}`}
-                      >
+	                        disabled={isDeleteDisabled}
+	                        onClick={() => {
+	                          setDeleteTarget(document);
+	                        }}
+	                        aria-label={`Delete ${document.title}`}
+                          title={
+                            document.isTemplate
+                              ? "Template sheets cannot be deleted"
+                              : "Delete"
+                          }
+	                      >
                         {isRowDeleting ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
@@ -426,30 +464,40 @@ export function SheetsTable({
                   </td>
                 </tr>
               ) : (
-                documents.map((document) => {
-                  const isRowDeleting =
-                    isDeleting && deletingDocId === document.docId;
-                  const isRowFavoriting = favoritingDocId === document.docId;
-                  const isRowDuplicating = duplicatingDocId === document.docId;
+	                documents.map((document) => {
+	                  const isRowDeleting =
+	                    isDeleting && deletingDocId === document.docId;
+	                  const isRowFavoriting = favoritingDocId === document.docId;
+	                  const isRowDuplicating = duplicatingDocId === document.docId;
+                    const isDeleteDisabled =
+                      document.isTemplate ||
+                      isDeleting ||
+                      favoritingDocId !== null ||
+                      duplicatingDocId !== null;
 
-                  return (
+	                  return (
                     <tr
                       key={document.docId}
                       className="hover:bg-(--assistant-chip-bg)"
                     >
                       <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          <Link
-                            href={`/sheets/${document.docId}`}
-                            className="inline-flex items-center gap-1 text-sm font-semibold text-foreground hover:text-orange-500"
-                          >
+	                        <div className="flex flex-col gap-1">
+	                          <Link
+	                            href={`/sheets/${document.docId}`}
+	                            className="inline-flex items-center gap-1 text-sm font-semibold text-foreground hover:text-orange-500"
+	                          >
                             {document.isFavorite ? (
                               <Star className="h-3.5 w-3.5 shrink-0 fill-amber-500 text-amber-500" />
                             ) : null}
-                            {document.title}
-                          </Link>
-                        </div>
-                      </td>
+	                            {document.title}
+	                          </Link>
+                            {document.isTemplate ? (
+                              <span className="inline-flex w-fit items-center rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                                Template
+                              </span>
+                            ) : null}
+	                        </div>
+	                      </td>
                       <td className="px-4 py-3 text-sm text-foreground">
                         {hasMounted
                           ? formatDate(document.createdAt, dateFormatter)
@@ -498,6 +546,19 @@ export function SheetsTable({
                               />
                             )}
                           </IconButton>
+                          {isAdmin ? (
+                            <TemplateSettingsTrigger
+                              template={document}
+                              triggerMode="icon"
+                              triggerTooltip="Template settings"
+                              triggerClassName="text-violet-600 hover:bg-violet-50 hover:text-violet-700"
+                              disabled={
+                                isDeleting ||
+                                favoritingDocId !== null ||
+                                duplicatingDocId !== null
+                              }
+                            />
+                          ) : null}
                           <IconButton
                             tooltip="Duplicate"
                             className=" text-sky-600 hover:bg-sky-50 hover:text-sky-700"
@@ -517,17 +578,17 @@ export function SheetsTable({
                               <Copy className="h-4 w-4" />
                             )}
                           </IconButton>
-                          <IconButton
-                            tooltip="Delete"
-                            className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                            disabled={
-                              isDeleting ||
-                              favoritingDocId !== null ||
-                              duplicatingDocId !== null
-                            }
-                            onClick={() => {
-                              setDeleteTarget(document);
-                            }}
+	                          <IconButton
+	                            tooltip={
+                                document.isTemplate
+                                  ? "Template sheets cannot be deleted"
+                                  : "Delete"
+                              }
+	                            className="text-red-500 hover:bg-red-50 hover:text-red-600"
+	                            disabled={isDeleteDisabled}
+	                            onClick={() => {
+	                              setDeleteTarget(document);
+	                            }}
                             aria-label={`Delete ${document.title}`}
                           >
                             {isRowDeleting ? (

@@ -39,6 +39,8 @@
     "db:migrate:document-share-permissions": "tsx scripts/add-share-permission-to-document-share-links.ts",
     "db:migrate:document-share-public-access": "tsx scripts/add-public-access-to-document-share-links.ts",
     "db:migrate:document-favorites": "tsx scripts/create-document-favorites-table.ts",
+    "db:migrate:document-templates": "tsx scripts/add-template-fields-to-document-metadata.ts",
+    "db:migrate:document-template-title": "tsx scripts/add-template-title-to-document-metadata.ts",
     "db:migrate:document-import-jobs": "tsx scripts/create-document-import-jobs-table.ts",
     "db:cleanup:non-favorite-documents": "tsx scripts/delete-non-favorite-documents.ts",
     "db:migrate:billing": "tsx scripts/create-billing-tables.ts",

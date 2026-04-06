@@ -1,4 +1,3 @@
-import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
 import type { Metadata } from "next";
 
 import { PostHogIdentify } from "@/components/posthog-identify";

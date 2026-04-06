@@ -31,6 +31,7 @@ type OwnedDocumentRow = {
   metadata_title: string | null;
   last_modified_at: Date | string;
   is_shared: boolean;
+  is_template: boolean;
   access_type: "owned" | "shared";
   is_favorite: boolean;
 };
@@ -38,6 +39,30 @@ type OwnedDocumentRow = {
 type SourceDocumentForDuplicateRow = {
   doc_id: string;
   source_title: string | null;
+};
+
+type DocumentTemplateMetadataRow = {
+  doc_id: string;
+  title: string;
+  template_title: string | null;
+  is_template: boolean | null;
+  template_category: string | null;
+  template_description_markdown: string | null;
+  template_tags: string[] | null;
+  template_preview_image_url: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+type TemplateCatalogRow = {
+  doc_id: string;
+  title: string | null;
+  template_title: string | null;
+  template_category: string | null;
+  template_description_markdown: string | null;
+  template_tags: string[] | null;
+  template_preview_image_url: string | null;
+  updated_at: Date | string;
 };
 
 export type DocumentOwnerRecord = {
@@ -65,6 +90,40 @@ export type DocumentMetadataRecord = {
   updatedAt: string;
 };
 
+export type DocumentTemplateMetadataRecord = {
+  docId: string;
+  title: string;
+  templateTitle: string;
+  isTemplate: boolean;
+  category: string;
+  descriptionMarkdown: string;
+  tags: string[];
+  previewImageUrl: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TemplateCatalogItem = {
+  docId: string;
+  title: string;
+  templateTitle: string;
+  category: string;
+  descriptionMarkdown: string;
+  tags: string[];
+  previewImageUrl: string;
+  updatedAt: string;
+};
+
+export type UpdateDocumentTemplateInput = {
+  docId: string;
+  isTemplate: boolean;
+  templateTitle?: string | null;
+  category?: string | null;
+  descriptionMarkdown?: string | null;
+  tags?: string[];
+  previewImageUrl?: string | null;
+};
+
 export type EnsureDocumentOwnershipResult = {
   ownership: DocumentOwnerRecord;
   isOwner: boolean;
@@ -84,6 +143,7 @@ export type OwnedDocumentRecord = {
   createdAt: string;
   lastModifiedAt: string;
   isShared: boolean;
+  isTemplate: boolean;
   accessType: "owned" | "shared";
   isFavorite: boolean;
 };
@@ -97,7 +157,7 @@ export type ListOwnedDocumentsResult = {
   filter: DocumentListFilter;
 };
 
-export type DocumentListFilter = "owned" | "shared" | "my_shared";
+export type DocumentListFilter = "owned" | "shared" | "my_shared" | "templates";
 
 export type DuplicateDocumentResult = {
   docId: string;
@@ -150,6 +210,13 @@ const SHAREDB_COLLECTION =
 const DEFAULT_TITLE_PREFIX = "Document";
 const MAX_TITLE_LENGTH = 160;
 const DUPLICATE_TITLE_SUFFIX = " (Copy)";
+const MAX_TEMPLATE_TITLE_LENGTH = 160;
+const MAX_TEMPLATE_CATEGORY_LENGTH = 80;
+const MAX_TEMPLATE_DESCRIPTION_LENGTH = 20_000;
+const MAX_TEMPLATE_TAG_LENGTH = 40;
+const MAX_TEMPLATE_TAG_COUNT = 20;
+const MAX_TEMPLATE_PREVIEW_URL_LENGTH = 2048;
+const UNCATEGORIZED_TEMPLATE_LABEL = "Uncategorized";
 
 export const getDefaultDocumentTitle = (docId: string): string => {
   const shortId = docId.slice(0, 8);
@@ -177,6 +244,109 @@ const buildDuplicateDocumentTitle = (
   );
   const truncatedBaseTitle = baseTitle.slice(0, maxBaseLength).trimEnd();
   return `${truncatedBaseTitle || fallbackTitle.slice(0, maxBaseLength)}${DUPLICATE_TITLE_SUFFIX}`;
+};
+
+const normalizeTemplateCategory = (value?: string | null): string | null => {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return null;
+  }
+  return normalized.slice(0, MAX_TEMPLATE_CATEGORY_LENGTH);
+};
+
+const normalizeTemplateTitle = (value?: string | null): string | null => {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return null;
+  }
+  return normalized.slice(0, MAX_TEMPLATE_TITLE_LENGTH);
+};
+
+const normalizeTemplateDescriptionMarkdown = (
+  value?: string | null,
+): string | null => {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.slice(0, MAX_TEMPLATE_DESCRIPTION_LENGTH);
+};
+
+const normalizeTemplatePreviewImageUrl = (value?: string | null): string | null => {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.slice(0, MAX_TEMPLATE_PREVIEW_URL_LENGTH);
+};
+
+const normalizeTemplateTags = (values: string[]): string[] => {
+  const dedupe = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const value of values) {
+    const next = value.trim().replace(/\s+/g, " ").slice(0, MAX_TEMPLATE_TAG_LENGTH);
+    if (!next) {
+      continue;
+    }
+    const dedupeKey = next.toLowerCase();
+    if (dedupe.has(dedupeKey)) {
+      continue;
+    }
+    dedupe.add(dedupeKey);
+    normalized.push(next);
+    if (normalized.length >= MAX_TEMPLATE_TAG_COUNT) {
+      break;
+    }
+  }
+
+  return normalized;
+};
+
+const normalizeTemplateCategoryForDisplay = (value?: string | null): string =>
+  normalizeTemplateCategory(value) ?? UNCATEGORIZED_TEMPLATE_LABEL;
+
+const toStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
+};
+
+const mapDocumentTemplateRow = (
+  row: DocumentTemplateMetadataRow,
+): DocumentTemplateMetadataRecord => {
+  const fallbackTitle = row.title?.trim() || getDefaultDocumentTitle(row.doc_id);
+  const resolvedTemplateTitle = normalizeTemplateTitle(row.template_title) ?? fallbackTitle;
+
+  return {
+    docId: row.doc_id,
+    title: resolvedTemplateTitle,
+    templateTitle: resolvedTemplateTitle,
+    isTemplate: row.is_template === true,
+    category: normalizeTemplateCategory(row.template_category) ?? "",
+    descriptionMarkdown: row.template_description_markdown?.trim() || "",
+    tags: normalizeTemplateTags(toStringArray(row.template_tags)),
+    previewImageUrl: row.template_preview_image_url?.trim() || "",
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+};
+
+const mapTemplateCatalogRow = (row: TemplateCatalogRow): TemplateCatalogItem => {
+  const fallbackTitle = row.title?.trim() ?? getDefaultDocumentTitle(row.doc_id);
+  const resolvedTemplateTitle = normalizeTemplateTitle(row.template_title) ?? fallbackTitle;
+
+  return {
+    docId: row.doc_id,
+    title: fallbackTitle,
+    templateTitle: resolvedTemplateTitle,
+    category: normalizeTemplateCategoryForDisplay(row.template_category),
+    descriptionMarkdown: row.template_description_markdown?.trim() || "",
+    tags: normalizeTemplateTags(toStringArray(row.template_tags)),
+    previewImageUrl: row.template_preview_image_url?.trim() || "",
+    updatedAt: toIsoTimestamp(row.updated_at),
+  };
 };
 
 const isMissingRelationError = (error: unknown): boolean =>
@@ -293,6 +463,7 @@ const mapOwnedDocumentRow = (row: OwnedDocumentRow): OwnedDocumentRecord => {
     createdAt,
     lastModifiedAt,
     isShared: row.is_shared,
+    isTemplate: row.is_template === true,
     accessType: row.access_type,
     isFavorite: row.is_favorite,
   };
@@ -301,7 +472,12 @@ const mapOwnedDocumentRow = (row: OwnedDocumentRow): OwnedDocumentRecord => {
 const normalizeListFilter = (
   filter: DocumentListFilter | string | undefined,
 ): DocumentListFilter => {
-  if (filter === "owned" || filter === "shared" || filter === "my_shared") {
+  if (
+    filter === "owned" ||
+    filter === "shared" ||
+    filter === "my_shared" ||
+    filter === "templates"
+  ) {
     return filter;
   }
   return "owned";
@@ -333,6 +509,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         COALESCE(shares.is_active, FALSE) AS is_shared,
+        COALESCE(metadata.is_template, FALSE) AS is_template,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -373,6 +550,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         TRUE AS is_shared,
+        COALESCE(metadata.is_template, FALSE) AS is_template,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -416,6 +594,10 @@ export async function listOwnedDocuments({
         AND access_type = 'owned'
         AND is_shared = TRUE
       )
+      OR (
+        ${normalizedFilter} = 'templates'
+        AND is_template = TRUE
+      )
     )
       AND (
         ${titleSearchPattern}::text IS NULL
@@ -434,6 +616,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         COALESCE(shares.is_active, FALSE) AS is_shared,
+        COALESCE(metadata.is_template, FALSE) AS is_template,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -474,6 +657,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         TRUE AS is_shared,
+        COALESCE(metadata.is_template, FALSE) AS is_template,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -513,6 +697,7 @@ export async function listOwnedDocuments({
       metadata_title,
       last_modified_at,
       is_shared,
+      is_template,
       access_type,
       is_favorite
     FROM owned_documents
@@ -523,6 +708,10 @@ export async function listOwnedDocuments({
         ${normalizedFilter} = 'my_shared'
         AND access_type = 'owned'
         AND is_shared = TRUE
+      )
+      OR (
+        ${normalizedFilter} = 'templates'
+        AND is_template = TRUE
       )
     )
       AND (
@@ -687,6 +876,282 @@ export async function updateDocumentTitle({
   }
 }
 
+const copySourceSnapshotToDocument = async ({
+  tx,
+  sourceDocId,
+  duplicatedDocId,
+}: {
+  tx: {
+    unsafe: typeof db.unsafe;
+  };
+  sourceDocId: string;
+  duplicatedDocId: string;
+}): Promise<boolean> => {
+  try {
+    const nowMs = Date.now();
+    const copiedSnapshotRows = await tx.unsafe<{ doc_id: string }[]>(
+      `
+        WITH source_snapshot AS (
+          SELECT
+            doc_type,
+            data,
+            metadata
+          FROM public.snapshots
+          WHERE collection = $1
+            AND doc_id = $2
+          LIMIT 1
+        )
+        INSERT INTO public.snapshots (
+          collection,
+          doc_id,
+          doc_type,
+          version,
+          data,
+          metadata
+        )
+        SELECT
+          $1,
+          $3,
+          source_snapshot.doc_type,
+          1,
+          source_snapshot.data,
+          CASE
+            WHEN source_snapshot.metadata IS NULL
+              OR jsonb_typeof(source_snapshot.metadata) <> 'object'
+            THEN jsonb_build_object('mtime', $4::bigint)
+            ELSE jsonb_set(
+              source_snapshot.metadata,
+              '{mtime}',
+              to_jsonb($4::bigint),
+              true
+            )
+          END
+        FROM source_snapshot
+        RETURNING doc_id
+      `,
+      [SHAREDB_COLLECTION, sourceDocId, duplicatedDocId, nowMs],
+    );
+
+    return copiedSnapshotRows.length > 0;
+  } catch (error) {
+    if (!isMissingRelationError(error)) {
+      throw error;
+    }
+    return false;
+  }
+};
+
+export async function getDocumentTemplateMetadata({
+  docId,
+}: {
+  docId: string;
+}): Promise<DocumentTemplateMetadataRecord | null> {
+  try {
+    const rows = await db<DocumentTemplateMetadataRow[]>`
+      SELECT
+        doc_id,
+        title,
+        template_title,
+        is_template,
+        template_category,
+        template_description_markdown,
+        template_tags,
+        template_preview_image_url,
+        created_at,
+        updated_at
+      FROM public.document_metadata
+      WHERE doc_id = ${docId}
+      LIMIT 1
+    `;
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return mapDocumentTemplateRow(row);
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      throw new Error(
+        "Template metadata storage is not initialized. Run the document templates migration.",
+      );
+    }
+    throw error;
+  }
+}
+
+export async function upsertDocumentTemplateMetadata(
+  input: UpdateDocumentTemplateInput,
+): Promise<DocumentTemplateMetadataRecord | null> {
+  const metadata = await ensureDocumentMetadata({ docId: input.docId });
+  if (!metadata) {
+    return null;
+  }
+
+  const normalizedCategory = normalizeTemplateCategory(input.category);
+  const normalizedTemplateTitle = normalizeTemplateTitle(input.templateTitle);
+  const normalizedDescription = normalizeTemplateDescriptionMarkdown(
+    input.descriptionMarkdown,
+  );
+  const normalizedPreviewImageUrl = normalizeTemplatePreviewImageUrl(
+    input.previewImageUrl,
+  );
+  const normalizedTags = normalizeTemplateTags(input.tags ?? []);
+
+  try {
+    const rows = await db<DocumentTemplateMetadataRow[]>`
+      INSERT INTO public.document_metadata (
+        doc_id,
+        title,
+        template_title,
+        is_template,
+        template_category,
+        template_description_markdown,
+        template_tags,
+        template_preview_image_url
+      )
+      VALUES (
+        ${input.docId},
+        ${metadata.title},
+        ${normalizedTemplateTitle},
+        ${input.isTemplate},
+        ${normalizedCategory},
+        ${normalizedDescription},
+        ${normalizedTags},
+        ${normalizedPreviewImageUrl}
+      )
+      ON CONFLICT (doc_id) DO UPDATE
+        SET
+          is_template = EXCLUDED.is_template,
+          template_title = EXCLUDED.template_title,
+          template_category = EXCLUDED.template_category,
+          template_description_markdown = EXCLUDED.template_description_markdown,
+          template_tags = EXCLUDED.template_tags,
+          template_preview_image_url = EXCLUDED.template_preview_image_url,
+          updated_at = NOW()
+      RETURNING
+        doc_id,
+        title,
+        template_title,
+        is_template,
+        template_category,
+        template_description_markdown,
+        template_tags,
+        template_preview_image_url,
+        created_at,
+        updated_at
+    `;
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error("Failed to update template metadata.");
+    }
+
+    return mapDocumentTemplateRow(row);
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      throw new Error(
+        "Template metadata storage is not initialized. Run the document templates migration.",
+      );
+    }
+    throw error;
+  }
+}
+
+export async function listTemplateDocuments({
+  query,
+  category,
+  limit = 200,
+}: {
+  query?: string | null;
+  category?: string | null;
+  limit?: number;
+} = {}): Promise<TemplateCatalogItem[]> {
+  const normalizedQuery = query?.trim().replace(/\s+/g, " ") || null;
+  const queryPattern = normalizedQuery ? `%${normalizedQuery}%` : null;
+  const normalizedCategory = normalizeTemplateCategory(category);
+  const safeLimit = Number.isFinite(limit)
+    ? Math.max(1, Math.min(500, Math.floor(limit)))
+    : 200;
+
+  try {
+    const rows = await db<TemplateCatalogRow[]>`
+      SELECT
+        metadata.doc_id,
+        metadata.title,
+        metadata.template_title,
+        metadata.template_category,
+        metadata.template_description_markdown,
+        metadata.template_tags,
+        metadata.template_preview_image_url,
+        metadata.updated_at
+      FROM public.document_metadata AS metadata
+      INNER JOIN public.document_owners AS owners
+        ON owners.doc_id = metadata.doc_id
+      WHERE metadata.is_template = TRUE
+        AND (
+          ${normalizedCategory}::text IS NULL
+          OR LOWER(COALESCE(NULLIF(BTRIM(metadata.template_category), ''), ${UNCATEGORIZED_TEMPLATE_LABEL})) = LOWER(${normalizedCategory ?? null}::text)
+        )
+        AND (
+          ${queryPattern}::text IS NULL
+          OR COALESCE(NULLIF(BTRIM(metadata.title), ''), 'Document ' || LEFT(metadata.doc_id, 8)) ILIKE ${queryPattern}::text
+          OR COALESCE(NULLIF(BTRIM(metadata.template_title), ''), '') ILIKE ${queryPattern}::text
+          OR COALESCE(NULLIF(BTRIM(metadata.template_category), ''), ${UNCATEGORIZED_TEMPLATE_LABEL}) ILIKE ${queryPattern}::text
+          OR COALESCE(metadata.template_description_markdown, '') ILIKE ${queryPattern}::text
+          OR COALESCE(array_to_string(metadata.template_tags, ' '), '') ILIKE ${queryPattern}::text
+        )
+      ORDER BY
+        LOWER(COALESCE(NULLIF(BTRIM(metadata.template_category), ''), ${UNCATEGORIZED_TEMPLATE_LABEL})) ASC,
+        metadata.updated_at DESC
+      LIMIT ${safeLimit}
+    `;
+
+    return rows.map(mapTemplateCatalogRow);
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function getTemplateDocumentById({
+  docId,
+}: {
+  docId: string;
+}): Promise<TemplateCatalogItem | null> {
+  try {
+    const rows = await db<TemplateCatalogRow[]>`
+      SELECT
+        metadata.doc_id,
+        metadata.title,
+        metadata.template_title,
+        metadata.template_category,
+        metadata.template_description_markdown,
+        metadata.template_tags,
+        metadata.template_preview_image_url,
+        metadata.updated_at
+      FROM public.document_metadata AS metadata
+      WHERE metadata.doc_id = ${docId}
+        AND metadata.is_template = TRUE
+      LIMIT 1
+    `;
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return mapTemplateCatalogRow(row);
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function duplicateDocument({
   sourceDocId,
   duplicatedDocId,
@@ -747,59 +1212,11 @@ export async function duplicateDocument({
       [duplicatedDocId, duplicatedTitle],
     );
 
-    let snapshotCopied = false;
-
-    try {
-      const nowMs = Date.now();
-      const copiedSnapshotRows = await tx.unsafe<{ doc_id: string }[]>(
-        `
-          WITH source_snapshot AS (
-            SELECT
-              doc_type,
-              data,
-              metadata
-            FROM public.snapshots
-            WHERE collection = $1
-              AND doc_id = $2
-            LIMIT 1
-          )
-          INSERT INTO public.snapshots (
-            collection,
-            doc_id,
-            doc_type,
-            version,
-            data,
-            metadata
-          )
-          SELECT
-            $1,
-            $3,
-            source_snapshot.doc_type,
-            1,
-            source_snapshot.data,
-            CASE
-              WHEN source_snapshot.metadata IS NULL
-                OR jsonb_typeof(source_snapshot.metadata) <> 'object'
-              THEN jsonb_build_object('mtime', $4::bigint)
-              ELSE jsonb_set(
-                source_snapshot.metadata,
-                '{mtime}',
-                to_jsonb($4::bigint),
-                true
-              )
-            END
-          FROM source_snapshot
-          RETURNING doc_id
-        `,
-        [SHAREDB_COLLECTION, sourceDocId, duplicatedDocId, nowMs],
-      );
-
-      snapshotCopied = copiedSnapshotRows.length > 0;
-    } catch (error) {
-      if (!isMissingRelationError(error)) {
-        throw error;
-      }
-    }
+    const snapshotCopied = await copySourceSnapshotToDocument({
+      tx,
+      sourceDocId,
+      duplicatedDocId,
+    });
 
     return {
       docId: duplicatedDocId,
@@ -807,6 +1224,96 @@ export async function duplicateDocument({
       snapshotCopied,
     };
   });
+}
+
+export async function duplicateTemplateDocument({
+  sourceDocId,
+  duplicatedDocId,
+  userId,
+}: {
+  sourceDocId: string;
+  duplicatedDocId: string;
+  userId: string;
+}): Promise<DuplicateDocumentResult | null> {
+  return db.begin(async (tx) => {
+    const sourceRows = await tx.unsafe<SourceDocumentForDuplicateRow[]>(
+      `
+        SELECT
+          metadata.doc_id,
+          COALESCE(NULLIF(BTRIM(metadata.template_title), ''), metadata.title) AS source_title
+        FROM public.document_metadata AS metadata
+        WHERE metadata.doc_id = $1
+          AND metadata.is_template = TRUE
+        LIMIT 1
+      `,
+      [sourceDocId],
+    );
+
+    const sourceRow = sourceRows[0];
+    if (!sourceRow) {
+      return null;
+    }
+
+    const duplicatedTitle = buildDuplicateDocumentTitle(
+      sourceDocId,
+      sourceRow.source_title,
+    );
+
+    await tx.unsafe(
+      `
+        INSERT INTO public.document_owners (doc_id, user_id)
+        VALUES ($1, $2)
+      `,
+      [duplicatedDocId, userId],
+    );
+
+    await tx.unsafe(
+      `
+        INSERT INTO public.document_metadata (doc_id, title)
+        VALUES ($1, $2)
+      `,
+      [duplicatedDocId, duplicatedTitle],
+    );
+
+    const snapshotCopied = await copySourceSnapshotToDocument({
+      tx,
+      sourceDocId,
+      duplicatedDocId,
+    });
+
+    return {
+      docId: duplicatedDocId,
+      title: duplicatedTitle,
+      snapshotCopied,
+    };
+  });
+}
+
+export async function isOwnedTemplateDocument({
+  docId,
+  userId,
+}: {
+  docId: string;
+  userId: string;
+}): Promise<boolean> {
+  try {
+    const rows = await db<{ is_template: boolean }[]>`
+      SELECT COALESCE(metadata.is_template, FALSE) AS is_template
+      FROM public.document_owners AS owners
+      LEFT JOIN public.document_metadata AS metadata
+        ON metadata.doc_id = owners.doc_id
+      WHERE owners.doc_id = ${docId}
+        AND owners.user_id = ${userId}
+      LIMIT 1
+    `;
+
+    return rows[0]?.is_template === true;
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function deleteOwnedDocument({

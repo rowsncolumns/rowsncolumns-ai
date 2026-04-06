@@ -9,7 +9,6 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
@@ -20,12 +19,13 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-export type SheetsFilterValue = "owned" | "shared" | "my_shared";
+export type SheetsFilterValue = "owned" | "shared" | "my_shared" | "templates";
 
 const FILTER_OPTIONS: Array<{ value: SheetsFilterValue; label: string }> = [
   { value: "owned", label: "My Sheets" },
   { value: "shared", label: "Shared with me" },
   { value: "my_shared", label: "Shared by me" },
+  { value: "templates", label: "Templates" },
 ];
 
 const buildSheetsHref = ({
@@ -50,12 +50,10 @@ const buildSheetsHref = ({
 export function SheetsFilterPicker({
   value,
   query,
-  hideLabelOnMobile = false,
   buttonClassName = "",
 }: {
   value: SheetsFilterValue;
   query?: string | null;
-  hideLabelOnMobile?: boolean;
   buttonClassName?: string;
 }) {
   const router = useRouter();

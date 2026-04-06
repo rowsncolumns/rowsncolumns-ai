@@ -24,7 +24,12 @@ const parseLimit = (value: string | null) => {
 };
 
 const parseFilter = (value: string | null): DocumentListFilter => {
-  if (value === "owned" || value === "shared" || value === "my_shared") {
+  if (
+    value === "owned" ||
+    value === "shared" ||
+    value === "my_shared" ||
+    value === "templates"
+  ) {
     return value;
   }
   return "owned";

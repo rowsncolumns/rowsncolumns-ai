@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth/server";
 import {
   deleteOwnedDocument,
+  isOwnedTemplateDocument,
   setDocumentFavorite,
 } from "@/lib/documents/repository";
 
@@ -37,6 +38,17 @@ export async function DELETE(_request: Request, context: RouteContext) {
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message ?? "Invalid request.";
       return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    const isTemplate = await isOwnedTemplateDocument({
+      docId: parsed.data,
+      userId,
+    });
+    if (isTemplate) {
+      return NextResponse.json(
+        { error: "Template sheets cannot be deleted." },
+        { status: 409 },
+      );
     }
 
     const deleted = await deleteOwnedDocument({
