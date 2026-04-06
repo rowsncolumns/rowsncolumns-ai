@@ -6,7 +6,7 @@ import { Search, X } from "lucide-react";
 import { NewSheetButton } from "@/components/new-sheet-button";
 import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
 import { SiteFooter } from "@/components/site-footer";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeaderFrame } from "@/components/site-header-frame";
 import { SheetsTable } from "@/components/sheets-table";
 import { Button, getButtonClassName } from "@/components/ui/button";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
@@ -135,7 +135,7 @@ export default async function SheetsPage({
     <main className="flex min-h-dvh w-full flex-col overflow-x-hidden">
       <div className="px-4 py-4 sm:px-5 sm:py-5">
         <div className="mb-4">
-          <SiteHeader
+          <SiteHeaderFrame
             initialUser={{
               id: session.user.id,
               name: session.user.name,

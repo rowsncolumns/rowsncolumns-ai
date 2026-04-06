@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { SiteFooter } from "@/components/site-footer";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeaderFrame } from "@/components/site-header-frame";
 import { cn } from "@/lib/utils";
 
 type SiteFixedWidthPageShellUser = {
@@ -38,11 +38,7 @@ export function SiteFixedWidthPageShell({
         className={cn("px-5 pt-5 sm:px-8 lg:px-12", headerSectionClassName)}
       >
         <div className="mx-auto max-w-7xl">
-          <div className="hero-grid overflow-hidden rounded-[20px] border border-[var(--card-border)] bg-(--card-bg) shadow-[0_30px_80px_var(--card-shadow)] backdrop-blur">
-            <div className="p-4 sm:p-6">
-              <SiteHeader initialUser={initialUser} />
-            </div>
-          </div>
+          <SiteHeaderFrame initialUser={initialUser} />
         </div>
       </section>
 

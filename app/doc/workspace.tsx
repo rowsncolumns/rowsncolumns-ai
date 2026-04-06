@@ -133,7 +133,7 @@ import {
 
 import { FileMenu } from "@/components/file-menu";
 import { ShareDocumentButton } from "@/components/share-document-button";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeaderFrame } from "@/components/site-header-frame";
 import { getButtonClassName } from "@/components/ui/button";
 import {
   Popover,
@@ -2650,7 +2650,7 @@ export function NewWorkspace({
     <AssistantRuntimeProvider runtime={assistantRuntime.runtime}>
       <main className="rnc-workspace-page flex h-[100svh] w-full flex-col overflow-hidden px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-dvh sm:px-5 sm:pt-5 sm:pb-5">
         <div className="rnc-workspace-site-header mb-4">
-          <SiteHeader initialUser={headerInitialUser} />
+          <SiteHeaderFrame initialUser={headerInitialUser} />
         </div>
         <DocumentTitleInlineEditor
           documentId={documentId}
