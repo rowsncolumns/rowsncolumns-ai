@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { isAdminUser } from "@/lib/auth/admin";
 import { auth } from "@/lib/auth/server";
 import {
   documentExists,
   getDocumentTemplateMetadata,
+  isDocumentOwner,
   upsertDocumentTemplateMetadata,
 } from "@/lib/documents/repository";
 
@@ -44,7 +44,7 @@ const updateTemplateSchema = z.object({
     .default(""),
 });
 
-const requireAdminSession = async () => {
+const requireOwnerSession = async (documentId: string) => {
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user?.id) {
@@ -54,8 +54,8 @@ const requireAdminSession = async () => {
     };
   }
 
-  const isAdmin = isAdminUser({ id: user.id, email: user.email });
-  if (!isAdmin) {
+  const isOwner = await isDocumentOwner({ docId: documentId, userId: user.id });
+  if (!isOwner) {
     return {
       error: NextResponse.json({ error: "Forbidden." }, { status: 403 }),
       user: null as null,
@@ -70,11 +70,6 @@ const requireAdminSession = async () => {
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    const adminSession = await requireAdminSession();
-    if (adminSession.error) {
-      return adminSession.error;
-    }
-
     const { documentId: rawDocumentId } = await context.params;
     const parsedDocumentId = documentIdSchema.safeParse(rawDocumentId);
     if (!parsedDocumentId.success) {
@@ -86,6 +81,10 @@ export async function GET(_request: Request, context: RouteContext) {
     const documentId = parsedDocumentId.data;
     if (!(await documentExists(documentId))) {
       return NextResponse.json({ error: "Document not found." }, { status: 404 });
+    }
+    const ownerSession = await requireOwnerSession(documentId);
+    if (ownerSession.error) {
+      return ownerSession.error;
     }
 
     const metadata = await getDocumentTemplateMetadata({ docId: documentId });
@@ -114,11 +113,6 @@ export async function GET(_request: Request, context: RouteContext) {
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
-    const adminSession = await requireAdminSession();
-    if (adminSession.error) {
-      return adminSession.error;
-    }
-
     const { documentId: rawDocumentId } = await context.params;
     const parsedDocumentId = documentIdSchema.safeParse(rawDocumentId);
     if (!parsedDocumentId.success) {
@@ -130,6 +124,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     const documentId = parsedDocumentId.data;
     if (!(await documentExists(documentId))) {
       return NextResponse.json({ error: "Document not found." }, { status: 404 });
+    }
+    const ownerSession = await requireOwnerSession(documentId);
+    if (ownerSession.error) {
+      return ownerSession.error;
     }
 
     const body = await request.json().catch(() => null);

@@ -8,7 +8,6 @@ import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { SheetsTable } from "@/components/sheets-table";
-import { isAdminUser } from "@/lib/auth/admin";
 import { Button, getButtonClassName } from "@/components/ui/button";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import {
@@ -125,10 +124,6 @@ export default async function SheetsPage({
     filter,
     query,
   });
-  const isAdmin = isAdminUser({
-    id: session.user.id,
-    email: session.user.email,
-  });
   const descriptionByFilter: Record<DocumentListFilter, string> = {
     owned: "Sheets created by your account.",
     shared: "Sheets shared with you by other users.",
@@ -228,7 +223,6 @@ export default async function SheetsPage({
             totalCount={result.totalCount}
             filter={result.filter}
             query={query}
-            isAdmin={isAdmin}
           />
         </section>
       </div>

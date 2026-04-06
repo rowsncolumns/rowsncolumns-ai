@@ -135,6 +135,7 @@ import {
 import { FileMenu } from "@/components/file-menu";
 import { ShareDocumentButton } from "@/components/share-document-button";
 import { SiteHeader } from "@/components/site-header";
+import { getButtonClassName } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -2179,6 +2180,7 @@ type NewWorkspaceProps = {
   canUseAuditHistory: boolean;
   initialAssistantCollapsed: boolean;
   initialIsMobileLayout: boolean;
+  isReadOnlyTemplateView?: boolean;
   isAdmin: boolean;
   locale: string;
   currency: string;
@@ -2234,12 +2236,14 @@ type DocumentTitleInlineEditorProps = {
   documentId: string;
   initialTitle: string;
   canEdit: boolean;
+  forkTemplateHref?: string | null;
 };
 
 function DocumentTitleInlineEditor({
   documentId,
   initialTitle,
   canEdit,
+  forkTemplateHref = null,
 }: DocumentTitleInlineEditorProps) {
   const fallbackTitle = useMemo(
     () => getFallbackDocumentTitle(documentId),
@@ -2355,7 +2359,7 @@ function DocumentTitleInlineEditor({
             aria-hidden="true"
           />
         ) : null}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {isEditing ? (
             <input
               ref={inputRef}
@@ -2400,6 +2404,17 @@ function DocumentTitleInlineEditor({
             </h1>
           )}
         </div>
+        {forkTemplateHref ? (
+          <a
+            href={forkTemplateHref}
+            className={getButtonClassName({
+              size: "sm",
+              className: "h-8 rounded-lg px-3 text-xs whitespace-nowrap",
+            })}
+          >
+            Fork
+          </a>
+        ) : null}
       </div>
     </div>
   );
@@ -2470,6 +2485,7 @@ export function NewWorkspace({
   canUseAuditHistory,
   initialAssistantCollapsed,
   initialIsMobileLayout,
+  isReadOnlyTemplateView = false,
   isAdmin,
   locale,
   currency,
@@ -2486,6 +2502,10 @@ export function NewWorkspace({
   const [showAssistantBubbleEntrance, setShowAssistantBubbleEntrance] =
     useState(false);
   const isPublicAnonymousViewer = currentUser.id.startsWith("public:");
+  const isAssistantReadOnly = isReadOnlyTemplateView === true;
+  const forkTemplateHref = isAssistantReadOnly
+    ? `/templates/open/${encodeURIComponent(documentId)}`
+    : null;
   const [assistantSheetContext, setAssistantSheetContext] = useState<{
     sheets: Sheet[];
     activeSheetId: number;
@@ -2606,6 +2626,8 @@ export function NewWorkspace({
       setReasoningEnabled={assistantRuntime.setReasoningEnabled}
       reasoningEnabledRef={assistantRuntime.reasoningEnabledRef}
       forceCompactHeader={isMobileLayout}
+      isReadOnly={isAssistantReadOnly}
+      isLoggedOut={isPublicAnonymousViewer}
       onClose={() => setIsAssistantCollapsed(true)}
     />
   );
@@ -2629,6 +2651,7 @@ export function NewWorkspace({
           documentId={documentId}
           initialTitle={initialDocumentTitle}
           canEdit={canManageShare}
+          forkTemplateHref={forkTemplateHref}
         />
 
         <SpreadsheetRootProvider>

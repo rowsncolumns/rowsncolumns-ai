@@ -8,10 +8,10 @@ import { ArrowRight, ChevronRight } from "lucide-react";
 import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shell";
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { getButtonClassName } from "@/components/ui/button";
-import { isAdminUser } from "@/lib/auth/admin";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import {
   getTemplateDocumentById,
+  listOwnedDocumentIds,
   listTemplateDocuments,
 } from "@/lib/documents/repository";
 
@@ -97,10 +97,10 @@ export default async function TemplateDetailsPage({
     notFound();
   }
 
-  const isAdmin = isAdminUser({
-    id: session?.user?.id,
-    email: session?.user?.email,
-  });
+  const ownerDocumentIdSet = new Set(
+    session?.user?.id ? await listOwnedDocumentIds(session.user.id) : [],
+  );
+  const canEditTemplate = ownerDocumentIdSet.has(template.docId);
 
   const relatedTemplates = (
     await listTemplateDocuments({
@@ -130,7 +130,7 @@ export default async function TemplateDetailsPage({
           : undefined
       }
     >
-      <section className="mx-auto w-full rounded-2xl border border-(--card-border) bg-(--card-bg-solid) p-7 shadow-[0_24px_70px_var(--card-shadow)] sm:p-8">
+      <section className="mx-auto w-full rounded-2xl border border-(--card-border) bg-(--card-bg-solid) p-7 shadow-[0_24px_70px_var(--card-shadow)] sm:p-8 mb-8">
         <nav className="mb-5 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-(--muted-foreground)">
           <Link href="/templates" className="transition hover:text-foreground">
             Templates
@@ -157,16 +157,26 @@ export default async function TemplateDetailsPage({
 
             <div className="flex flex-wrap items-center gap-3">
               <a
+                href={`/sheets/${encodeURIComponent(template.docId)}`}
+                className={getButtonClassName({
+                  variant: "secondary",
+                  size: "lg",
+                  className: "h-11 rounded-xl px-5",
+                })}
+              >
+                View
+              </a>
+              <a
                 href={`/templates/open/${encodeURIComponent(template.docId)}`}
                 className={getButtonClassName({
                   size: "lg",
                   className: "h-11 rounded-xl px-5",
                 })}
               >
-                Open in Rnc
+                Fork
                 <ArrowRight className="h-4 w-4" />
               </a>
-              {isAdmin ? (
+              {canEditTemplate ? (
                 <TemplateSettingsTrigger
                   template={template}
                   triggerMode="button"
@@ -219,12 +229,21 @@ export default async function TemplateDetailsPage({
                 Free spreadsheet template
               </p>
               <a
-                href={`/templates/open/${encodeURIComponent(template.docId)}`}
+                href={`/sheets/${encodeURIComponent(template.docId)}`}
                 className={getButtonClassName({
+                  variant: "secondary",
                   className: "mt-4 h-10 w-full rounded-lg text-sm",
                 })}
               >
-                Open in Rnc
+                View
+              </a>
+              <a
+                href={`/templates/open/${encodeURIComponent(template.docId)}`}
+                className={getButtonClassName({
+                  className: "mt-2 h-10 w-full rounded-lg text-sm",
+                })}
+              >
+                Fork
               </a>
             </div>
 

@@ -5,9 +5,11 @@ import { Search, X } from "lucide-react";
 import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shell";
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { Button, getButtonClassName } from "@/components/ui/button";
-import { isAdminUser } from "@/lib/auth/admin";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
-import { listTemplateDocuments } from "@/lib/documents/repository";
+import {
+  listOwnedDocumentIds,
+  listTemplateDocuments,
+} from "@/lib/documents/repository";
 import { cn } from "@/lib/utils";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -93,10 +95,10 @@ export default async function TemplatesPage({
   const selectedCategory = normalizeCategory(parseSingleValue(params.category));
 
   const session = await getServerSessionSafe();
-  const isAdmin = isAdminUser({
-    id: session?.user?.id,
-    email: session?.user?.email,
-  });
+  const ownerDocumentIds = session?.user?.id
+    ? await listOwnedDocumentIds(session.user.id)
+    : [];
+  const ownerDocumentIdSet = new Set(ownerDocumentIds);
   const [templates, categorySource] = await Promise.all([
     listTemplateDocuments({
       query,
@@ -312,7 +314,7 @@ export default async function TemplatesPage({
                               }).format(new Date(template.updatedAt))}
                             </p>
                             <div className="flex flex-wrap items-center gap-2">
-                              {isAdmin ? (
+                              {ownerDocumentIdSet.has(template.docId) ? (
                                 <TemplateSettingsTrigger
                                   template={template}
                                   triggerMode="button"
@@ -321,6 +323,17 @@ export default async function TemplatesPage({
                                 />
                               ) : null}
                               <a
+                                href={`/sheets/${encodeURIComponent(template.docId)}`}
+                                className={getButtonClassName({
+                                  variant: "secondary",
+                                  size: "sm",
+                                  className:
+                                    "h-7 rounded-md px-2.5 text-[11px] whitespace-nowrap",
+                                })}
+                              >
+                                View
+                              </a>
+                              <a
                                 href={`/templates/open/${encodeURIComponent(template.docId)}`}
                                 className={getButtonClassName({
                                   size: "sm",
@@ -328,7 +341,7 @@ export default async function TemplatesPage({
                                     "h-7 rounded-md px-2.5 text-[11px] whitespace-nowrap",
                                 })}
                               >
-                                Open in Rnc
+                                Fork
                               </a>
                             </div>
                           </div>

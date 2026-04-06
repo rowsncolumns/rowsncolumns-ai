@@ -16,6 +16,7 @@ type CreditsPopoverButtonProps = {
   remainingCredits: number | null;
   dailyLimit: number;
   hasCredits: boolean;
+  disabled?: boolean;
 };
 
 const resolveCreditsLabel = (input: {
@@ -41,6 +42,7 @@ export function CreditsPopoverButton({
   remainingCredits,
   dailyLimit,
   hasCredits,
+  disabled = false,
 }: CreditsPopoverButtonProps) {
   const creditsLabel = resolveCreditsLabel({
     isCreditsLoading,
@@ -63,6 +65,7 @@ export function CreditsPopoverButton({
               : "border-(--card-border) bg-(--assistant-chip-bg) text-(--muted-foreground) hover:bg-(--assistant-chip-hover)",
           )}
           aria-label={creditsLabel}
+          disabled={disabled}
         >
           {isCreditsLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

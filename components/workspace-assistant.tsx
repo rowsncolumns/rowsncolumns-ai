@@ -204,6 +204,8 @@ type WorkspaceAssistantProps = {
   sheets?: Sheet[];
   activeSheetId?: number;
   isAdmin?: boolean;
+  isReadOnly?: boolean;
+  isLoggedOut?: boolean;
 };
 
 /**
@@ -216,6 +218,8 @@ export type WorkspaceAssistantUIProps = {
   sheets?: Sheet[];
   activeSheetId?: number;
   isAdmin?: boolean;
+  isReadOnly?: boolean;
+  isLoggedOut?: boolean;
   threadId?: string;
   onNewSession?: () => void;
   onSelectSession?: (threadId: string) => void | Promise<void>;
@@ -2977,7 +2981,13 @@ export function SheetsInstructions({
 
 const NEW_SKILL_EDITOR_ID = "__new__";
 
-function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
+function SkillsManagerButton({
+  iconOnly = false,
+  disabled = false,
+}: {
+  iconOnly?: boolean;
+  disabled?: boolean;
+}) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [skills, setSkills] = React.useState<AssistantSkill[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = React.useState(false);
@@ -3249,13 +3259,19 @@ function SkillsManagerButton({ iconOnly = false }: { iconOnly?: boolean }) {
         type="button"
         variant="secondary"
         size="sm"
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          if (disabled) {
+            return;
+          }
+          setIsOpen(true);
+        }}
         className={cn(
           "rnc-assistant-chip h-8 rounded-lg border border-black/10 bg-[#faf6f0] text-xs font-normal text-foreground shadow-none hover:bg-[#f6ede2]",
           iconOnly ? "px-2" : "gap-1.5 px-2.5 whitespace-nowrap",
         )}
         aria-label="Manage skills"
         title="Manage skills"
+        disabled={disabled}
       >
         <Sparkles className="h-3.5 w-3.5" />
         {!iconOnly && <span>Skills</span>}
@@ -3636,6 +3652,8 @@ type WorkspaceAssistantPanelProps = {
   sheets?: Sheet[];
   activeSheetId?: number;
   isAdmin?: boolean;
+  isReadOnly?: boolean;
+  isLoggedOut?: boolean;
   threadId?: string;
   onNewSession?: () => void;
   onSelectSession?: (threadId: string) => void | Promise<void>;
@@ -3753,6 +3771,7 @@ function AssistantComposer({
   reasoningEnabledRef,
   contextUsage,
   threadId,
+  isReadOnly = false,
   forceCompactHeader = false,
   hasCredits,
   panelImageDrop,
@@ -4304,7 +4323,9 @@ function AssistantComposer({
     (image) => image.status === "ready",
   );
   const canSendFromComposer =
-    (composerText.trim().length > 0 || hasReadyImages) && !hasUploadingImages;
+    !isReadOnly &&
+    (composerText.trim().length > 0 || hasReadyImages) &&
+    !hasUploadingImages;
 
   const enqueueCurrentComposerMessage = React.useCallback(() => {
     if (
@@ -4366,6 +4387,9 @@ function AssistantComposer({
   }, []);
 
   const handleSendOrQueue = React.useCallback(() => {
+    if (isReadOnly) {
+      return;
+    }
     if (isThreadRunning) {
       enqueueCurrentComposerMessage();
       return;
@@ -4380,6 +4404,7 @@ function AssistantComposer({
     canSendFromComposer,
     enqueueCurrentComposerMessage,
     hasCredits,
+    isReadOnly,
     isThreadRunning,
     sendCurrentComposerMessage,
   ]);
@@ -4402,20 +4427,30 @@ function AssistantComposer({
 
   const handleComposerTextChange = React.useCallback(
     (value: string) => {
+      if (isReadOnly) {
+        return;
+      }
       composerRuntime.setText(value);
     },
-    [composerRuntime],
+    [composerRuntime, isReadOnly],
   );
 
   const handleComposerPasteFiles = React.useCallback(
     (files: File[]) => {
+      if (isReadOnly) {
+        return;
+      }
       void addImageFilesToComposer(files);
     },
-    [addImageFilesToComposer],
+    [addImageFilesToComposer, isReadOnly],
   );
 
   const handleFileInputChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (isReadOnly) {
+        event.currentTarget.value = "";
+        return;
+      }
       const files = Array.from(event.currentTarget.files ?? []);
       event.currentTarget.value = "";
       if (files.length === 0) {
@@ -4424,12 +4459,15 @@ function AssistantComposer({
 
       void addImageFilesToComposer(files);
     },
-    [addImageFilesToComposer],
+    [addImageFilesToComposer, isReadOnly],
   );
 
   const handleAttachClick = React.useCallback(() => {
+    if (isReadOnly) {
+      return;
+    }
     fileInputRef.current?.click();
-  }, []);
+  }, [isReadOnly]);
 
   const handleRemoveComposerImage = React.useCallback(
     (imageId: string) => {
@@ -4450,6 +4488,9 @@ function AssistantComposer({
 
   const handleComposerDragEnter = React.useCallback(
     (event: React.DragEvent<HTMLFormElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (
         !hasImageFilesInDataTransfer(event.dataTransfer, {
           allowUnknownFiles: true,
@@ -4462,11 +4503,14 @@ function AssistantComposer({
       dragDepthRef.current += 1;
       setIsDragActive(true);
     },
-    [],
+    [isReadOnly],
   );
 
   const handleComposerDragOver = React.useCallback(
     (event: React.DragEvent<HTMLFormElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (
         !hasImageFilesInDataTransfer(event.dataTransfer, {
           allowUnknownFiles: true,
@@ -4478,11 +4522,14 @@ function AssistantComposer({
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
     },
-    [],
+    [isReadOnly],
   );
 
   const handleComposerDragLeave = React.useCallback(
     (event: React.DragEvent<HTMLFormElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (!isDragActive) {
         return;
       }
@@ -4493,11 +4540,14 @@ function AssistantComposer({
         setIsDragActive(false);
       }
     },
-    [isDragActive],
+    [isDragActive, isReadOnly],
   );
 
   const handleComposerDrop = React.useCallback(
     (event: React.DragEvent<HTMLFormElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (
         !hasImageFilesInDataTransfer(event.dataTransfer, {
           allowUnknownFiles: true,
@@ -4510,10 +4560,13 @@ function AssistantComposer({
       dragDepthRef.current = 0;
       setIsDragActive(false);
     },
-    [],
+    [isReadOnly],
   );
 
   React.useEffect(() => {
+    if (isReadOnly) {
+      return;
+    }
     if (!panelImageDrop || panelImageDrop.files.length === 0) {
       return;
     }
@@ -4524,7 +4577,12 @@ function AssistantComposer({
     lastHandledPanelDropIdRef.current = panelImageDrop.id;
     void addImageFilesToComposer(panelImageDrop.files);
     onPanelImageDropHandled(panelImageDrop.id);
-  }, [addImageFilesToComposer, onPanelImageDropHandled, panelImageDrop]);
+  }, [
+    addImageFilesToComposer,
+    isReadOnly,
+    onPanelImageDropHandled,
+    panelImageDrop,
+  ]);
 
   React.useEffect(() => {
     // Don't dispatch if thread is running OR if there's a pending HITL tool call
@@ -4717,6 +4775,7 @@ function AssistantComposer({
         <AssistantComposerInput
           value={composerText}
           placeholder="Type to start sending a message"
+          readOnly={isReadOnly}
           mentionOptions={mentionOptions}
           onSearchMentions={searchMentionOptions}
           onChange={handleComposerTextChange}
@@ -4736,7 +4795,10 @@ function AssistantComposer({
             className="rnc-assistant-chip inline-flex h-8 w-8 items-center justify-center rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) text-(--muted-foreground) shadow-none transition hover:bg-(--assistant-chip-hover) hover:text-foreground"
             aria-label="Attach image"
             title="Attach image"
-            disabled={composerImages.length >= ASSISTANT_MAX_COMPOSER_IMAGES}
+            disabled={
+              isReadOnly ||
+              composerImages.length >= ASSISTANT_MAX_COMPOSER_IMAGES
+            }
           >
             <Paperclip className="h-3.5 w-3.5" />
           </IconButton>
@@ -4934,6 +4996,8 @@ function WorkspaceAssistantPanel({
   sheets,
   activeSheetId,
   isAdmin = false,
+  isReadOnly = false,
+  isLoggedOut = false,
   threadId,
   onNewSession,
   onSelectSession,
@@ -5108,6 +5172,9 @@ function WorkspaceAssistantPanel({
 
   const handlePanelDragEnter = React.useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (
         !hasImageFilesInDataTransfer(event.dataTransfer, {
           allowUnknownFiles: true,
@@ -5120,11 +5187,14 @@ function WorkspaceAssistantPanel({
       panelDragDepthRef.current += 1;
       setIsPanelImageDragActive(true);
     },
-    [],
+    [isReadOnly],
   );
 
   const handlePanelDragOver = React.useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (
         !hasImageFilesInDataTransfer(event.dataTransfer, {
           allowUnknownFiles: true,
@@ -5136,11 +5206,14 @@ function WorkspaceAssistantPanel({
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
     },
-    [],
+    [isReadOnly],
   );
 
   const handlePanelDragLeave = React.useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (!isPanelImageDragActive) {
         return;
       }
@@ -5162,11 +5235,14 @@ function WorkspaceAssistantPanel({
         clearPanelDragState();
       }
     },
-    [clearPanelDragState, isPanelImageDragActive],
+    [clearPanelDragState, isPanelImageDragActive, isReadOnly],
   );
 
   const handlePanelDrop = React.useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
+      if (isReadOnly) {
+        return;
+      }
       if (
         !hasImageFilesInDataTransfer(event.dataTransfer, {
           allowUnknownFiles: true,
@@ -5187,7 +5263,7 @@ function WorkspaceAssistantPanel({
         files,
       });
     },
-    [clearPanelDragState],
+    [clearPanelDragState, isReadOnly],
   );
 
   React.useEffect(() => {
@@ -5270,7 +5346,10 @@ function WorkspaceAssistantPanel({
                 : "justify-end flex-nowrap",
             )}
           >
-            <SkillsManagerButton iconOnly={assistantHeaderLayout.compact} />
+            <SkillsManagerButton
+              iconOnly={assistantHeaderLayout.compact}
+              disabled={isLoggedOut}
+            />
             {onSelectSession && (
               <SessionPickerButton
                 iconOnly
@@ -5280,9 +5359,14 @@ function WorkspaceAssistantPanel({
                 onSessionRestoreStart={handleSessionRestoreStart}
                 onStartNewSession={onNewSession}
                 onRestoreModel={setSelectedModel}
+                disabled={isLoggedOut}
               />
             )}
-            <NewSessionButton iconOnly onNewSession={onNewSession} />
+            <NewSessionButton
+              iconOnly
+              onNewSession={onNewSession}
+              disabled={isLoggedOut}
+            />
 
             <CreditsPopoverButton
               isCreditsLoading={isCreditsLoading}
@@ -5290,6 +5374,7 @@ function WorkspaceAssistantPanel({
               remainingCredits={remainingCredits}
               dailyLimit={INITIAL_CREDITS}
               hasCredits={hasCredits}
+              disabled={isLoggedOut}
             />
             {onClose &&
               !forceCompactHeader &&
@@ -5355,6 +5440,7 @@ function WorkspaceAssistantPanel({
                   reasoningEnabledRef={reasoningEnabledRef}
                   contextUsage={contextUsage}
                   threadId={threadId}
+                  isReadOnly={isReadOnly}
                   forceCompactHeader={forceCompactHeader}
                   hasCredits={hasCredits}
                   panelImageDrop={panelImageDrop}
@@ -5378,9 +5464,13 @@ function WorkspaceAssistantPanel({
                           <TooltipTrigger asChild>
                             <ThreadPrimitive.Suggestion
                               prompt={prompt}
-                              send
+                              send={!isReadOnly}
+                              aria-disabled={isReadOnly}
+                              tabIndex={isReadOnly ? -1 : 0}
                               className={cn(
                                 "rnc-assistant-suggestion rounded-xl border border-black/10 bg-[#fff9f2] text-left text-foreground transition hover:border-black/20 hover:bg-[#fff2e3]",
+                                isReadOnly &&
+                                  "cursor-not-allowed pointer-events-none opacity-55 hover:border-black/10 hover:bg-[#fff9f2]",
                                 forceCompactHeader
                                   ? "w-full min-w-0 px-3 py-2 text-xs leading-4"
                                   : "w-56 px-4 py-3 text-sm leading-5",
@@ -5421,7 +5511,7 @@ function WorkspaceAssistantPanel({
           </ThreadPrimitive.Root>
         </ForkContext.Provider>
       </AssistantDebugAccessContext.Provider>
-      {isPanelImageDragActive && (
+      {isPanelImageDragActive && !isReadOnly && (
         <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center backdrop-blur-[1px] bg-(--assistant-overlay-backdrop)">
           <div className="absolute inset-2 rounded-xl border-2 border-dashed border-(--accent)/70" />
           <div className="mx-4 inline-flex items-center gap-2 rounded-xl border border-(--accent)/45 bg-background/90 px-4 py-2 text-sm text-foreground shadow-lg">
@@ -5445,6 +5535,8 @@ export function WorkspaceAssistantUI({
   sheets,
   activeSheetId,
   isAdmin,
+  isReadOnly,
+  isLoggedOut,
   threadId,
   onNewSession,
   onSelectSession,
@@ -5472,6 +5564,8 @@ export function WorkspaceAssistantUI({
       sheets={sheets}
       activeSheetId={activeSheetId}
       isAdmin={isAdmin}
+      isReadOnly={isReadOnly}
+      isLoggedOut={isLoggedOut}
       threadId={threadId}
       onNewSession={onNewSession}
       onSelectSession={onSelectSession}
@@ -5501,6 +5595,8 @@ export function WorkspaceAssistant({
   sheets,
   activeSheetId,
   isAdmin,
+  isReadOnly,
+  isLoggedOut,
 }: WorkspaceAssistantProps) {
   const assistantRuntime = useSpreadsheetAssistantRuntime({ docId });
 
@@ -5512,6 +5608,8 @@ export function WorkspaceAssistant({
         sheets={sheets}
         activeSheetId={activeSheetId}
         isAdmin={isAdmin}
+        isReadOnly={isReadOnly}
+        isLoggedOut={isLoggedOut}
         threadId={assistantRuntime.threadId}
         onNewSession={assistantRuntime.startNewThread}
         onSelectSession={assistantRuntime.selectThread}

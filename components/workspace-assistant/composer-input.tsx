@@ -49,6 +49,7 @@ export type ComposerMentionOption = {
 type AssistantComposerInputProps = {
   value: string;
   placeholder: string;
+  readOnly?: boolean;
   mentionOptions: ComposerMentionOption[];
   onSearchMentions?: (query: string) => Promise<ComposerMentionOption[]>;
   onChange: (value: string) => void;
@@ -575,6 +576,7 @@ const createMentionSuggestion = ({
 export function AssistantComposerInput({
   value,
   placeholder,
+  readOnly = false,
   mentionOptions,
   onSearchMentions,
   onChange,
@@ -631,6 +633,7 @@ export function AssistantComposerInput({
   const editor = useEditor(
     {
       immediatelyRender: false,
+      editable: !readOnly,
       extensions: [
         StarterKit.configure({
           bulletList: false,
@@ -700,6 +703,9 @@ export function AssistantComposerInput({
           "aria-label": "Message",
         },
         handleKeyDown: (_, event) => {
+          if (readOnly) {
+            return true;
+          }
           if (
             mentionMenuRef.current.open &&
             (event.key === "Enter" ||
@@ -732,8 +738,16 @@ export function AssistantComposerInput({
       getMentionOptions,
       getSearchMentionItems,
       handleMentionSearchLoadingDelta,
+      readOnly,
     ],
   );
+
+  React.useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    editor.setEditable(!readOnly);
+  }, [editor, readOnly]);
 
   React.useEffect(() => {
     if (!editor) {
@@ -757,6 +771,9 @@ export function AssistantComposerInput({
 
   const handlePaste = React.useCallback(
     (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (readOnly) {
+        return;
+      }
       const pastedFiles = Array.from(event.clipboardData.items)
         .filter((item) => item.kind === "file")
         .map((item) => item.getAsFile())
@@ -786,7 +803,7 @@ export function AssistantComposerInput({
       event.stopPropagation();
       onPasteFiles?.(pastedFiles);
     },
-    [editor, onPasteFiles],
+    [editor, onPasteFiles, readOnly],
   );
   const groupedMentionItems = React.useMemo(
     () => groupMentionOptions(mentionMenu.items),
@@ -798,7 +815,10 @@ export function AssistantComposerInput({
     <div className="relative min-h-12 sm:min-h-16">
       <EditorContent
         editor={editor}
-        className="min-h-12 sm:min-h-16"
+        className={cn(
+          "min-h-12 sm:min-h-16",
+          readOnly && "cursor-not-allowed opacity-70",
+        )}
         onPasteCapture={handlePaste}
       />
       {isEditorEmpty ? (

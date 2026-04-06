@@ -136,7 +136,7 @@ export type EnsureDocumentOwnershipResult = {
 
 export type EnsureDocumentAccessResult = EnsureDocumentOwnershipResult & {
   canAccess: boolean;
-  accessSource: "owner" | "share" | "none";
+  accessSource: "owner" | "share" | "template" | "none";
   permission: DocumentSharePermission;
 };
 
@@ -441,6 +441,24 @@ export async function documentExists(docId: string): Promise<boolean> {
     SELECT doc_id
     FROM public.document_owners
     WHERE doc_id = ${docId}
+    LIMIT 1
+  `;
+
+  return rows.length > 0;
+}
+
+export async function isDocumentOwner({
+  docId,
+  userId,
+}: {
+  docId: string;
+  userId: string;
+}): Promise<boolean> {
+  const rows = await db<{ doc_id: string }[]>`
+    SELECT doc_id
+    FROM public.document_owners
+    WHERE doc_id = ${docId}
+      AND user_id = ${userId}
     LIMIT 1
   `;
 
@@ -1692,30 +1710,63 @@ export async function ensureDocumentAccess({
   }
 
   const normalizedToken = normalizeShareToken(shareToken);
-  if (!normalizedToken) {
-    return {
-      ...ownershipResult,
-      canAccess: false,
-      accessSource: "none",
-      permission: "view",
-    };
-  }
-
-  const shareAccess = await getActiveShareLinkByToken({
-    docId,
-    shareToken: normalizedToken,
-  });
+  const shareAccess = normalizedToken
+    ? await getActiveShareLinkByToken({
+        docId,
+        shareToken: normalizedToken,
+      })
+    : null;
   const hasShareAccess = Boolean(shareAccess);
   if (hasShareAccess) {
     await upsertDocumentAccessGrant({ docId, userId });
   }
 
+  if (hasShareAccess) {
+    return {
+      ...ownershipResult,
+      canAccess: true,
+      accessSource: "share",
+      permission: shareAccess?.permission ?? "view",
+    };
+  }
+
+  const isPublicTemplate = await isTemplateDocumentPubliclyViewable({ docId });
+  if (isPublicTemplate) {
+    return {
+      ...ownershipResult,
+      canAccess: true,
+      accessSource: "template",
+      permission: "view",
+    };
+  }
+
   return {
     ...ownershipResult,
-    canAccess: hasShareAccess,
-    accessSource: hasShareAccess ? "share" : "none",
-    permission: shareAccess?.permission ?? "view",
+    canAccess: false,
+    accessSource: "none",
+    permission: "view",
   };
+}
+
+export async function isTemplateDocumentPubliclyViewable({
+  docId,
+}: {
+  docId: string;
+}): Promise<boolean> {
+  try {
+    const rows = await db<{ is_template: boolean }[]>`
+      SELECT COALESCE(metadata.is_template, FALSE) AS is_template
+      FROM public.document_metadata AS metadata
+      WHERE metadata.doc_id = ${docId}
+      LIMIT 1
+    `;
+    return rows[0]?.is_template === true;
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function getPublicDocumentAccessByShareToken({

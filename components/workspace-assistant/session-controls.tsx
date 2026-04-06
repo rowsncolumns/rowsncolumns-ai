@@ -197,13 +197,18 @@ const formatSessionTimestamp = (value: string) => {
 export function NewSessionButton({
   iconOnly = false,
   onNewSession,
+  disabled = false,
 }: {
   iconOnly?: boolean;
   onNewSession?: () => void;
+  disabled?: boolean;
 }) {
   const runtime = useAssistantRuntime();
 
   const handleNewSession = React.useCallback(() => {
+    if (disabled) {
+      return;
+    }
     onNewSession?.();
     runtime.switchToNewThread();
     // Focus the composer input after a brief delay to ensure the thread has switched.
@@ -213,7 +218,7 @@ export function NewSessionButton({
       );
       composerInput?.focus();
     }, 50);
-  }, [onNewSession, runtime]);
+  }, [disabled, onNewSession, runtime]);
 
   return (
     <Button
@@ -227,6 +232,7 @@ export function NewSessionButton({
       )}
       aria-label="New session"
       title="Start new session"
+      disabled={disabled}
     >
       <Edit className="h-3.5 w-3.5" />
       {!iconOnly && <span>New session</span>}
@@ -242,6 +248,7 @@ export function SessionPickerButton({
   onSessionRestoreStart,
   onStartNewSession,
   onRestoreModel,
+  disabled = false,
 }: {
   iconOnly?: boolean;
   currentThreadId?: string;
@@ -250,6 +257,7 @@ export function SessionPickerButton({
   onSessionRestoreStart?: () => void;
   onStartNewSession?: () => void;
   onRestoreModel?: (model: string) => void;
+  disabled?: boolean;
 }) {
   const runtime = useAssistantRuntime();
   const isTouchInput = useIsTouchInputDevice();
@@ -409,7 +417,15 @@ export function SessionPickerButton({
   );
 
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover
+      open={isOpen}
+      onOpenChange={(nextOpen) => {
+        if (disabled && nextOpen) {
+          return;
+        }
+        setIsOpen(nextOpen);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -421,7 +437,7 @@ export function SessionPickerButton({
           )}
           aria-label="Session history"
           title="Load a previous session"
-          disabled={!onSelectSession || isSwitchingSession}
+          disabled={disabled || !onSelectSession || isSwitchingSession}
         >
           <History className="h-3.5 w-3.5" />
           {!iconOnly && <span>Sessions</span>}

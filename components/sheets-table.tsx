@@ -29,6 +29,7 @@ type SheetListItem = {
   isShared: boolean;
   isTemplate: boolean;
   isFavorite: boolean;
+  accessType: "owned" | "shared";
 };
 
 type SheetsTableProps = {
@@ -38,7 +39,6 @@ type SheetsTableProps = {
   totalCount: number;
   filter: DocumentListFilter;
   query?: string | null;
-  isAdmin?: boolean;
 };
 
 type DeleteDocumentResponse = {
@@ -103,7 +103,6 @@ export function SheetsTable({
   totalCount,
   filter,
   query,
-  isAdmin = false,
 }: SheetsTableProps) {
   const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<SheetListItem | null>(null);
@@ -273,16 +272,17 @@ export function SheetsTable({
             </div>
           ) : (
             <ul className="divide-y divide-(--card-border)">
-	              {documents.map((document) => {
-	                const isRowDeleting =
-	                  isDeleting && deletingDocId === document.docId;
-	                const isRowFavoriting = favoritingDocId === document.docId;
-	                const isRowDuplicating = duplicatingDocId === document.docId;
-                  const isDeleteDisabled =
-                    document.isTemplate ||
-                    isDeleting ||
-                    favoritingDocId !== null ||
-                    duplicatingDocId !== null;
+              {documents.map((document) => {
+                const isRowDeleting =
+                  isDeleting && deletingDocId === document.docId;
+                const isRowFavoriting = favoritingDocId === document.docId;
+                const isRowDuplicating = duplicatingDocId === document.docId;
+                const canEditTemplate = document.accessType === "owned";
+                const isDeleteDisabled =
+                  document.isTemplate ||
+                  isDeleting ||
+                  favoritingDocId !== null ||
+                  duplicatingDocId !== null;
 
 	                return (
 	                  <li key={document.docId} className="space-y-3 px-4 py-4">
@@ -388,7 +388,7 @@ export function SheetsTable({
                         )}
                         Duplicate
                       </Button>
-                      {isAdmin ? (
+                      {canEditTemplate ? (
                         <TemplateSettingsTrigger
                           template={document}
                           triggerMode="button"
@@ -464,16 +464,17 @@ export function SheetsTable({
                   </td>
                 </tr>
               ) : (
-	                documents.map((document) => {
-	                  const isRowDeleting =
-	                    isDeleting && deletingDocId === document.docId;
-	                  const isRowFavoriting = favoritingDocId === document.docId;
-	                  const isRowDuplicating = duplicatingDocId === document.docId;
-                    const isDeleteDisabled =
-                      document.isTemplate ||
-                      isDeleting ||
-                      favoritingDocId !== null ||
-                      duplicatingDocId !== null;
+                documents.map((document) => {
+                  const isRowDeleting =
+                    isDeleting && deletingDocId === document.docId;
+                  const isRowFavoriting = favoritingDocId === document.docId;
+                  const isRowDuplicating = duplicatingDocId === document.docId;
+                  const canEditTemplate = document.accessType === "owned";
+                  const isDeleteDisabled =
+                    document.isTemplate ||
+                    isDeleting ||
+                    favoritingDocId !== null ||
+                    duplicatingDocId !== null;
 
 	                  return (
                     <tr
@@ -546,7 +547,7 @@ export function SheetsTable({
                               />
                             )}
                           </IconButton>
-                          {isAdmin ? (
+                          {canEditTemplate ? (
                             <TemplateSettingsTrigger
                               template={document}
                               triggerMode="icon"

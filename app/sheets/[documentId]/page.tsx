@@ -8,6 +8,7 @@ import { getUserBillingEntitlement } from "@/lib/billing/repository";
 import {
   documentExists,
   getPublicDocumentAccessByShareToken,
+  isTemplateDocumentPubliclyViewable,
   ensureDocumentAccess,
   ensureDocumentMetadata,
 } from "@/lib/documents/repository";
@@ -105,15 +106,20 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
     (secChUaMobile === null && MOBILE_USER_AGENT_REGEX.test(userAgent));
 
   if (!session?.user) {
-    if (!shareToken?.trim()) {
-      redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
-    }
+    const [publicAccess, isPublicTemplate] = await Promise.all([
+      getPublicDocumentAccessByShareToken({
+        docId: documentId,
+        shareToken,
+      }),
+      isTemplateDocumentPubliclyViewable({
+        docId: documentId,
+      }),
+    ]);
 
-    const publicAccess = await getPublicDocumentAccessByShareToken({
-      docId: documentId,
-      shareToken,
-    });
-    if (!publicAccess.canAccess) {
+    if (!publicAccess.canAccess && !isPublicTemplate) {
+      if (!shareToken?.trim()) {
+        redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
+      }
       notFound();
     }
 
@@ -132,6 +138,7 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
           initialThemeMode={initialThemeMode}
           initialAssistantCollapsed={initialAssistantCollapsed}
           initialIsMobileLayout={initialIsMobileLayout}
+          isReadOnlyTemplateView={isPublicTemplate}
           isAdmin={false}
           locale={locale}
           currency={currency}
@@ -151,13 +158,18 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
     notFound();
   }
 
-  const documentMetadata = await ensureDocumentMetadata({ docId: documentId });
-
   const isAdmin = isAdminUser({
     id: session.user.id,
     email: session.user.email,
   });
-  const billing = await getUserBillingEntitlement(session.user.id);
+  const [documentMetadata, isTemplateDocument, billing] = await Promise.all([
+    ensureDocumentMetadata({ docId: documentId }),
+    isTemplateDocumentPubliclyViewable({
+      docId: documentId,
+    }),
+    getUserBillingEntitlement(session.user.id),
+  ]);
+  const isReadOnlyTemplateView = isTemplateDocument && !access.isOwner;
   const canUseAuditHistory = isAdmin || billing.plan === "max";
 
   return (
@@ -168,10 +180,11 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
         documentId={documentId}
         initialDocumentTitle={documentMetadata.title}
         canManageShare={access.isOwner}
-        canEdit={access.permission === "edit"}
+        canEdit={access.permission === "edit" && !isReadOnlyTemplateView}
         initialThemeMode={initialThemeMode}
         initialAssistantCollapsed={initialAssistantCollapsed}
         initialIsMobileLayout={initialIsMobileLayout}
+        isReadOnlyTemplateView={isReadOnlyTemplateView}
         isAdmin={isAdmin}
         canUseAuditHistory={canUseAuditHistory}
         locale={locale}

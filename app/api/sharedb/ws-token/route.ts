@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/server";
 import {
   ensureDocumentAccess,
   getPublicDocumentAccessByShareToken,
+  isTemplateDocumentPubliclyViewable,
 } from "@/lib/documents/repository";
 import {
   canIssueShareDbWsAccessToken,
@@ -55,11 +56,16 @@ export async function GET(request: Request) {
     let tokenName: string | null = null;
 
     if (user) {
-      const access = await ensureDocumentAccess({
-        docId,
-        userId: user.id,
-        shareToken,
-      });
+      const [access, isTemplateDocument] = await Promise.all([
+        ensureDocumentAccess({
+          docId,
+          userId: user.id,
+          shareToken,
+        }),
+        isTemplateDocumentPubliclyViewable({
+          docId,
+        }),
+      ]);
       if (!access.canAccess) {
         return NextResponse.json(
           { error: "Forbidden." },
@@ -67,16 +73,22 @@ export async function GET(request: Request) {
         );
       }
 
+      const isReadOnlyTemplateView = isTemplateDocument && !access.isOwner;
       tokenUserId = user.id;
-      tokenPermission = access.permission;
+      tokenPermission = isReadOnlyTemplateView ? "view" : access.permission;
       tokenEmail = user.email ?? null;
       tokenName = user.name ?? null;
     } else {
-      const publicAccess = await getPublicDocumentAccessByShareToken({
-        docId,
-        shareToken,
-      });
-      if (!publicAccess.canAccess) {
+      const [publicAccess, isPublicTemplate] = await Promise.all([
+        getPublicDocumentAccessByShareToken({
+          docId,
+          shareToken,
+        }),
+        isTemplateDocumentPubliclyViewable({
+          docId,
+        }),
+      ]);
+      if (!publicAccess.canAccess && !isPublicTemplate) {
         return NextResponse.json(
           { error: "Unauthorized." },
           { status: 401, headers: NO_STORE_HEADERS },
