@@ -7,11 +7,14 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 
 type ShareDocumentButtonProps = {
   documentId: string;
   canManageShare: boolean;
+  triggerStyle?: "toolbar" | "primary" | "menu-item";
+  label?: string;
 };
 
 type SharePermission = "view" | "edit";
@@ -31,6 +34,8 @@ const resolveSharePermission = (value: SharePermission | undefined) =>
 export function ShareDocumentButton({
   documentId,
   canManageShare,
+  triggerStyle = "toolbar",
+  label = "Share",
 }: ShareDocumentButtonProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -421,6 +426,59 @@ export function ShareDocumentButton({
       ? "Loading share settings..."
       : "No active share link";
 
+  const triggerButton =
+    triggerStyle === "menu-item" ? (
+      <DropdownMenuItem
+        disabled={!canManageShare}
+        onSelect={(event) => {
+          event.preventDefault();
+          handleOpenChange(true);
+        }}
+        title={
+          canManageShare
+            ? "Share document"
+            : "Only the owner can share this document"
+        }
+      >
+        <Link2 className="h-4 w-4" />
+        {label}
+      </DropdownMenuItem>
+    ) : triggerStyle === "primary" ? (
+      <Button
+        type="button"
+        size="sm"
+        onClick={() => handleOpenChange(true)}
+        disabled={!canManageShare}
+        title={
+          canManageShare
+            ? "Share document"
+            : "Only the owner can share this document"
+        }
+        aria-label="Share document"
+        className="h-8 gap-1.5 rounded-lg px-3 text-xs whitespace-nowrap"
+      >
+        <Link2 className="h-3.5 w-3.5" />
+        <span>{label}</span>
+      </Button>
+    ) : (
+      <ToolbarIconButton
+        variant="ghost"
+        size="default"
+        className="gap-1 px-2 text-xs font-medium"
+        disabled={!canManageShare}
+        title={
+          canManageShare
+            ? "Share document"
+            : "Only the owner can share this document"
+        }
+        aria-label="Share document"
+        onClick={() => handleOpenChange(true)}
+        tooltip="Share"
+      >
+        <Link2 className="h-3.5 w-3.5" />
+      </ToolbarIconButton>
+    );
+
   React.useEffect(() => {
     if (!isOpen) {
       return;
@@ -440,22 +498,7 @@ export function ShareDocumentButton({
 
   return (
     <>
-      <ToolbarIconButton
-        variant="ghost"
-        size="default"
-        className="gap-1 px-2 text-xs font-medium"
-        disabled={!canManageShare}
-        title={
-          canManageShare
-            ? "Share document"
-            : "Only the owner can share this document"
-        }
-        aria-label="Share document"
-        onClick={() => handleOpenChange(true)}
-        tooltip="Share"
-      >
-        <Link2 className="h-3.5 w-3.5" />
-      </ToolbarIconButton>
+      {triggerButton}
 
       {typeof document !== "undefined"
         ? createPortal(

@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { ChevronDown, FilePlus, FileSpreadsheet, FileText } from "lucide-react";
 
 import { NewDocumentDialog } from "@/components/new-document-dialog";
+import { ShareDocumentButton } from "@/components/share-document-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,8 @@ type FileMenuProps = {
   onCreateNew?: (docId: string) => void | Promise<void>;
   allowCreateNew?: boolean;
   allowImport?: boolean;
+  shareDocumentId?: string;
+  canManageShare?: boolean;
 };
 
 export function FileMenu({
@@ -31,6 +34,8 @@ export function FileMenu({
   onCreateNew,
   allowCreateNew = true,
   allowImport = true,
+  shareDocumentId,
+  canManageShare = false,
 }: FileMenuProps) {
   const [isNewDocumentDialogOpen, setIsNewDocumentDialogOpen] = useState(false);
   const excelFileInputRef = useRef<HTMLInputElement>(null);
@@ -114,6 +119,12 @@ export function FileMenu({
     }
   }, [onExportCSV]);
 
+  const hasShareOption = shareDocumentId?.trim().length
+    ? true
+    : false;
+  const hasImportOptions = allowImport && (onImportExcel || onImportCSV);
+  const hasActionsBeforeExports = allowCreateNew || hasShareOption || hasImportOptions;
+
   const fileInputs = (
     <>
       {allowImport && onImportExcel ? (
@@ -165,7 +176,15 @@ export function FileMenu({
               New Spreadsheet
             </DropdownMenuItem>
           ) : null}
-          {allowImport && (onImportExcel || onImportCSV) ? (
+          {hasShareOption ? (
+            <ShareDocumentButton
+              documentId={shareDocumentId}
+              canManageShare={canManageShare}
+              triggerStyle="menu-item"
+              label="Share"
+            />
+          ) : null}
+          {(allowCreateNew || hasShareOption) && hasImportOptions ? (
             <DropdownMenuSeparator />
           ) : null}
           {allowImport && onImportExcel ? (
@@ -180,7 +199,7 @@ export function FileMenu({
               Import CSV
             </DropdownMenuItem>
           ) : null}
-          {allowCreateNew || (allowImport && (onImportExcel || onImportCSV)) ? (
+          {hasActionsBeforeExports ? (
             <DropdownMenuSeparator />
           ) : null}
           <DropdownMenuItem onClick={handleExportExcel}>

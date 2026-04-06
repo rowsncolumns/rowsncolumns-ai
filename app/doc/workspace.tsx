@@ -1312,7 +1312,10 @@ function SpreadsheetPane({
   const api = useSpreadsheetApi<CellData>();
   const exportWorkbookFilename = useMemo(
     () =>
-      toDashSeparatedLowercase(documentName, toDashSeparatedLowercase(documentId, "spreadsheet")),
+      toDashSeparatedLowercase(
+        documentName,
+        toDashSeparatedLowercase(documentId, "spreadsheet"),
+      ),
     [documentId, documentName],
   );
   const exportCsvSheetSuffix = useMemo(() => {
@@ -1426,6 +1429,8 @@ function SpreadsheetPane({
           onExportExcel={handleExportExcel}
           onExportCSV={handleExportCSV}
           onCreateNew={(newDocId) => router.push(`/sheets/${newDocId}`)}
+          shareDocumentId={documentId}
+          canManageShare={canManageShare}
         />
         <ToolbarSeparator />
         <ShareDocumentButton
@@ -2269,6 +2274,7 @@ type DocumentTitleInlineEditorProps = {
   documentId: string;
   initialTitle: string;
   canEdit: boolean;
+  canManageShare: boolean;
   breadcrumbHref?: string;
   breadcrumbLabel?: string;
   forkTemplateHref?: string | null;
@@ -2278,6 +2284,7 @@ function DocumentTitleInlineEditor({
   documentId,
   initialTitle,
   canEdit,
+  canManageShare,
   breadcrumbHref = "/sheets",
   breadcrumbLabel = "My Sheets",
   forkTemplateHref = null,
@@ -2430,7 +2437,7 @@ function DocumentTitleInlineEditor({
             <button
               type="button"
               onClick={startEditing}
-              className="h-9 w-full cursor-text rounded-lg border border-transparent px-3 text-left text-lg font-semibold tracking-[-0.01em] text-foreground transition hover:border-(--panel-border) hover:text-orange-500 sm:text-xl"
+              className="h-9 cursor-text rounded-lg border border-transparent px-3 text-left text-lg font-semibold tracking-[-0.01em] text-foreground transition hover:border-(--panel-border) hover:text-orange-500 sm:text-xl"
               aria-label="Edit document title"
             >
               <span className="block truncate">{title}</span>
@@ -2441,17 +2448,25 @@ function DocumentTitleInlineEditor({
             </h1>
           )}
         </div>
-        {forkTemplateHref ? (
-          <a
-            href={forkTemplateHref}
-            className={getButtonClassName({
-              size: "sm",
-              className: "h-8 rounded-lg px-3 text-xs whitespace-nowrap",
-            })}
-          >
-            Fork
-          </a>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1">
+          <ShareDocumentButton
+            documentId={documentId}
+            canManageShare={canManageShare}
+            triggerStyle="primary"
+            label="Share"
+          />
+          {forkTemplateHref ? (
+            <a
+              href={forkTemplateHref}
+              className={getButtonClassName({
+                size: "sm",
+                className: "h-8 rounded-lg px-3 text-xs whitespace-nowrap",
+              })}
+            >
+              Fork
+            </a>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -2689,6 +2704,7 @@ export function NewWorkspace({
           documentId={documentId}
           initialTitle={initialDocumentTitle}
           canEdit={canManageShare}
+          canManageShare={canManageShare}
           breadcrumbHref={isTemplateDocument ? "/templates" : "/sheets"}
           breadcrumbLabel={isTemplateDocument ? "Templates" : "My Sheets"}
           forkTemplateHref={forkTemplateHref}
