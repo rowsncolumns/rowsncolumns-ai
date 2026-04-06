@@ -59,6 +59,7 @@ export async function GET(request: Request) {
       items: results.items.map((item) => ({
         docId: item.docId,
         title: item.title,
+        isTemplate: item.isTemplate,
         accessType: item.accessType,
       })),
     });

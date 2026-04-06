@@ -487,10 +487,10 @@ export const SpreadsheetReadDocumentSchema = z.object({
       "Optional A1 notation range (e.g., 'A1:B10') within the selected sheet.",
     ),
   layer: z
-    .enum(["values", "metadata"])
+    .enum(["values", "metadata", "formatting"])
     .optional()
     .describe(
-      "What to return: 'values' for cell data with basic metadata (default), 'metadata' for detailed sheet metadata only (titles, dimensions, frozen rows/cols, merges, tab colors, etc.) without cell data.",
+      "What to return: 'values' for cell data with basic metadata (default), 'metadata' for detailed sheet metadata only (titles, dimensions, frozen rows/cols, merges, tab colors, row heights, column widths - limited to first 20 rows/cols if no range specified) without cell data, 'formatting' for cell formatting/styles without values.",
     ),
   ...ToolExplanationSchemaShape,
 });

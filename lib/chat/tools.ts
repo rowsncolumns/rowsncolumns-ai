@@ -1675,6 +1675,49 @@ const handleSpreadsheetReadDocument = async (
             selectionToAddress({ range: merge }),
           );
 
+          // Extract row/column metadata - limit to first 20 if no range specified
+          const maxIndexForMeta = rangeStr ? Infinity : 20;
+
+          // Row heights and hidden rows (e.g., "1", "2", "3")
+          const rawRowMetadata = Array.isArray(sheet?.rowMetadata)
+            ? sheet.rowMetadata
+            : [];
+          const rowHeights: Record<string, number> = {};
+          const hiddenRows: string[] = [];
+          rawRowMetadata.forEach((item, index) => {
+            if (index <= maxIndexForMeta && item) {
+              const rowKey = String(index);
+              if (item.size != null) {
+                rowHeights[rowKey] = item.size;
+              }
+              if (item.hiddenByUser) {
+                hiddenRows.push(rowKey);
+              }
+            }
+          });
+
+          // Column widths and hidden columns (e.g., "A", "B", "C")
+          const rawColMetadata = Array.isArray(sheet?.columnMetadata)
+            ? sheet.columnMetadata
+            : [];
+          const columnWidths: Record<string, number> = {};
+          const hiddenColumns: string[] = [];
+          rawColMetadata.forEach((item, index) => {
+            if (index <= maxIndexForMeta && item) {
+              const colKey =
+                cellToAddress({ rowIndex: 1, columnIndex: index })?.replace(
+                  /\d+/g,
+                  "",
+                ) ?? String(index);
+              if (item.size != null) {
+                columnWidths[colKey] = item.size;
+              }
+              if (item.hiddenByUser) {
+                hiddenColumns.push(colKey);
+              }
+            }
+          });
+
           return {
             sheetId: sheetInfo.sheetId,
             title: sheetInfo.title,
@@ -1687,6 +1730,10 @@ const handleSpreadsheetReadDocument = async (
             merges: mergesA1,
             rowCount,
             columnCount,
+            ...(Object.keys(rowHeights).length > 0 && { rowHeights }),
+            ...(Object.keys(columnWidths).length > 0 && { columnWidths }),
+            ...(hiddenRows.length > 0 && { hiddenRows }),
+            ...(hiddenColumns.length > 0 && { hiddenColumns }),
           };
         });
 
@@ -1772,8 +1819,10 @@ const handleSpreadsheetReadDocument = async (
           }
         }
 
-        // Build cells object
+        // Build cells or styles object based on layer
         const cells: Record<string, unknown> = {};
+        const styles: Record<string, unknown> = {};
+        const cellXfs = spreadsheet.cellXfs;
 
         if (sheetData) {
           for (
@@ -1797,37 +1846,51 @@ const handleSpreadsheetReadDocument = async (
                 continue;
               }
 
-              const effectiveValue = getCellEffectiveValue(cellData);
-              const ss = cellData.ss;
-              const ev =
-                getExtendedValueBool(effectiveValue) ??
-                getExtendedValueNumber(effectiveValue) ??
-                getExtendedValueString(effectiveValue);
-              const fv = isNil(ss)
-                ? getCellFormattedValue(cellData)
-                : sharedStrings.get(ss);
-              const ue = getCellUserEnteredValue(cellData);
-              const formula = getExtendedValueFormula(ue);
+              if (layer === "formatting") {
+                // Build styles object for formatting layer
+                const ef = getCellEffectiveFormat(cellData);
+                const style = (ef as StyleReference)?.sid
+                  ? cellXfs.get(String((ef as StyleReference)?.sid))
+                  : ef;
 
-              // Determine output format based on what data is available
-              if (formula) {
-                // Formula cell: [formatted, effective, formula]
-                cells[address] = [fv ?? ev ?? null, ev ?? null, formula];
-              } else if (
-                !isNil(fv) &&
-                !isNil(ev) &&
-                fv !== ev &&
-                fv !== String(ev)
-              ) {
-                // Formatted differs from effective: [formatted, effective]
-                cells[address] = [fv, ev];
-              } else {
-                // Plain value - skip if null to reduce response size
-                const value = ev ?? fv;
-                if (value === undefined || value === null) {
-                  continue;
+                // Skip cells with no style to reduce response size
+                if (style) {
+                  styles[address] = style;
                 }
-                cells[address] = value;
+              } else {
+                // Build cells object for values layer
+                const effectiveValue = getCellEffectiveValue(cellData);
+                const ss = cellData.ss;
+                const ev =
+                  getExtendedValueBool(effectiveValue) ??
+                  getExtendedValueNumber(effectiveValue) ??
+                  getExtendedValueString(effectiveValue);
+                const fv = isNil(ss)
+                  ? getCellFormattedValue(cellData)
+                  : sharedStrings.get(ss);
+                const ue = getCellUserEnteredValue(cellData);
+                const formula = getExtendedValueFormula(ue);
+
+                // Determine output format based on what data is available
+                if (formula) {
+                  // Formula cell: [formatted, effective, formula]
+                  cells[address] = [fv ?? ev ?? null, ev ?? null, formula];
+                } else if (
+                  !isNil(fv) &&
+                  !isNil(ev) &&
+                  fv !== ev &&
+                  fv !== String(ev)
+                ) {
+                  // Formatted differs from effective: [formatted, effective]
+                  cells[address] = [fv, ev];
+                } else {
+                  // Plain value - skip if null to reduce response size
+                  const value = ev ?? fv;
+                  if (value === undefined || value === null) {
+                    continue;
+                  }
+                  cells[address] = value;
+                }
               }
             }
           }
@@ -1849,8 +1912,8 @@ const handleSpreadsheetReadDocument = async (
           sheetName: sheetInfo.title,
           sheetId: sheetInfo.sheetId,
           dimension,
-          cells,
-          styles: {}, // Styles are not included by default for performance
+          cells: layer === "formatting" ? {} : cells,
+          styles: layer === "formatting" ? styles : {},
         });
       }
 

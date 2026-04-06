@@ -1,4 +1,4 @@
-export type MentionCategory = "sheet" | "document" | "tool";
+export type MentionCategory = "sheet" | "document" | "template" | "tool";
 export type MentionKind = "sheet" | "tool";
 
 type MentionVisualConfig = {
@@ -38,6 +38,7 @@ export const TOOL_WRENCH_ICON_PATH_D =
 export const MENTION_CATEGORY_ORDER: MentionCategory[] = [
   "sheet",
   "document",
+  "template",
   "tool",
 ];
 
@@ -46,6 +47,10 @@ const MENTION_VISUAL_CONFIG: Record<MentionCategory, MentionVisualConfig> = {
   document: {
     ...SHEET_VISUAL,
     label: "Documents",
+  },
+  template: {
+    ...SHEET_VISUAL,
+    label: "Templates",
   },
   tool: TOOL_VISUAL,
 };

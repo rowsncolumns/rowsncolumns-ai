@@ -3757,6 +3757,7 @@ type DocumentsApiResponse = {
   items?: Array<{
     docId?: string;
     title?: string;
+    isTemplate?: boolean;
   }>;
 };
 
@@ -3873,10 +3874,19 @@ function AssistantComposer({
   const [documentMentionOptions, setDocumentMentionOptions] = React.useState<
     ComposerMentionOption[]
   >([]);
+  const [templateMentionOptions, setTemplateMentionOptions] = React.useState<
+    ComposerMentionOption[]
+  >([]);
   const documentMentionSearchCacheRef = React.useRef<
     Map<string, ComposerMentionOption[]>
   >(new Map());
+  const templateMentionSearchCacheRef = React.useRef<
+    Map<string, ComposerMentionOption[]>
+  >(new Map());
   const documentMentionSearchAbortRef = React.useRef<AbortController | null>(
+    null,
+  );
+  const templateMentionSearchAbortRef = React.useRef<AbortController | null>(
     null,
   );
   const queuedMessagesRef = React.useRef<QueuedComposerMessage[]>([]);
@@ -3918,14 +3928,13 @@ function AssistantComposer({
         const mentions = (payload.items ?? []).reduce<ComposerMentionOption[]>(
           (accumulator, item) => {
             const nextDocId = item.docId?.trim();
-            if (!nextDocId) {
+            if (!nextDocId || item.isTemplate === true) {
               return accumulator;
             }
             const nextTitle =
               item.title?.trim() || `Document ${nextDocId.slice(0, 8)}`;
-            const mentionUri = buildDocumentMentionUri(nextDocId);
             accumulator.push({
-              id: mentionUri,
+              id: buildDocumentMentionUri(nextDocId),
               label: nextTitle,
               category: "document",
               description: nextDocId,
@@ -3934,23 +3943,6 @@ function AssistantComposer({
           },
           [],
         );
-
-        const normalizedDocId = docId?.trim();
-        if (
-          normalizedQuery.length === 0 &&
-          normalizedDocId &&
-          !mentions.some(
-            (item) => item.id === buildDocumentMentionUri(normalizedDocId),
-          )
-        ) {
-          const mentionUri = buildDocumentMentionUri(normalizedDocId);
-          mentions.unshift({
-            id: mentionUri,
-            label: `Document ${normalizedDocId.slice(0, 8)}`,
-            category: "document",
-            description: `${normalizedDocId} (current document)`,
-          });
-        }
 
         documentMentionSearchCacheRef.current.set(cacheKey, mentions);
         if (normalizedQuery.length === 0) {
@@ -3969,19 +3961,97 @@ function AssistantComposer({
         }
       }
     },
-    [docId],
+    [],
+  );
+
+  const fetchTemplateMentionOptions = React.useCallback(
+    async (query: string): Promise<ComposerMentionOption[]> => {
+      const normalizedQuery = query.trim();
+      const cacheKey = normalizedQuery.toLowerCase();
+      const cached = templateMentionSearchCacheRef.current.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      templateMentionSearchAbortRef.current?.abort();
+      const controller = new AbortController();
+      templateMentionSearchAbortRef.current = controller;
+
+      try {
+        const params = new URLSearchParams({
+          limit: "24",
+          filter: "templates",
+        });
+        if (normalizedQuery.length > 0) {
+          params.set("q", normalizedQuery);
+        }
+
+        const response = await fetch(`/api/documents?${params.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          return [];
+        }
+
+        const payload = (await response.json()) as DocumentsApiResponse;
+        const mentions = (payload.items ?? []).reduce<ComposerMentionOption[]>(
+          (accumulator, item) => {
+            const nextDocId = item.docId?.trim();
+            if (!nextDocId) {
+              return accumulator;
+            }
+            const nextTitle =
+              item.title?.trim() || `Template ${nextDocId.slice(0, 8)}`;
+            accumulator.push({
+              id: buildDocumentMentionUri(nextDocId),
+              label: nextTitle,
+              category: "template",
+              description: nextDocId,
+            });
+            return accumulator;
+          },
+          [],
+        );
+
+        templateMentionSearchCacheRef.current.set(cacheKey, mentions);
+        if (normalizedQuery.length === 0) {
+          setTemplateMentionOptions(mentions);
+        }
+
+        return mentions;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return [];
+        }
+        return [];
+      } finally {
+        if (templateMentionSearchAbortRef.current === controller) {
+          templateMentionSearchAbortRef.current = null;
+        }
+      }
+    },
+    [],
   );
 
   React.useEffect(() => {
     documentMentionSearchCacheRef.current.clear();
+    templateMentionSearchCacheRef.current.clear();
     setDocumentMentionOptions([]);
-    void fetchDocumentMentionOptions("");
+    setTemplateMentionOptions([]);
+    void Promise.all([
+      fetchDocumentMentionOptions(""),
+      fetchTemplateMentionOptions(""),
+    ]);
 
     return () => {
       documentMentionSearchAbortRef.current?.abort();
       documentMentionSearchAbortRef.current = null;
+      templateMentionSearchAbortRef.current?.abort();
+      templateMentionSearchAbortRef.current = null;
     };
-  }, [fetchDocumentMentionOptions]);
+  }, [fetchDocumentMentionOptions, fetchTemplateMentionOptions]);
 
   const fallbackSheets = React.useMemo(() => {
     if (sheets && sheets.length > 0) {
@@ -4056,19 +4126,27 @@ function AssistantComposer({
 
   const mentionOptions = React.useMemo<ComposerMentionOption[]>(() => {
     const uniqueMentions = new Map<string, ComposerMentionOption>();
+    const templateIds = new Set(templateMentionOptions.map((item) => item.id));
 
     for (const item of [
       ...sheetMentionOptions,
-      ...documentMentionOptions,
+      ...documentMentionOptions.filter((item) => !templateIds.has(item.id)),
+      ...templateMentionOptions,
       ...toolMentionOptions,
     ]) {
-      if (!uniqueMentions.has(item.id)) {
-        uniqueMentions.set(item.id, item);
+      const uniqueKey = `${item.category}:${item.id}`;
+      if (!uniqueMentions.has(uniqueKey)) {
+        uniqueMentions.set(uniqueKey, item);
       }
     }
 
     return Array.from(uniqueMentions.values());
-  }, [documentMentionOptions, sheetMentionOptions, toolMentionOptions]);
+  }, [
+    documentMentionOptions,
+    sheetMentionOptions,
+    templateMentionOptions,
+    toolMentionOptions,
+  ]);
 
   const searchMentionOptions = React.useCallback(
     async (query: string): Promise<ComposerMentionOption[]> => {
@@ -4080,21 +4158,34 @@ function AssistantComposer({
         documentMentionOptions,
         query,
       );
+      const filteredTemplateOptions = filterLocalMentionOptions(
+        templateMentionOptions,
+        query,
+      );
       const filteredToolOptions = filterLocalMentionOptions(
         toolMentionOptions,
         query,
       );
-      const documentOptions = await fetchDocumentMentionOptions(query);
+      const [documentOptions, templateOptions] = await Promise.all([
+        fetchDocumentMentionOptions(query),
+        fetchTemplateMentionOptions(query),
+      ]);
+      const templateIds = new Set<string>(
+        [...filteredTemplateOptions, ...templateOptions].map((item) => item.id),
+      );
       const uniqueMentions = new Map<string, ComposerMentionOption>();
 
       for (const item of [
         ...filteredSheetOptions,
-        ...filteredDocumentOptions,
-        ...documentOptions,
+        ...filteredDocumentOptions.filter((entry) => !templateIds.has(entry.id)),
+        ...documentOptions.filter((entry) => !templateIds.has(entry.id)),
+        ...filteredTemplateOptions,
+        ...templateOptions,
         ...filteredToolOptions,
       ]) {
-        if (!uniqueMentions.has(item.id)) {
-          uniqueMentions.set(item.id, item);
+        const uniqueKey = `${item.category}:${item.id}`;
+        if (!uniqueMentions.has(uniqueKey)) {
+          uniqueMentions.set(uniqueKey, item);
         }
       }
 
@@ -4103,7 +4194,9 @@ function AssistantComposer({
     [
       documentMentionOptions,
       fetchDocumentMentionOptions,
+      fetchTemplateMentionOptions,
       sheetMentionOptions,
+      templateMentionOptions,
       toolMentionOptions,
     ],
   );

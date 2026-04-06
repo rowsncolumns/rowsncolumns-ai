@@ -85,6 +85,7 @@ const getMentionSearchKeys = (category: ComposerMentionCategory) => {
     case "sheet":
       return ["label", "description", "id"] as const;
     case "document":
+    case "template":
       return ["label", "id", "description"] as const;
     default:
       return ["label", "id", "description"] as const;
@@ -99,6 +100,7 @@ const sortMentionOptionsByCategory = (
     case "tool":
     case "sheet":
     case "document":
+    case "template":
     default:
       return [...items].sort((left, right) =>
         left.label.localeCompare(right.label, undefined, {
@@ -358,6 +360,52 @@ const extendMentionReplacementRange = (
   };
 };
 
+const resolveMentionMenuPosition = (
+  props: SuggestionProps<ComposerMentionOption, MentionNodeAttrs>,
+): { top: number; left: number } | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  // Get the editor's container element to calculate relative position
+  const editorContainer = props.editor.view.dom.parentElement;
+  if (!editorContainer) {
+    return null;
+  }
+
+  const containerRect = editorContainer.getBoundingClientRect();
+
+  // Use live ProseMirror caret coordinates first. This stays accurate under
+  // scroll/container changes where TipTap clientRect can drift.
+  // Use range.from to anchor at the "@" character, not the cursor end
+  const caretCoords = props.editor.view.coordsAtPos(props.range.from);
+  let rect: DOMRect | null = caretCoords
+    ? ({
+        top: caretCoords.top,
+        left: caretCoords.left,
+        width: 0,
+        height: Math.max(0, caretCoords.bottom - caretCoords.top),
+      } as DOMRect)
+    : null;
+
+  if (!rect) {
+    rect = props.clientRect?.() ?? null;
+  }
+  if (!rect) {
+    return null;
+  }
+
+  const caretHeight = Math.max(rect.height || 0, 20);
+  // Calculate position relative to the editor container
+  const top = rect.top - containerRect.top + caretHeight;
+  const left = rect.left - containerRect.left;
+
+  return {
+    top: Math.max(0, top),
+    left: Math.max(0, left),
+  };
+};
+
 const createMentionSuggestion = ({
   getItems,
   getSearchItems,
@@ -482,20 +530,7 @@ const createMentionSuggestion = ({
               label: item.label,
             });
           },
-          position: (() => {
-            const rect = activeProps.clientRect?.();
-            if (!rect || typeof window === "undefined") {
-              return null;
-            }
-            const viewportPadding = 8;
-            const caretBottom = rect.top + Math.max(rect.height, 20);
-            const left = Math.max(viewportPadding, rect.left);
-            const top = Math.max(viewportPadding, caretBottom);
-            return {
-              top,
-              left,
-            };
-          })(),
+          position: resolveMentionMenuPosition(activeProps),
         });
       };
 
@@ -839,7 +874,7 @@ export function AssistantComposerInput({
           <PopoverPrimitive.Anchor asChild>
             <span
               aria-hidden="true"
-              className="pointer-events-none fixed"
+              className="pointer-events-none absolute"
               style={{
                 top: `${mentionMenu.position.top}px`,
                 left: `${mentionMenu.position.left}px`,
@@ -876,7 +911,8 @@ export function AssistantComposerInput({
                   MENTION_CATEGORY_ORDER.map((category) => {
                     const categoryItems = groupedMentionItems.get(category);
                     const showDocumentsLoadingRow =
-                      category === "document" && isMentionSearching;
+                      (category === "document" || category === "template") &&
+                      isMentionSearching;
                     const hasCategoryItems =
                       Array.isArray(categoryItems) && categoryItems.length > 0;
                     if (!hasCategoryItems && !showDocumentsLoadingRow) {
@@ -929,7 +965,11 @@ export function AssistantComposerInput({
                         {showDocumentsLoadingRow ? (
                           <div className="mx-1 mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-(--muted-foreground)">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <span>Searching documents...</span>
+                            <span>
+                              {category === "template"
+                                ? "Searching templates..."
+                                : "Searching documents..."}
+                            </span>
                           </div>
                         ) : null}
                       </CommandGroup>
