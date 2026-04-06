@@ -45,6 +45,7 @@ type DocumentTemplateMetadataRow = {
   doc_id: string;
   title: string;
   template_title: string | null;
+  template_tagline: string | null;
   is_template: boolean | null;
   template_category: string | null;
   template_description_markdown: string | null;
@@ -58,6 +59,7 @@ type TemplateCatalogRow = {
   doc_id: string;
   title: string | null;
   template_title: string | null;
+  template_tagline: string | null;
   template_category: string | null;
   template_description_markdown: string | null;
   template_tags: string[] | null;
@@ -94,6 +96,7 @@ export type DocumentTemplateMetadataRecord = {
   docId: string;
   title: string;
   templateTitle: string;
+  tagline: string;
   isTemplate: boolean;
   category: string;
   descriptionMarkdown: string;
@@ -107,6 +110,7 @@ export type TemplateCatalogItem = {
   docId: string;
   title: string;
   templateTitle: string;
+  tagline: string;
   category: string;
   descriptionMarkdown: string;
   tags: string[];
@@ -118,6 +122,7 @@ export type UpdateDocumentTemplateInput = {
   docId: string;
   isTemplate: boolean;
   templateTitle?: string | null;
+  tagline?: string | null;
   category?: string | null;
   descriptionMarkdown?: string | null;
   tags?: string[];
@@ -211,6 +216,7 @@ const DEFAULT_TITLE_PREFIX = "Document";
 const MAX_TITLE_LENGTH = 160;
 const DUPLICATE_TITLE_SUFFIX = " (Copy)";
 const MAX_TEMPLATE_TITLE_LENGTH = 160;
+const MAX_TEMPLATE_TAGLINE_LENGTH = 220;
 const MAX_TEMPLATE_CATEGORY_LENGTH = 80;
 const MAX_TEMPLATE_DESCRIPTION_LENGTH = 20_000;
 const MAX_TEMPLATE_TAG_LENGTH = 40;
@@ -260,6 +266,14 @@ const normalizeTemplateTitle = (value?: string | null): string | null => {
     return null;
   }
   return normalized.slice(0, MAX_TEMPLATE_TITLE_LENGTH);
+};
+
+const normalizeTemplateTagline = (value?: string | null): string | null => {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return null;
+  }
+  return normalized.slice(0, MAX_TEMPLATE_TAGLINE_LENGTH);
 };
 
 const normalizeTemplateDescriptionMarkdown = (
@@ -323,6 +337,7 @@ const mapDocumentTemplateRow = (
     docId: row.doc_id,
     title: resolvedTemplateTitle,
     templateTitle: resolvedTemplateTitle,
+    tagline: normalizeTemplateTagline(row.template_tagline) ?? "",
     isTemplate: row.is_template === true,
     category: normalizeTemplateCategory(row.template_category) ?? "",
     descriptionMarkdown: row.template_description_markdown?.trim() || "",
@@ -341,6 +356,7 @@ const mapTemplateCatalogRow = (row: TemplateCatalogRow): TemplateCatalogItem => 
     docId: row.doc_id,
     title: fallbackTitle,
     templateTitle: resolvedTemplateTitle,
+    tagline: normalizeTemplateTagline(row.template_tagline) ?? "",
     category: normalizeTemplateCategoryForDisplay(row.template_category),
     descriptionMarkdown: row.template_description_markdown?.trim() || "",
     tags: normalizeTemplateTags(toStringArray(row.template_tags)),
@@ -952,6 +968,7 @@ export async function getDocumentTemplateMetadata({
         doc_id,
         title,
         template_title,
+        template_tagline,
         is_template,
         template_category,
         template_description_markdown,
@@ -990,6 +1007,7 @@ export async function upsertDocumentTemplateMetadata(
 
   const normalizedCategory = normalizeTemplateCategory(input.category);
   const normalizedTemplateTitle = normalizeTemplateTitle(input.templateTitle);
+  const normalizedTagline = normalizeTemplateTagline(input.tagline);
   const normalizedDescription = normalizeTemplateDescriptionMarkdown(
     input.descriptionMarkdown,
   );
@@ -1004,6 +1022,7 @@ export async function upsertDocumentTemplateMetadata(
         doc_id,
         title,
         template_title,
+        template_tagline,
         is_template,
         template_category,
         template_description_markdown,
@@ -1014,6 +1033,7 @@ export async function upsertDocumentTemplateMetadata(
         ${input.docId},
         ${metadata.title},
         ${normalizedTemplateTitle},
+        ${normalizedTagline},
         ${input.isTemplate},
         ${normalizedCategory},
         ${normalizedDescription},
@@ -1024,6 +1044,7 @@ export async function upsertDocumentTemplateMetadata(
         SET
           is_template = EXCLUDED.is_template,
           template_title = EXCLUDED.template_title,
+          template_tagline = EXCLUDED.template_tagline,
           template_category = EXCLUDED.template_category,
           template_description_markdown = EXCLUDED.template_description_markdown,
           template_tags = EXCLUDED.template_tags,
@@ -1033,6 +1054,7 @@ export async function upsertDocumentTemplateMetadata(
         doc_id,
         title,
         template_title,
+        template_tagline,
         is_template,
         template_category,
         template_description_markdown,
@@ -1080,6 +1102,7 @@ export async function listTemplateDocuments({
         metadata.doc_id,
         metadata.title,
         metadata.template_title,
+        metadata.template_tagline,
         metadata.template_category,
         metadata.template_description_markdown,
         metadata.template_tags,
@@ -1097,6 +1120,7 @@ export async function listTemplateDocuments({
           ${queryPattern}::text IS NULL
           OR COALESCE(NULLIF(BTRIM(metadata.title), ''), 'Document ' || LEFT(metadata.doc_id, 8)) ILIKE ${queryPattern}::text
           OR COALESCE(NULLIF(BTRIM(metadata.template_title), ''), '') ILIKE ${queryPattern}::text
+          OR COALESCE(NULLIF(BTRIM(metadata.template_tagline), ''), '') ILIKE ${queryPattern}::text
           OR COALESCE(NULLIF(BTRIM(metadata.template_category), ''), ${UNCATEGORIZED_TEMPLATE_LABEL}) ILIKE ${queryPattern}::text
           OR COALESCE(metadata.template_description_markdown, '') ILIKE ${queryPattern}::text
           OR COALESCE(array_to_string(metadata.template_tags, ' '), '') ILIKE ${queryPattern}::text
@@ -1127,6 +1151,7 @@ export async function getTemplateDocumentById({
         metadata.doc_id,
         metadata.title,
         metadata.template_title,
+        metadata.template_tagline,
         metadata.template_category,
         metadata.template_description_markdown,
         metadata.template_tags,

@@ -27,6 +27,7 @@ import { IconButton } from "@rowsncolumns/ui";
 type TemplateMetadataResponse = {
   isTemplate?: boolean;
   templateTitle?: string;
+  tagline?: string;
   category?: string;
   descriptionMarkdown?: string;
   tags?: string[];
@@ -37,6 +38,7 @@ type TemplateMetadataResponse = {
 type TemplateFormState = {
   isTemplate: boolean;
   templateTitle: string;
+  tagline: string;
   category: string;
   descriptionMarkdown: string;
   tagsInput: string;
@@ -47,6 +49,7 @@ type TemplateRecord = {
   docId: string;
   title: string;
   templateTitle?: string;
+  tagline?: string;
   category?: string;
   descriptionMarkdown?: string;
   tags?: string[];
@@ -74,6 +77,7 @@ const parseTagsInput = (tagsInput: string): string[] =>
 const toTemplateFormState = (template: TemplateRecord): TemplateFormState => ({
   isTemplate: true,
   templateTitle: template.templateTitle ?? template.title,
+  tagline: template.tagline ?? "",
   category: template.category ?? "",
   descriptionMarkdown: template.descriptionMarkdown ?? "",
   tagsInput: Array.isArray(template.tags) ? template.tags.join(", ") : "",
@@ -128,6 +132,7 @@ export function TemplateSettingsTrigger({
       setForm({
         isTemplate: payload?.isTemplate === true,
         templateTitle: payload?.templateTitle?.trim() || template.title,
+        tagline: payload?.tagline?.trim() || "",
         category: payload?.category?.trim() || "",
         descriptionMarkdown: payload?.descriptionMarkdown || "",
         tagsInput: Array.isArray(payload?.tags) ? payload.tags.join(", ") : "",
@@ -161,6 +166,7 @@ export function TemplateSettingsTrigger({
           body: JSON.stringify({
             isTemplate: form.isTemplate,
             templateTitle: form.templateTitle,
+            tagline: form.tagline,
             category: form.category,
             descriptionMarkdown: form.descriptionMarkdown,
             tags: parseTagsInput(form.tagsInput),
@@ -364,6 +370,25 @@ export function TemplateSettingsTrigger({
                 }}
                 disabled={saving || uploading}
                 placeholder="Template name shown in listing"
+                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--accent)"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-(--muted-foreground)">
+                Tagline
+              </span>
+              <input
+                type="text"
+                value={form.tagline}
+                onChange={(event) => {
+                  setForm((current) => ({
+                    ...current,
+                    tagline: event.target.value.slice(0, 220),
+                  }));
+                }}
+                disabled={saving || uploading}
+                placeholder="Short one-line summary shown in cards and details"
                 className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--accent)"
               />
             </label>

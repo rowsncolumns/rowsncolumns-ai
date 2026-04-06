@@ -39,6 +39,14 @@ const buildCategoryHref = (category: string) => {
   return `/templates?${params.toString()}`;
 };
 
+const resolveTemplateTagline = ({
+  tagline,
+  descriptionMarkdown,
+}: {
+  tagline: string;
+  descriptionMarkdown: string;
+}) => tagline.trim() || getSummaryFromMarkdown(descriptionMarkdown);
+
 export async function generateMetadata({
   params,
 }: {
@@ -58,9 +66,10 @@ export async function generateMetadata({
   }
 
   const title = `${template.templateTitle} · Templates`;
-  const description = getSummaryFromMarkdown(
-    template.descriptionMarkdown || fallbackDescription,
-  );
+  const description = resolveTemplateTagline({
+    tagline: template.tagline,
+    descriptionMarkdown: template.descriptionMarkdown || fallbackDescription,
+  });
 
   return {
     title,
@@ -103,9 +112,10 @@ export default async function TemplateDetailsPage({
     .filter((item) => item.docId !== template.docId)
     .slice(0, 3);
 
-  const summary = getSummaryFromMarkdown(
-    template.descriptionMarkdown || fallbackDescription,
-  );
+  const summary = resolveTemplateTagline({
+    tagline: template.tagline,
+    descriptionMarkdown: template.descriptionMarkdown || fallbackDescription,
+  });
   const categoryHref = buildCategoryHref(template.category);
 
   return (
@@ -212,6 +222,9 @@ export default async function TemplateDetailsPage({
                 <h3 className="text-base font-semibold text-foreground">
                   {template.templateTitle}
                 </h3>
+                <p className="mt-1 line-clamp-2 text-sm text-(--muted-foreground)">
+                  {summary}
+                </p>
                 <p className="mt-1 text-xs text-(--muted-foreground)">
                   Free spreadsheet template
                 </p>

@@ -66,6 +66,17 @@ const markdownPlugins = [remarkGfm];
 const fallbackTemplateDescription =
   "Ready-to-use RowsnColumns spreadsheet template.";
 
+const getSummaryFromMarkdown = (value: string): string => {
+  const normalized = value
+    .replace(/[`*_#>\-\[\]\(\)!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return fallbackTemplateDescription;
+  }
+  return normalized.slice(0, 220);
+};
+
 export const metadata: Metadata = {
   title: "Free Excel templates",
   description:
@@ -138,7 +149,7 @@ export default async function TemplatesPage({
             />
           </div>
 
-          <section className="rounded-2xl border border-(--card-border) bg-(--card-bg) p-4 shadow-[0_12px_32px_var(--card-shadow)] sm:p-5">
+          <section className="px-5 pb-12 pt-8 sm:px-8 lg:px-12 bg-(--card-bg-solid) shadow-[0_24px_70px_var(--card-shadow)] rounded-lg">
             <div className="mb-4 space-y-2.5">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -251,6 +262,9 @@ export default async function TemplatesPage({
                       {items.map((template) => {
                         const displayTitle =
                           template.templateTitle || template.title;
+                        const displayTagline =
+                          template.tagline.trim() ||
+                          getSummaryFromMarkdown(template.descriptionMarkdown);
                         const detailsHref = `/templates/${encodeURIComponent(template.docId)}`;
 
                         return (
@@ -287,14 +301,9 @@ export default async function TemplatesPage({
                                     {displayTitle}
                                   </Link>
                                 </h3>
-                                <div className="prose prose-sm mt-1.5 line-clamp-2 max-w-none text-xs text-(--muted-foreground) [&_p]:m-0">
-                                  <ReactMarkdown
-                                    remarkPlugins={markdownPlugins}
-                                  >
-                                    {template.descriptionMarkdown ||
-                                      fallbackTemplateDescription}
-                                  </ReactMarkdown>
-                                </div>
+                                <p className="mt-1 line-clamp-3 text-xs font-medium text-(--muted-foreground)">
+                                  {displayTagline}
+                                </p>
                               </div>
 
                               {template.tags.length > 0 ? (

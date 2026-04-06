@@ -29,6 +29,7 @@ const updateTemplateSchema = z.object({
     .max(300, "templateTitle is too long.")
     .optional()
     .default(""),
+  tagline: z.string().max(220, "tagline is too long.").optional().default(""),
   category: z.string().max(120, "category is too long.").optional().default(""),
   descriptionMarkdown: z
     .string()
@@ -96,6 +97,7 @@ export async function GET(_request: Request, context: RouteContext) {
       documentId: metadata.docId,
       title: metadata.title,
       templateTitle: metadata.templateTitle,
+      tagline: metadata.tagline,
       isTemplate: metadata.isTemplate,
       category: metadata.category,
       descriptionMarkdown: metadata.descriptionMarkdown,
@@ -141,6 +143,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       docId: documentId,
       isTemplate: parsedBody.data.isTemplate,
       templateTitle: parsedBody.data.templateTitle,
+      tagline: parsedBody.data.tagline,
       category: parsedBody.data.category,
       descriptionMarkdown: parsedBody.data.descriptionMarkdown,
       tags: parsedBody.data.tags,
@@ -155,6 +158,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       documentId: metadata.docId,
       title: metadata.title,
       templateTitle: metadata.templateTitle,
+      tagline: metadata.tagline,
       isTemplate: metadata.isTemplate,
       category: metadata.category,
       descriptionMarkdown: metadata.descriptionMarkdown,

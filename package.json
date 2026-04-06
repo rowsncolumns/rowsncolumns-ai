@@ -48,7 +48,8 @@
     "stripe:provision:billing-catalog": "tsx scripts/provision-stripe-billing-catalog.ts",
     "stripe:migrate:pro-35": "tsx scripts/migrate-pro-subscriptions-to-35.ts",
     "benchmark:spreadsheet": "tsx scripts/run-spreadsheet-bench.ts",
-    "benchmark:spreadsheet:standalone": "tsx scripts/run-spreadsheet-bench-standalone.ts"
+    "benchmark:spreadsheet:standalone": "tsx scripts/run-spreadsheet-bench-standalone.ts",
+    "db:migrate:document-template-tagline": "tsx scripts/add-template-tagline-to-document-metadata.ts"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.12.10",
