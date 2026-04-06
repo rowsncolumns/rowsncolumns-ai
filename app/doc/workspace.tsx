@@ -14,6 +14,7 @@ import type {
   NamedRange,
   PivotTable,
   ProtectedRange,
+  RangeBorderStyle,
   SelectionTitleProps,
   Sheet,
   Slicer,
@@ -186,6 +187,7 @@ import { selectionFromActiveCell } from "@rowsncolumns/grid";
 import { ChevronRight, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useCitations } from "@/hooks/use-citations";
+import { useHighlights } from "@/hooks/use-highlights";
 import { cn } from "@/lib/utils";
 
 const appendShareDbQueryParam = (
@@ -601,6 +603,7 @@ function SpreadsheetPane({
   const [protectedRanges, onChangeProtectedRanges] = useState<ProtectedRange[]>(
     [],
   );
+  const [highlights] = useHighlights();
   const [citations, onChangeCitations] = useState<Citation[]>([]);
   const [agents, setAgents] = useState<Collaborator[]>([]);
   const [userDefinedColors, setUserDefinedColors] = useState<string[]>([]);
@@ -1148,10 +1151,39 @@ function SpreadsheetPane({
     sheetId: activeSheetId,
   });
 
+  // Create border styles for highlights
+  const highlightBorderStyles = useMemo(() => {
+    const borderStyle: RangeBorderStyle[] = [];
+    for (const highlight of highlights) {
+      if (highlight.sheetId !== activeSheetId) {
+        continue;
+      }
+
+      borderStyle.push({
+        id: `highlight-border-${highlight.sheetId}-${highlight.rowIndex}-${highlight.columnIndex}`,
+        range: {
+          startRowIndex: highlight.rowIndex,
+          endRowIndex: highlight.rowIndex,
+          startColumnIndex: highlight.columnIndex,
+          endColumnIndex: highlight.columnIndex,
+        },
+        draggable: false,
+        type: "highlight",
+        style: {
+          fill: "rgba(255, 255, 0, 0.3)",
+          stroke: "rgba(0,0,0,0.2)",
+          strokeWidth: 1,
+        },
+      });
+    }
+
+    return borderStyle;
+  }, [highlights, activeSheetId]);
+
   // Final border styles
   const finalBorderStyles = useMemo(
-    () => [...borderStyles, ...citationBorderStyles],
-    [borderStyles, citationBorderStyles],
+    () => [...borderStyles, ...citationBorderStyles, ...highlightBorderStyles],
+    [borderStyles, citationBorderStyles, highlightBorderStyles],
   );
 
   // Keep chart renderer identity stable so CanvasGrid doesn't treat it as a new

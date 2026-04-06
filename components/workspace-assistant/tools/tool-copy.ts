@@ -82,6 +82,11 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Completed spreadsheet audit",
     failed: "Failed to audit spreadsheet",
   },
+  spreadsheet_highlight: {
+    running: "Highlighting cells",
+    success: "Highlighted cells",
+    failed: "Failed to highlight cells",
+  },
   assistant_requestModeSwitch: {
     running: "Requesting mode switch approval",
     success: "Approval requested",

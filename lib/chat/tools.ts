@@ -3278,9 +3278,8 @@ const handleSpreadsheetSheet = async (
           }
           // Convert A1 notation merges to GridRange format
           if (merges && merges.length > 0) {
-            const { validRanges, invalidRanges } = parseMergeRangesFromA1(
-              merges,
-            );
+            const { validRanges, invalidRanges } =
+              parseMergeRangesFromA1(merges);
             if (invalidRanges.length > 0) {
               return failTool(
                 "INVALID_MERGE_RANGE",
@@ -3414,9 +3413,8 @@ const handleSpreadsheetSheet = async (
 
             // Remove merges that match removeMerges ranges
             if (removeMerges?.length) {
-              const { validRanges, invalidRanges } = parseMergeRangesFromA1(
-                removeMerges,
-              );
+              const { validRanges, invalidRanges } =
+                parseMergeRangesFromA1(removeMerges);
               if (invalidRanges.length > 0) {
                 return failTool(
                   "INVALID_REMOVE_MERGE_RANGE",
@@ -3442,9 +3440,8 @@ const handleSpreadsheetSheet = async (
 
             // Add new merges (fail if they intersect with remaining merges or each other)
             if (merges?.length) {
-              const { validRanges, invalidRanges } = parseMergeRangesFromA1(
-                merges,
-              );
+              const { validRanges, invalidRanges } =
+                parseMergeRangesFromA1(merges);
               if (invalidRanges.length > 0) {
                 return failTool(
                   "INVALID_MERGE_RANGE",
@@ -6834,6 +6831,124 @@ The UI will show the plan and return approval or requested changes.`,
   schema: confirmPlanExecutionSchema,
 });
 
+// =============================================================================
+// Highlight Tool
+// =============================================================================
+
+const spreadsheetHighlightSchema = z.object({
+  docId: z.string().describe("The document ID of the spreadsheet."),
+  action: z
+    .enum(["create", "clear"])
+    .describe(
+      'Action to perform: "create" to highlight cells, "clear" to remove all highlights.',
+    ),
+  cells: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Array of cell references in A1 notation (e.g., ["A1", "B2", "\'Sheet2\'!C3"]). Required for "create" action.',
+    ),
+});
+
+type SpreadsheetHighlightInput = z.infer<typeof spreadsheetHighlightSchema>;
+
+const handleSpreadsheetHighlight = async (
+  input: SpreadsheetHighlightInput,
+): Promise<string> => {
+  const { docId, action, cells } = input;
+
+  if (!docId) {
+    return failTool("MISSING_DOC_ID", "docId is required", { field: "docId" });
+  }
+
+  if (action === "clear") {
+    return JSON.stringify({
+      success: true,
+      action: "clear",
+      message: "Highlights cleared.",
+    });
+  }
+
+  // Action is "create"
+  if (!cells || cells.length === 0) {
+    return failTool(
+      "MISSING_CELLS",
+      'cells array is required for "create" action',
+      { field: "cells" },
+    );
+  }
+
+  // Parse cells using sharedb to resolve sheet names
+  const { doc, close } = await getShareDBDocument(docId);
+
+  try {
+    const data = doc.data as ShareDBSpreadsheetDoc | null;
+    if (!data) {
+      return failTool("NO_DOCUMENT_DATA", "Document has no data");
+    }
+
+    const spreadsheet = createSpreadsheetInterface(data, false);
+    const parsedCells: Array<{
+      sheetId: number;
+      rowIndex: number;
+      columnIndex: number;
+    }> = [];
+
+    for (const cellRef of cells) {
+      const parsed = parseRangeWithSheetName(cellRef, spreadsheet, 1);
+      if (!parsed.selection?.range) {
+        continue; // Skip invalid references
+      }
+
+      const { startRowIndex, startColumnIndex } = parsed.selection.range;
+      parsedCells.push({
+        sheetId: parsed.sheetId,
+        rowIndex: startRowIndex,
+        columnIndex: startColumnIndex,
+      });
+    }
+
+    return JSON.stringify({
+      success: true,
+      action: "create",
+      highlights: parsedCells,
+      message: `Highlighted ${parsedCells.length} cell(s).`,
+    });
+  } finally {
+    close();
+  }
+};
+
+export const spreadsheetHighlightTool = tool(handleSpreadsheetHighlight, {
+  name: "spreadsheet_highlight",
+  description: `Highlight cells in the spreadsheet to visually indicate areas of interest.
+
+USE CASES:
+- Highlight cells with issues before asking for confirmation to fix them
+- Show the user which cells will be affected by an operation
+- Draw attention to specific data points during explanation
+
+ACTIONS:
+- "create": Highlight the specified cells with a yellow background
+- "clear": Remove all highlights
+
+EXAMPLES:
+
+Example 1 — Highlight cells with errors:
+  action: "create"
+  cells: ["A1", "B5", "C10"]
+
+Example 2 — Highlight cells on a specific sheet:
+  action: "create"
+  cells: ["'Sales Data'!A1", "'Sales Data'!B2"]
+
+Example 3 — Clear all highlights:
+  action: "clear"
+
+NOTE: Highlights are visual only and do not modify cell data. They persist until explicitly cleared.`,
+  schema: spreadsheetHighlightSchema,
+});
+
 /**
  * All available tools for the spreadsheet assistant
  */
@@ -6863,4 +6978,6 @@ export const spreadsheetTools = [
   // Interactive tools
   askUserQuestionTool,
   confirmPlanExecutionTool,
+  // UI tools
+  // spreadsheetHighlightTool, // TODO: Enable when highlight tool is working
 ];

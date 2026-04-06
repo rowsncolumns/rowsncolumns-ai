@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+// import { useSetHighlights } from "@/hooks/use-highlights"; // TODO: Enable when highlight tool is working
 
 import { getToolCopy } from "./tool-copy";
 import {
@@ -414,7 +415,8 @@ function SpreadsheetCreateSheetSideEffect({ result }: { result?: unknown }) {
     () => getCreatedSheetIdFromToolResult(parsedResult),
     [parsedResult],
   );
-  const hasResultRef = React.useRef(hasResult);
+  // Start with false so first effect run with a result will execute
+  const hasResultRef = React.useRef(false);
 
   React.useEffect(() => {
     const hadResult = hasResultRef.current;
@@ -429,6 +431,42 @@ function SpreadsheetCreateSheetSideEffect({ result }: { result?: unknown }) {
 
   return null;
 }
+
+/* TODO: Enable when highlight tool is working
+function SpreadsheetHighlightSideEffect({ result }: { result?: unknown }) {
+  const setHighlights = useSetHighlights();
+  const hasResult = result !== undefined;
+  const parsedResult = React.useMemo(
+    () => extractParsedToolResult(result),
+    [result],
+  );
+  // Start with false so first effect run with a result will execute
+  const hasResultRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const hadResult = hasResultRef.current;
+    hasResultRef.current = hasResult;
+
+    if (hadResult || !hasResult || !parsedResult?.success) {
+      return;
+    }
+
+    if (parsedResult.action === "clear") {
+      setHighlights([]);
+      return;
+    }
+
+    if (
+      parsedResult.action === "create" &&
+      Array.isArray(parsedResult.highlights)
+    ) {
+      setHighlights(parsedResult.highlights);
+    }
+  }, [hasResult, parsedResult, setHighlights]);
+
+  return null;
+}
+*/
 
 export const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_changeBatch",
@@ -450,6 +488,7 @@ export const SPREADSHEET_TOOL_NAMES = [
   "spreadsheet_dataValidation",
   "spreadsheet_conditionalFormat",
   "spreadsheet_getAuditSnapshot",
+  // "spreadsheet_highlight", // TODO: Enable when highlight tool is working
   "assistant_requestModeSwitch",
   "assistant_askUserQuestion",
   "assistant_confirmPlanExecution",
@@ -470,21 +509,35 @@ function SpreadsheetToolUIRegistration({
       result,
       toolCallId,
       addResult,
-    }: ToolCallMessagePartProps<Record<string, unknown>, unknown>) => (
-      <div className="w-full maxx-w-md">
-        {renderedToolName === "spreadsheet_sheet" &&
-          (args as { action?: string })?.action === "create" && (
+    }: ToolCallMessagePartProps<Record<string, unknown>, unknown>) => {
+      // Parse args (handles JSON strings in 'input' field)
+      const parsedArgs = deepParseJsonValue(args);
+      const resolvedArgs =
+        isRecord(parsedArgs) && isRecord(parsedArgs.input)
+          ? parsedArgs.input
+          : parsedArgs;
+      const action = isRecord(resolvedArgs) ? resolvedArgs.action : undefined;
+
+      return (
+        <div className="w-full maxx-w-md">
+          {renderedToolName === "spreadsheet_sheet" && action === "create" && (
             <SpreadsheetCreateSheetSideEffect result={result} />
           )}
-        <ToolCallDisplay
-          toolCallId={toolCallId}
-          toolName={renderedToolName}
-          args={args}
-          result={result}
-          addResult={addResult}
-        />
-      </div>
-    ),
+          {/* TODO: Enable when highlight tool is working
+          {renderedToolName === "spreadsheet_highlight" && (
+            <SpreadsheetHighlightSideEffect result={result} />
+          )}
+          */}
+          <ToolCallDisplay
+            toolCallId={toolCallId}
+            toolName={renderedToolName}
+            args={args}
+            result={result}
+            addResult={addResult}
+          />
+        </div>
+      );
+    },
   );
 
   const toolUI = React.useMemo<
