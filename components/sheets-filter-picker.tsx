@@ -80,13 +80,6 @@ export function SheetsFilterPicker({
 
   return (
     <>
-      <span
-        className={`text-xs font-semibold text-(--muted-foreground) ${
-          hideLabelOnMobile ? "hidden sm:!inline" : ""
-        }`}
-      >
-        View
-      </span>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button

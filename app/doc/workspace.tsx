@@ -1193,6 +1193,7 @@ function SpreadsheetPane({
       if (!props.title || !props.range) {
         return null;
       }
+      const isCollaborator = props.type === "collaborator";
 
       const viewport = getViewPort?.();
       if (!viewport) {
@@ -1247,22 +1248,30 @@ function SpreadsheetPane({
         <div
           className="absolute left-0 top-0 pointer-events-auto"
           style={{
-            top: props.y + props.height,
-            left: props.x,
+            top: isCollaborator ? props.y : props.y + props.height,
+            left: isCollaborator ? props.x + props.width : props.x,
             transform: `translateZ(0)`,
           }}
           onMouseMove={(e) => e.stopPropagation()}
         >
           <Popover open>
             <PopoverTrigger asChild>
-              <StyledFakeTriggerButton className="left-0 bottom-0" />
+              <StyledFakeTriggerButton
+                className={isCollaborator ? "left-0 top-0" : "left-0 bottom-0"}
+              />
             </PopoverTrigger>
             <PopoverContent
               className={cn(
-                "border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs",
+                "selection-title-popover border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs",
+                isCollaborator && "px-2 py-0.5 w-auto rounded-2xl",
               )}
-              align="start"
-              side="bottom"
+              style={
+                isCollaborator && props.stroke
+                  ? { backgroundColor: props.stroke }
+                  : undefined
+              }
+              align={"start"}
+              side={isCollaborator ? "top" : "bottom"}
               sideOffset={0}
               updatePositionStrategy="always"
               sticky="always"

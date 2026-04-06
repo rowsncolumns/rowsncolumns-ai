@@ -577,6 +577,32 @@ body.rnc-dark .hero-grid {
   box-shadow: 0 10px 25px -5px rgba(251, 146, 60, 0.4), 0 8px 10px -6px rgba(251, 146, 60, 0.3);
 }
 
+@keyframes selection-title-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes selection-title-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.selection-title-popover[data-state="open"] {
+  animation: selection-title-fade-in 120ms ease-out;
+}
+
+.selection-title-popover[data-state="closed"] {
+  animation: selection-title-fade-out 100ms ease-in;
+}
+
 /* Markdown prose styling */
 .prose {
   line-height: 1.6;
