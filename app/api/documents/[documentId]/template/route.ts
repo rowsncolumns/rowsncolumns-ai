@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { isAdminUser } from "@/lib/auth/admin";
 import { auth } from "@/lib/auth/server";
 import {
   documentExists,
@@ -23,7 +24,7 @@ const documentIdSchema = z
   .max(200, "documentId is too long.");
 
 const updateTemplateSchema = z.object({
-  isTemplate: z.boolean(),
+  templateScope: z.enum(["none", "personal", "global"]),
   templateTitle: z
     .string()
     .max(300, "templateTitle is too long.")
@@ -65,6 +66,10 @@ const requireOwnerSession = async (documentId: string) => {
   return {
     error: null as null,
     user,
+    isAdmin: isAdminUser({
+      id: user.id,
+      email: user.email,
+    }),
   };
 };
 
@@ -98,10 +103,13 @@ export async function GET(_request: Request, context: RouteContext) {
       templateTitle: metadata.templateTitle,
       tagline: metadata.tagline,
       isTemplate: metadata.isTemplate,
+      isGlobalTemplate: metadata.isGlobalTemplate,
+      templateScope: metadata.templateScope,
       category: metadata.category,
       descriptionMarkdown: metadata.descriptionMarkdown,
       tags: metadata.tags,
       previewImageUrl: metadata.previewImageUrl,
+      canPublishGlobal: ownerSession.isAdmin,
       updatedAt: metadata.updatedAt,
     });
   } catch (error) {
@@ -137,9 +145,16 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
+    if (parsedBody.data.templateScope === "global" && !ownerSession.isAdmin) {
+      return NextResponse.json(
+        { error: "Only admins can publish global templates." },
+        { status: 403 },
+      );
+    }
+
     const metadata = await upsertDocumentTemplateMetadata({
       docId: documentId,
-      isTemplate: parsedBody.data.isTemplate,
+      templateScope: parsedBody.data.templateScope,
       templateTitle: parsedBody.data.templateTitle,
       tagline: parsedBody.data.tagline,
       category: parsedBody.data.category,
@@ -158,10 +173,13 @@ export async function PATCH(request: Request, context: RouteContext) {
       templateTitle: metadata.templateTitle,
       tagline: metadata.tagline,
       isTemplate: metadata.isTemplate,
+      isGlobalTemplate: metadata.isGlobalTemplate,
+      templateScope: metadata.templateScope,
       category: metadata.category,
       descriptionMarkdown: metadata.descriptionMarkdown,
       tags: metadata.tags,
       previewImageUrl: metadata.previewImageUrl,
+      canPublishGlobal: ownerSession.isAdmin,
       updatedAt: metadata.updatedAt,
     });
   } catch (error) {

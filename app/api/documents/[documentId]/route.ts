@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth/server";
 import {
   deleteOwnedDocument,
-  isOwnedTemplateDocument,
+  isOwnedGlobalTemplateDocument,
   setDocumentFavorite,
 } from "@/lib/documents/repository";
 
@@ -40,13 +40,13 @@ export async function DELETE(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    const isTemplate = await isOwnedTemplateDocument({
+    const isGlobalTemplate = await isOwnedGlobalTemplateDocument({
       docId: parsed.data,
       userId,
     });
-    if (isTemplate) {
+    if (isGlobalTemplate) {
       return NextResponse.json(
-        { error: "Template sheets cannot be deleted." },
+        { error: "Global template sheets cannot be deleted." },
         { status: 409 },
       );
     }

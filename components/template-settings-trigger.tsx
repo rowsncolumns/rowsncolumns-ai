@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Loader2, Settings2 } from "lucide-react";
+import { Loader2, Settings2, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -25,19 +25,22 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { IconButton } from "@rowsncolumns/ui";
 
+type TemplateScope = "none" | "personal" | "global";
+
 type TemplateMetadataResponse = {
-  isTemplate?: boolean;
+  templateScope?: TemplateScope;
   templateTitle?: string;
   tagline?: string;
   category?: string;
   descriptionMarkdown?: string;
   tags?: string[];
   previewImageUrl?: string;
+  canPublishGlobal?: boolean;
   error?: string;
 };
 
 type TemplateFormState = {
-  isTemplate: boolean;
+  templateScope: TemplateScope;
   templateTitle: string;
   tagline: string;
   category: string;
@@ -49,6 +52,8 @@ type TemplateFormState = {
 type TemplateRecord = {
   docId: string;
   title: string;
+  isTemplate?: boolean;
+  templateScope?: TemplateScope;
   templateTitle?: string;
   tagline?: string;
   category?: string;
@@ -76,7 +81,9 @@ const parseTagsInput = (tagsInput: string): string[] =>
     .filter(Boolean);
 
 const toTemplateFormState = (template: TemplateRecord): TemplateFormState => ({
-  isTemplate: true,
+  templateScope:
+    template.templateScope ??
+    (template.isTemplate ? "personal" : "none"),
   templateTitle: template.templateTitle ?? template.title,
   tagline: template.tagline ?? "",
   category: template.category ?? "",
@@ -103,6 +110,7 @@ export function TemplateSettingsTrigger({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [canPublishGlobal, setCanPublishGlobal] = useState(false);
   const [form, setForm] = useState<TemplateFormState>(() =>
     toTemplateFormState(template),
   );
@@ -114,6 +122,7 @@ export function TemplateSettingsTrigger({
 
     setOpen(true);
     setLoading(true);
+    setCanPublishGlobal(false);
     setForm(toTemplateFormState(template));
 
     try {
@@ -130,8 +139,21 @@ export function TemplateSettingsTrigger({
         throw new Error(payload?.error || "Failed to load template settings.");
       }
 
+      const canPublish = payload?.canPublishGlobal === true;
+      setCanPublishGlobal(canPublish);
+      const resolvedTemplateScope =
+        payload?.templateScope === "global" ||
+        payload?.templateScope === "personal" ||
+        payload?.templateScope === "none"
+          ? payload.templateScope
+          : template.templateScope ??
+            (template.isTemplate ? "personal" : "none");
+      const userSafeTemplateScope =
+        !canPublish && resolvedTemplateScope === "global"
+          ? "personal"
+          : resolvedTemplateScope;
       setForm({
-        isTemplate: payload?.isTemplate === true,
+        templateScope: userSafeTemplateScope,
         templateTitle: payload?.templateTitle?.trim() || template.title,
         tagline: payload?.tagline?.trim() || "",
         category: payload?.category?.trim() || "",
@@ -157,6 +179,10 @@ export function TemplateSettingsTrigger({
 
     setSaving(true);
     try {
+      const templateScopeForSave =
+        !canPublishGlobal && form.templateScope === "global"
+          ? "personal"
+          : form.templateScope;
       const response = await fetch(
         `/api/documents/${encodeURIComponent(template.docId)}/template`,
         {
@@ -165,7 +191,7 @@ export function TemplateSettingsTrigger({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            isTemplate: form.isTemplate,
+            templateScope: templateScopeForSave,
             templateTitle: form.templateTitle,
             tagline: form.tagline,
             category: form.category,
@@ -184,9 +210,11 @@ export function TemplateSettingsTrigger({
       }
 
       toast.success(
-        form.isTemplate
-          ? "Template settings saved."
-          : "Template disabled for this sheet.",
+        form.templateScope === "global"
+          ? "Global template settings saved."
+          : form.templateScope === "personal"
+            ? "Personal template settings saved."
+            : "Template disabled for this sheet.",
       );
       setOpen(false);
       if (refreshOnSave) {
@@ -243,7 +271,7 @@ export function TemplateSettingsTrigger({
         previewImageUrl: url,
       }));
       setUploadProgress(100);
-      toast.success("Preview image uploaded to R2.");
+      toast.success("Preview image uploaded.");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to upload image.";
@@ -321,10 +349,11 @@ export function TemplateSettingsTrigger({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 rounded-md px-2"
+                className="h-8 w-8 rounded-md p-0"
                 disabled={saving}
+                aria-label="Close template settings"
               >
-                Close
+                <X className="h-4 w-4" />
               </Button>
             </DrawerClose>
           </DrawerHeader>
@@ -334,27 +363,67 @@ export function TemplateSettingsTrigger({
             className="flex min-h-0 flex-1 flex-col"
           >
             <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-            <div className="flex items-center justify-between rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 py-2.5">
-              <div>
+              <div className="rounded-lg border border-(--panel-border) bg-(--card-bg-solid) p-3">
                 <p className="text-sm font-medium text-foreground">
-                  Mark as template
+                  Template visibility
                 </p>
-                <p className="text-xs text-(--muted-foreground)">
-                  Controls whether this sheet appears on `/templates`.
+                <p className="mt-0.5 text-xs text-(--muted-foreground)">
+                  {canPublishGlobal
+                    ? "Personal templates are private to your workspace. Global templates are visible on `/templates`."
+                    : "Personal templates are private to your workspace."}
                 </p>
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center justify-between rounded-md border border-(--panel-border) px-3 py-2.5">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        Mark as template
+                      </p>
+                      <p className="text-xs text-(--muted-foreground)">
+                        Include this sheet in template mentions and filters.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={form.templateScope !== "none"}
+                      disabled={saving || uploading}
+                      onCheckedChange={(checked) => {
+                        setForm((current) => ({
+                          ...current,
+                          templateScope: checked
+                            ? current.templateScope === "none"
+                              ? "personal"
+                              : current.templateScope
+                            : "none",
+                        }));
+                      }}
+                      aria-label="Mark as template"
+                    />
+                  </div>
+
+                  {form.templateScope !== "none" && canPublishGlobal ? (
+                    <div className="flex items-center justify-between rounded-md border border-(--panel-border) px-3 py-2.5">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Publish globally
+                        </p>
+                        <p className="text-xs text-(--muted-foreground)">
+                          Show this template publicly on `/templates`.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={form.templateScope === "global"}
+                        disabled={saving || uploading}
+                        onCheckedChange={(checked) => {
+                          setForm((current) => ({
+                            ...current,
+                            templateScope: checked ? "global" : "personal",
+                          }));
+                        }}
+                        aria-label="Publish globally"
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <Switch
-                checked={form.isTemplate}
-                disabled={saving || uploading}
-                onCheckedChange={(checked) => {
-                  setForm((current) => ({
-                    ...current,
-                    isTemplate: checked === true,
-                  }));
-                }}
-                aria-label="Mark as template"
-              />
-            </div>
 
             <label className="block space-y-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-(--muted-foreground)">
@@ -474,15 +543,15 @@ export function TemplateSettingsTrigger({
                     Upload Preview Image
                   </p>
                   <p className="text-xs text-(--muted-foreground)">
-                    Uploads to R2 and sets preview URL automatically.
+                    Uploads and sets preview URL automatically.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 whitespace-nowrap">
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="h-8 rounded-md px-3 text-xs"
+                    className="h-8 rounded-md px-3 text-xs whitespace-nowrap"
                     onClick={handlePickImage}
                     disabled={saving || uploading}
                   >
@@ -499,7 +568,7 @@ export function TemplateSettingsTrigger({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 rounded-md px-3 text-xs"
+                    className="h-8 rounded-md px-3 text-xs whitespace-nowrap"
                     onClick={() => {
                       setForm((current) => ({
                         ...current,
@@ -526,7 +595,7 @@ export function TemplateSettingsTrigger({
 
             <label className="block space-y-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-(--muted-foreground)">
-                Preview Image URL (R2)
+                Preview Image URL
               </span>
               <input
                 type="text"

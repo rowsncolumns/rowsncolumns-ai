@@ -31,7 +31,7 @@ type OwnedDocumentRow = {
   metadata_title: string | null;
   last_modified_at: Date | string;
   is_shared: boolean;
-  is_template: boolean;
+  template_scope: string | null;
   access_type: "owned" | "shared";
   is_favorite: boolean;
 };
@@ -46,7 +46,7 @@ type DocumentTemplateMetadataRow = {
   title: string;
   template_title: string | null;
   template_tagline: string | null;
-  is_template: boolean | null;
+  template_scope: string | null;
   template_category: string | null;
   template_description_markdown: string | null;
   template_tags: string[] | null;
@@ -103,6 +103,8 @@ export type DocumentTemplateMetadataRecord = {
   templateTitle: string;
   tagline: string;
   isTemplate: boolean;
+  isGlobalTemplate: boolean;
+  templateScope: TemplateScope;
   category: string;
   descriptionMarkdown: string;
   tags: string[];
@@ -128,9 +130,11 @@ export type TemplateSitemapItem = {
   updatedAt: string;
 };
 
+export type TemplateScope = "none" | "personal" | "global";
+
 export type UpdateDocumentTemplateInput = {
   docId: string;
-  isTemplate: boolean;
+  templateScope: TemplateScope;
   templateTitle?: string | null;
   tagline?: string | null;
   category?: string | null;
@@ -159,6 +163,7 @@ export type OwnedDocumentRecord = {
   lastModifiedAt: string;
   isShared: boolean;
   isTemplate: boolean;
+  templateScope: TemplateScope;
   accessType: "owned" | "shared";
   isFavorite: boolean;
 };
@@ -330,6 +335,22 @@ const normalizeTemplateTags = (values: string[]): string[] => {
 const normalizeTemplateCategoryForDisplay = (value?: string | null): string =>
   normalizeTemplateCategory(value) ?? UNCATEGORIZED_TEMPLATE_LABEL;
 
+const normalizeTemplateScope = (
+  value: TemplateScope | string | undefined | null,
+): TemplateScope => {
+  if (value === "global") {
+    return "global";
+  }
+  if (value === "personal") {
+    return "personal";
+  }
+  return "none";
+};
+
+const resolveTemplateScopeFromValue = (
+  value: string | null | undefined,
+): TemplateScope => normalizeTemplateScope(value);
+
 const toStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
     return [];
@@ -342,13 +363,16 @@ const mapDocumentTemplateRow = (
 ): DocumentTemplateMetadataRecord => {
   const fallbackTitle = row.title?.trim() || getDefaultDocumentTitle(row.doc_id);
   const resolvedTemplateTitle = normalizeTemplateTitle(row.template_title) ?? fallbackTitle;
+  const templateScope = resolveTemplateScopeFromValue(row.template_scope);
 
   return {
     docId: row.doc_id,
     title: resolvedTemplateTitle,
     templateTitle: resolvedTemplateTitle,
     tagline: normalizeTemplateTagline(row.template_tagline) ?? "",
-    isTemplate: row.is_template === true,
+    isTemplate: templateScope !== "none",
+    isGlobalTemplate: templateScope === "global",
+    templateScope,
     category: normalizeTemplateCategory(row.template_category) ?? "",
     descriptionMarkdown: row.template_description_markdown?.trim() || "",
     tags: normalizeTemplateTags(toStringArray(row.template_tags)),
@@ -500,6 +524,7 @@ const mapOwnedDocumentRow = (row: OwnedDocumentRow): OwnedDocumentRecord => {
   const lastModifiedAt = toIsoTimestamp(row.last_modified_at);
   const title =
     row.metadata_title?.trim() || getDefaultDocumentTitle(row.doc_id);
+  const templateScope = resolveTemplateScopeFromValue(row.template_scope);
 
   return {
     docId: row.doc_id,
@@ -507,7 +532,8 @@ const mapOwnedDocumentRow = (row: OwnedDocumentRow): OwnedDocumentRecord => {
     createdAt,
     lastModifiedAt,
     isShared: row.is_shared,
-    isTemplate: row.is_template === true,
+    isTemplate: templateScope !== "none",
+    templateScope,
     accessType: row.access_type,
     isFavorite: row.is_favorite,
   };
@@ -553,7 +579,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         COALESCE(shares.is_active, FALSE) AS is_shared,
-        COALESCE(metadata.is_template, FALSE) AS is_template,
+        COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -594,7 +620,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         TRUE AS is_shared,
-        COALESCE(metadata.is_template, FALSE) AS is_template,
+        COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -640,7 +666,7 @@ export async function listOwnedDocuments({
       )
       OR (
         ${normalizedFilter} = 'templates'
-        AND is_template = TRUE
+        AND template_scope <> 'none'
       )
     )
       AND (
@@ -660,7 +686,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         COALESCE(shares.is_active, FALSE) AS is_shared,
-        COALESCE(metadata.is_template, FALSE) AS is_template,
+        COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -701,7 +727,7 @@ export async function listOwnedDocuments({
         owners.created_at AS ownership_created_at,
         metadata.title AS metadata_title,
         TRUE AS is_shared,
-        COALESCE(metadata.is_template, FALSE) AS is_template,
+        COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope,
         (favorites.doc_id IS NOT NULL) AS is_favorite,
         (
           SELECT MAX(candidate_ts)
@@ -741,7 +767,7 @@ export async function listOwnedDocuments({
       metadata_title,
       last_modified_at,
       is_shared,
-      is_template,
+      template_scope,
       access_type,
       is_favorite
     FROM owned_documents
@@ -755,7 +781,7 @@ export async function listOwnedDocuments({
       )
       OR (
         ${normalizedFilter} = 'templates'
-        AND is_template = TRUE
+        AND template_scope <> 'none'
       )
     )
       AND (
@@ -997,7 +1023,7 @@ export async function getDocumentTemplateMetadata({
         title,
         template_title,
         template_tagline,
-        is_template,
+        template_scope,
         template_category,
         template_description_markdown,
         template_tags,
@@ -1034,6 +1060,7 @@ export async function upsertDocumentTemplateMetadata(
   }
 
   const normalizedCategory = normalizeTemplateCategory(input.category);
+  const normalizedTemplateScope = normalizeTemplateScope(input.templateScope);
   const normalizedTemplateTitle = normalizeTemplateTitle(input.templateTitle);
   const normalizedTagline = normalizeTemplateTagline(input.tagline);
   const normalizedDescription = normalizeTemplateDescriptionMarkdown(
@@ -1051,7 +1078,7 @@ export async function upsertDocumentTemplateMetadata(
         title,
         template_title,
         template_tagline,
-        is_template,
+        template_scope,
         template_category,
         template_description_markdown,
         template_tags,
@@ -1062,7 +1089,7 @@ export async function upsertDocumentTemplateMetadata(
         ${metadata.title},
         ${normalizedTemplateTitle},
         ${normalizedTagline},
-        ${input.isTemplate},
+        ${normalizedTemplateScope},
         ${normalizedCategory},
         ${normalizedDescription},
         ${normalizedTags},
@@ -1070,7 +1097,7 @@ export async function upsertDocumentTemplateMetadata(
       )
       ON CONFLICT (doc_id) DO UPDATE
         SET
-          is_template = EXCLUDED.is_template,
+          template_scope = EXCLUDED.template_scope,
           template_title = EXCLUDED.template_title,
           template_tagline = EXCLUDED.template_tagline,
           template_category = EXCLUDED.template_category,
@@ -1083,7 +1110,7 @@ export async function upsertDocumentTemplateMetadata(
         title,
         template_title,
         template_tagline,
-        is_template,
+        template_scope,
         template_category,
         template_description_markdown,
         template_tags,
@@ -1139,7 +1166,7 @@ export async function listTemplateDocuments({
       FROM public.document_metadata AS metadata
       INNER JOIN public.document_owners AS owners
         ON owners.doc_id = metadata.doc_id
-      WHERE metadata.is_template = TRUE
+      WHERE metadata.template_scope = 'global'
         AND (
           ${normalizedCategory}::text IS NULL
           OR LOWER(COALESCE(NULLIF(BTRIM(metadata.template_category), ''), ${UNCATEGORIZED_TEMPLATE_LABEL})) = LOWER(${normalizedCategory ?? null}::text)
@@ -1179,7 +1206,7 @@ export async function listTemplateSitemapEntries(): Promise<
       FROM public.document_metadata AS metadata
       INNER JOIN public.document_owners AS owners
         ON owners.doc_id = metadata.doc_id
-      WHERE metadata.is_template = TRUE
+      WHERE metadata.template_scope = 'global'
       ORDER BY metadata.updated_at DESC
     `;
 
@@ -1214,7 +1241,7 @@ export async function getTemplateDocumentById({
         metadata.updated_at
       FROM public.document_metadata AS metadata
       WHERE metadata.doc_id = ${docId}
-        AND metadata.is_template = TRUE
+        AND metadata.template_scope = 'global'
       LIMIT 1
     `;
 
@@ -1323,7 +1350,7 @@ export async function duplicateTemplateDocument({
           COALESCE(NULLIF(BTRIM(metadata.template_title), ''), metadata.title) AS source_title
         FROM public.document_metadata AS metadata
         WHERE metadata.doc_id = $1
-          AND metadata.is_template = TRUE
+          AND metadata.template_scope = 'global'
         LIMIT 1
       `,
       [sourceDocId],
@@ -1377,8 +1404,8 @@ export async function isOwnedTemplateDocument({
   userId: string;
 }): Promise<boolean> {
   try {
-    const rows = await db<{ is_template: boolean }[]>`
-      SELECT COALESCE(metadata.is_template, FALSE) AS is_template
+    const rows = await db<{ template_scope: string | null }[]>`
+      SELECT COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope
       FROM public.document_owners AS owners
       LEFT JOIN public.document_metadata AS metadata
         ON metadata.doc_id = owners.doc_id
@@ -1387,7 +1414,34 @@ export async function isOwnedTemplateDocument({
       LIMIT 1
     `;
 
-    return rows[0]?.is_template === true;
+    return resolveTemplateScopeFromValue(rows[0]?.template_scope) !== "none";
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function isOwnedGlobalTemplateDocument({
+  docId,
+  userId,
+}: {
+  docId: string;
+  userId: string;
+}): Promise<boolean> {
+  try {
+    const rows = await db<{ template_scope: string | null }[]>`
+      SELECT COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope
+      FROM public.document_owners AS owners
+      LEFT JOIN public.document_metadata AS metadata
+        ON metadata.doc_id = owners.doc_id
+      WHERE owners.doc_id = ${docId}
+        AND owners.user_id = ${userId}
+      LIMIT 1
+    `;
+
+    return resolveTemplateScopeFromValue(rows[0]?.template_scope) === "global";
   } catch (error) {
     if (isMissingColumnError(error) || isMissingRelationError(error)) {
       return false;
@@ -1791,13 +1845,13 @@ export async function isTemplateDocumentPubliclyViewable({
   docId: string;
 }): Promise<boolean> {
   try {
-    const rows = await db<{ is_template: boolean }[]>`
-      SELECT COALESCE(metadata.is_template, FALSE) AS is_template
+    const rows = await db<{ template_scope: string | null }[]>`
+      SELECT COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope
       FROM public.document_metadata AS metadata
       WHERE metadata.doc_id = ${docId}
       LIMIT 1
     `;
-    return rows[0]?.is_template === true;
+    return resolveTemplateScopeFromValue(rows[0]?.template_scope) === "global";
   } catch (error) {
     if (isMissingColumnError(error) || isMissingRelationError(error)) {
       return false;

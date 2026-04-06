@@ -28,6 +28,7 @@ type SheetListItem = {
   lastModifiedAt: string;
   isShared: boolean;
   isTemplate: boolean;
+  templateScope?: "none" | "personal" | "global";
   isFavorite: boolean;
   accessType: "owned" | "shared";
 };
@@ -138,8 +139,8 @@ export function SheetsTable({
       return;
     }
 
-    if (deleteTarget.isTemplate) {
-      toast.error("Template sheets cannot be deleted.");
+    if (deleteTarget.templateScope === "global") {
+      toast.error("Global template sheets cannot be deleted.");
       setDeleteTarget(null);
       return;
     }
@@ -278,8 +279,9 @@ export function SheetsTable({
                 const isRowFavoriting = favoritingDocId === document.docId;
                 const isRowDuplicating = duplicatingDocId === document.docId;
                 const canEditTemplate = document.accessType === "owned";
+                const isGlobalTemplate = document.templateScope === "global";
                 const isDeleteDisabled =
-                  document.isTemplate ||
+                  isGlobalTemplate ||
                   isDeleting ||
                   favoritingDocId !== null ||
                   duplicatingDocId !== null;
@@ -299,7 +301,7 @@ export function SheetsTable({
                         <div className="flex shrink-0 items-center gap-1.5">
                           {document.isTemplate ? (
                             <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">
-                              Template
+                              {isGlobalTemplate ? "Global template" : "Template"}
                             </span>
                           ) : null}
                           <span
@@ -413,7 +415,9 @@ export function SheetsTable({
 	                        aria-label={`Delete ${document.title}`}
                           title={
                             document.isTemplate
-                              ? "Template sheets cannot be deleted"
+                              ? isGlobalTemplate
+                                ? "Global template sheets cannot be deleted"
+                                : "Delete"
                               : "Delete"
                           }
 	                      >
@@ -470,8 +474,9 @@ export function SheetsTable({
                   const isRowFavoriting = favoritingDocId === document.docId;
                   const isRowDuplicating = duplicatingDocId === document.docId;
                   const canEditTemplate = document.accessType === "owned";
+                  const isGlobalTemplate = document.templateScope === "global";
                   const isDeleteDisabled =
-                    document.isTemplate ||
+                    isGlobalTemplate ||
                     isDeleting ||
                     favoritingDocId !== null ||
                     duplicatingDocId !== null;
@@ -494,7 +499,7 @@ export function SheetsTable({
 	                          </Link>
                             {document.isTemplate ? (
                               <span className="inline-flex w-fit items-center rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
-                                Template
+                                {isGlobalTemplate ? "Global template" : "Template"}
                               </span>
                             ) : null}
 	                        </div>
@@ -582,7 +587,9 @@ export function SheetsTable({
 	                          <IconButton
 	                            tooltip={
                                 document.isTemplate
-                                  ? "Template sheets cannot be deleted"
+                                  ? isGlobalTemplate
+                                    ? "Global template sheets cannot be deleted"
+                                    : "Delete"
                                   : "Delete"
                               }
 	                            className="text-red-500 hover:bg-red-50 hover:text-red-600"

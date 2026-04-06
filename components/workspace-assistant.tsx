@@ -3757,6 +3757,7 @@ type DocumentsApiResponse = {
   items?: Array<{
     docId?: string;
     title?: string;
+    templateScope?: "none" | "personal" | "global";
     isTemplate?: boolean;
   }>;
 };
@@ -3928,7 +3929,11 @@ function AssistantComposer({
         const mentions = (payload.items ?? []).reduce<ComposerMentionOption[]>(
           (accumulator, item) => {
             const nextDocId = item.docId?.trim();
-            if (!nextDocId || item.isTemplate === true) {
+            const isTemplate =
+              item.templateScope === "personal" ||
+              item.templateScope === "global" ||
+              item.isTemplate === true;
+            if (!nextDocId || isTemplate) {
               return accumulator;
             }
             const nextTitle =
@@ -3999,7 +4004,11 @@ function AssistantComposer({
         const mentions = (payload.items ?? []).reduce<ComposerMentionOption[]>(
           (accumulator, item) => {
             const nextDocId = item.docId?.trim();
-            if (!nextDocId) {
+            const isTemplate =
+              item.templateScope === "personal" ||
+              item.templateScope === "global" ||
+              item.isTemplate === true;
+            if (!nextDocId || !isTemplate) {
               return accumulator;
             }
             const nextTitle =

@@ -60,6 +60,7 @@ export async function GET(request: Request) {
         docId: item.docId,
         title: item.title,
         isTemplate: item.isTemplate,
+        templateScope: item.templateScope,
         accessType: item.accessType,
       })),
     });
