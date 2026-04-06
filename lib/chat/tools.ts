@@ -119,6 +119,56 @@ const failTool = (
     ...(errorDetails ? { errorDetails } : {}),
   });
 
+const parseMergeRangesFromA1 = (ranges: string[]) => {
+  const validRanges: GridRange[] = [];
+  const invalidRanges: string[] = [];
+
+  for (const a1Range of ranges) {
+    const selection = addressToSelection(a1Range);
+    if (!selection?.range) {
+      invalidRanges.push(a1Range);
+      continue;
+    }
+    validRanges.push(selection.range);
+  }
+
+  return { validRanges, invalidRanges };
+};
+
+const findOverlappingMergePair = (
+  ranges: GridRange[],
+): [GridRange, GridRange] | null => {
+  for (let i = 0; i < ranges.length; i += 1) {
+    const left = ranges[i];
+    if (!left) continue;
+    for (let j = i + 1; j < ranges.length; j += 1) {
+      const right = ranges[j];
+      if (!right) continue;
+      if (areaIntersects(left, right)) {
+        return [left, right];
+      }
+    }
+  }
+  return null;
+};
+
+const findOverlapWithExistingMerge = (
+  candidates: GridRange[],
+  existing: GridRange[],
+): [GridRange, GridRange] | null => {
+  for (const candidate of candidates) {
+    for (const current of existing) {
+      if (areaIntersects(candidate, current)) {
+        return [candidate, current];
+      }
+    }
+  }
+  return null;
+};
+
+const rangeToA1OrFallback = (range: GridRange): string =>
+  selectionToAddress({ range }) ?? "unknown-range";
+
 const getHostname = (rawUrl: string) => {
   try {
     return new URL(rawUrl).hostname.replace(/^www\./i, "");
@@ -3228,15 +3278,35 @@ const handleSpreadsheetSheet = async (
           }
           // Convert A1 notation merges to GridRange format
           if (merges && merges.length > 0) {
-            spec.merges = merges
-              .map((a1Range: string) => {
-                const selection = addressToSelection(a1Range);
-                if (!selection?.range) {
-                  return null;
-                }
-                return selection.range;
-              })
-              .filter(Boolean);
+            const { validRanges, invalidRanges } = parseMergeRangesFromA1(
+              merges,
+            );
+            if (invalidRanges.length > 0) {
+              return failTool(
+                "INVALID_MERGE_RANGE",
+                "One or more merge ranges are invalid A1 ranges.",
+                { invalidRanges },
+                false,
+              );
+            }
+
+            const overlapInRequest = findOverlappingMergePair(validRanges);
+            if (overlapInRequest) {
+              const [left, right] = overlapInRequest;
+              return failTool(
+                "OVERLAPPING_MERGE_RANGES",
+                "Merge ranges cannot overlap each other.",
+                {
+                  conflictingRanges: [
+                    rangeToA1OrFallback(left),
+                    rangeToA1OrFallback(right),
+                  ],
+                },
+                false,
+              );
+            }
+
+            spec.merges = validRanges;
           }
           // Convert hideRows/showRows to rowMetadata
           const rowMetadata: DimensionProperties[] = [];
@@ -3344,12 +3414,19 @@ const handleSpreadsheetSheet = async (
 
             // Remove merges that match removeMerges ranges
             if (removeMerges?.length) {
-              const rangesToRemove = removeMerges
-                .map((a1Range: string) => {
-                  const selection = addressToSelection(a1Range);
-                  return selection?.range ?? null;
-                })
-                .filter((s) => !isNil(s));
+              const { validRanges, invalidRanges } = parseMergeRangesFromA1(
+                removeMerges,
+              );
+              if (invalidRanges.length > 0) {
+                return failTool(
+                  "INVALID_REMOVE_MERGE_RANGE",
+                  "One or more removeMerges ranges are invalid A1 ranges.",
+                  { invalidRanges },
+                  false,
+                );
+              }
+
+              const rangesToRemove = validRanges;
 
               currentMerges = currentMerges.filter((existing) => {
                 const shouldRemove = rangesToRemove.some(
@@ -3363,28 +3440,56 @@ const handleSpreadsheetSheet = async (
               });
             }
 
-            // Add new merges (skip if they intersect with remaining merges)
+            // Add new merges (fail if they intersect with remaining merges or each other)
             if (merges?.length) {
-              const newMerges = merges
-                .map((a1Range: string) => {
-                  const selection = addressToSelection(a1Range);
-                  if (!selection?.range) {
-                    return null;
-                  }
-                  return selection.range;
-                })
-                .filter((s) => !isNil(s))
-                .filter((newMerge) => {
-                  const intersectsExisting = currentMerges.some((existing) =>
-                    areaIntersects(existing, newMerge),
-                  );
-                  if (intersectsExisting) {
-                    console.warn(
-                      `[spreadsheet_sheet:update] Skipping merge that intersects existing merge`,
-                    );
-                  }
-                  return !intersectsExisting;
-                });
+              const { validRanges, invalidRanges } = parseMergeRangesFromA1(
+                merges,
+              );
+              if (invalidRanges.length > 0) {
+                return failTool(
+                  "INVALID_MERGE_RANGE",
+                  "One or more merge ranges are invalid A1 ranges.",
+                  { invalidRanges },
+                  false,
+                );
+              }
+
+              const overlapInRequest = findOverlappingMergePair(validRanges);
+              if (overlapInRequest) {
+                const [left, right] = overlapInRequest;
+                return failTool(
+                  "OVERLAPPING_MERGE_RANGES",
+                  "Merge ranges cannot overlap each other.",
+                  {
+                    conflictingRanges: [
+                      rangeToA1OrFallback(left),
+                      rangeToA1OrFallback(right),
+                    ],
+                  },
+                  false,
+                );
+              }
+
+              const overlapWithExisting = findOverlapWithExistingMerge(
+                validRanges,
+                currentMerges,
+              );
+              if (overlapWithExisting) {
+                const [candidate, existing] = overlapWithExisting;
+                return failTool(
+                  "MERGE_OVERLAPS_EXISTING",
+                  "Merge range overlaps an existing merge. Unmerge first using removeMerges.",
+                  {
+                    conflictingRanges: [
+                      rangeToA1OrFallback(candidate),
+                      rangeToA1OrFallback(existing),
+                    ],
+                  },
+                  false,
+                );
+              }
+
+              const newMerges = validRanges;
               currentMerges = [...currentMerges, ...newMerges];
             }
 
@@ -3550,6 +3655,12 @@ WHEN TO USE THIS TOOL:
 - Showing/hiding grid lines
 - Deleting unwanted sheets
 - Duplicating sheets as templates or backups
+
+IMPORTANT MERGE SAFETY:
+- Merge ranges must be valid A1 notation.
+- Merge ranges must never overlap each other.
+- New merges must not overlap existing merges on the sheet.
+- If overlap is needed, unmerge first using removeMerges, then apply non-overlapping merges.
 
 PARAMETERS:
 - docId: The document ID (required for all actions)
