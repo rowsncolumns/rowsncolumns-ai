@@ -2180,6 +2180,7 @@ type NewWorkspaceProps = {
   canUseAuditHistory: boolean;
   initialAssistantCollapsed: boolean;
   initialIsMobileLayout: boolean;
+  isTemplateDocument?: boolean;
   isReadOnlyTemplateView?: boolean;
   isAdmin: boolean;
   locale: string;
@@ -2236,6 +2237,8 @@ type DocumentTitleInlineEditorProps = {
   documentId: string;
   initialTitle: string;
   canEdit: boolean;
+  breadcrumbHref?: string;
+  breadcrumbLabel?: string;
   forkTemplateHref?: string | null;
 };
 
@@ -2243,6 +2246,8 @@ function DocumentTitleInlineEditor({
   documentId,
   initialTitle,
   canEdit,
+  breadcrumbHref = "/sheets",
+  breadcrumbLabel = "My Sheets",
   forkTemplateHref = null,
 }: DocumentTitleInlineEditorProps) {
   const fallbackTitle = useMemo(
@@ -2347,10 +2352,10 @@ function DocumentTitleInlineEditor({
     <div className="rnc-workspace-breadcrumbs mb-2 px-1 sm:px-2">
       <div className="flex h-11 items-center gap-1.5">
         <Link
-          href="/sheets"
+          href={breadcrumbHref}
           className="shrink-0 text-xs text-(--muted-foreground) hover:text-foreground"
         >
-          My Sheets
+          {breadcrumbLabel}
         </Link>
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-(--muted-foreground)" />
         {isSaving ? (
@@ -2485,6 +2490,7 @@ export function NewWorkspace({
   canUseAuditHistory,
   initialAssistantCollapsed,
   initialIsMobileLayout,
+  isTemplateDocument = false,
   isReadOnlyTemplateView = false,
   isAdmin,
   locale,
@@ -2651,6 +2657,8 @@ export function NewWorkspace({
           documentId={documentId}
           initialTitle={initialDocumentTitle}
           canEdit={canManageShare}
+          breadcrumbHref={isTemplateDocument ? "/templates" : "/sheets"}
+          breadcrumbLabel={isTemplateDocument ? "Templates" : "My Sheets"}
           forkTemplateHref={forkTemplateHref}
         />
 

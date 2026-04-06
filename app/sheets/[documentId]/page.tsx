@@ -138,6 +138,7 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
           initialThemeMode={initialThemeMode}
           initialAssistantCollapsed={initialAssistantCollapsed}
           initialIsMobileLayout={initialIsMobileLayout}
+          isTemplateDocument={isPublicTemplate}
           isReadOnlyTemplateView={isPublicTemplate}
           isAdmin={false}
           locale={locale}
@@ -184,6 +185,7 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
         initialThemeMode={initialThemeMode}
         initialAssistantCollapsed={initialAssistantCollapsed}
         initialIsMobileLayout={initialIsMobileLayout}
+        isTemplateDocument={isTemplateDocument}
         isReadOnlyTemplateView={isReadOnlyTemplateView}
         isAdmin={isAdmin}
         canUseAuditHistory={canUseAuditHistory}
