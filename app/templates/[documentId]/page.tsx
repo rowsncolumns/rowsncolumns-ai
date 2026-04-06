@@ -8,7 +8,6 @@ import { ArrowRight, ChevronRight } from "lucide-react";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
-import { Badge } from "@/components/ui/badge";
 import { getButtonClassName } from "@/components/ui/button";
 import { isAdminUser } from "@/lib/auth/admin";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
@@ -111,8 +110,9 @@ export default async function TemplateDetailsPage({
 
   return (
     <main className="flex min-h-dvh w-full flex-col overflow-x-hidden">
-      <div className="px-4 py-4 sm:px-5 sm:py-5">
-        <div className="mb-4">
+      <div className="px-5 py-4 sm:px-8 sm:py-5 lg:px-12">
+        <div className="mx-auto w-full max-w-7xl">
+          <div className="mb-4">
           <SiteHeader
             initialUser={
               session?.user
@@ -125,7 +125,7 @@ export default async function TemplateDetailsPage({
                 : undefined
             }
           />
-        </div>
+          </div>
 
         <section className="rounded-2xl border border-(--card-border) bg-(--card-bg) p-4 shadow-[0_12px_32px_var(--card-shadow)] sm:p-5">
           <nav className="mb-5 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-(--muted-foreground)">
@@ -259,7 +259,7 @@ export default async function TemplateDetailsPage({
           </div>
         </section>
 
-        {relatedTemplates.length > 0 ? (
+          {relatedTemplates.length > 0 ? (
           <section className="mt-4 rounded-2xl border border-(--card-border) bg-(--card-bg-solid) p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-foreground">
@@ -298,9 +298,10 @@ export default async function TemplateDetailsPage({
               ))}
             </div>
           </section>
-        ) : null}
+          ) : null}
+        </div>
       </div>
-      <SiteFooter fullWidth />
+      <SiteFooter />
     </main>
   );
 }

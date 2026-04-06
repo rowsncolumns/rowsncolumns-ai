@@ -121,233 +121,237 @@ export default async function TemplatesPage({
 
   return (
     <main className="flex min-h-dvh w-full flex-col overflow-x-hidden">
-      <div className="px-4 py-4 sm:px-5 sm:py-5">
-        <div className="mb-4">
-          <SiteHeader
-            initialUser={
-              session?.user
-                ? {
-                    id: session.user.id,
-                    name: session.user.name,
-                    email: session.user.email,
-                    image: session.user.image,
-                  }
-                : undefined
-            }
-          />
-        </div>
+      <div className="px-5 py-4 sm:px-8 sm:py-5 lg:px-12">
+        <div className="mx-auto w-full max-w-7xl">
+          <div className="mb-4">
+            <SiteHeader
+              initialUser={
+                session?.user
+                  ? {
+                      id: session.user.id,
+                      name: session.user.name,
+                      email: session.user.email,
+                      image: session.user.image,
+                    }
+                  : undefined
+              }
+            />
+          </div>
 
-        <section className="rounded-2xl border border-(--card-border) bg-(--card-bg) p-4 shadow-[0_12px_32px_var(--card-shadow)] sm:p-5">
-          <div className="mb-4 space-y-2.5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h1 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
-                  Templates
-                </h1>
-                <p className="text-sm text-(--muted-foreground)">
-                  Browse curated spreadsheet templates and open your own copy.
-                </p>
+          <section className="rounded-2xl border border-(--card-border) bg-(--card-bg) p-4 shadow-[0_12px_32px_var(--card-shadow)] sm:p-5">
+            <div className="mb-4 space-y-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h1 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
+                    Templates
+                  </h1>
+                  <p className="text-sm text-(--muted-foreground)">
+                    Browse curated spreadsheet templates and open your own copy.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex w-full items-center gap-2">
+                <form
+                  action="/templates"
+                  method="get"
+                  className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"
+                >
+                  {selectedCategory ? (
+                    <input
+                      type="hidden"
+                      name="category"
+                      value={selectedCategory}
+                    />
+                  ) : null}
+
+                  <input
+                    type="search"
+                    name="q"
+                    defaultValue={query ?? ""}
+                    placeholder="Search templates..."
+                    aria-label="Search templates"
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="secondary"
+                    className="h-9 w-9 rounded-lg p-0"
+                    aria-label="Search templates"
+                  >
+                    <Search className="h-4 w-4" />
+                    <span className="sr-only">Search</span>
+                  </Button>
+                  {query ? (
+                    <Link
+                      href={buildTemplatesHref({
+                        query: null,
+                        category: selectedCategory,
+                      })}
+                      className={getButtonClassName({
+                        variant: "secondary",
+                        size: "sm",
+                        className: "h-9 w-9 rounded-lg p-0",
+                      })}
+                      aria-label="Clear search"
+                    >
+                      <X className="h-4 w-4" />
+                      <span className="sr-only">Clear search</span>
+                    </Link>
+                  ) : null}
+                </form>
               </div>
             </div>
 
-            <div className="flex w-full items-center gap-2">
-              <form
-                action="/templates"
-                method="get"
-                className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"
-              >
-                {selectedCategory ? (
-                  <input
-                    type="hidden"
-                    name="category"
-                    value={selectedCategory}
-                  />
-                ) : null}
-
-                <input
-                  type="search"
-                  name="q"
-                  defaultValue={query ?? ""}
-                  placeholder="Search templates..."
-                  aria-label="Search templates"
-                  className="h-9 min-w-0 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent)"
-                />
-                <Button
-                  type="submit"
-                  size="sm"
-                  variant="secondary"
-                  className="h-9 w-9 rounded-lg p-0"
-                  aria-label="Search templates"
-                >
-                  <Search className="h-4 w-4" />
-                  <span className="sr-only">Search</span>
-                </Button>
-                {query ? (
-                  <Link
-                    href={buildTemplatesHref({
-                      query: null,
-                      category: selectedCategory,
-                    })}
-                    className={getButtonClassName({
-                      variant: "secondary",
-                      size: "sm",
-                      className: "h-9 w-9 rounded-lg p-0",
-                    })}
-                    aria-label="Clear search"
-                  >
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">Clear search</span>
-                  </Link>
-                ) : null}
-              </form>
-            </div>
-          </div>
-
-          <div className="mb-5 rounded-xl border border-(--card-border) bg-(--card-bg-solid) p-3">
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={buildTemplatesHref({ query, category: null })}
-                className={cn(
-                  "rounded-full border border-transparent px-3 py-1.5 text-xs font-semibold transition",
-                  !selectedCategory && "border-(--panel-border-strong)",
-                )}
-              >
-                All Templates
-              </Link>
-              {categoryOptions.map((category) => (
+            <div className="mb-5 rounded-xl border border-(--card-border) bg-(--card-bg-solid) p-3">
+              <div className="flex flex-wrap gap-2">
                 <Link
-                  key={category}
-                  href={buildTemplatesHref({ query, category })}
+                  href={buildTemplatesHref({ query, category: null })}
                   className={cn(
                     "rounded-full border border-transparent px-3 py-1.5 text-xs font-semibold transition",
-                    selectedCategory === category &&
-                      "border-(--panel-border-strong)",
+                    !selectedCategory && "border-(--panel-border-strong)",
                   )}
                 >
-                  {category}
+                  All Templates
                 </Link>
-              ))}
+                {categoryOptions.map((category) => (
+                  <Link
+                    key={category}
+                    href={buildTemplatesHref({ query, category })}
+                    className={cn(
+                      "rounded-full border border-transparent px-3 py-1.5 text-xs font-semibold transition",
+                      selectedCategory === category &&
+                        "border-(--panel-border-strong)",
+                    )}
+                  >
+                    {category}
+                  </Link>
+                ))}
+              </div>
             </div>
-          </div>
 
-          {templates.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-solid) px-4 py-10 text-center text-sm text-(--muted-foreground)">
-              No templates found for this filter.
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {Array.from(grouped.entries()).map(([category, items]) => (
-                <section key={category} className="space-y-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <h2 className="text-lg font-semibold text-foreground">
-                      {category}
-                    </h2>
-                    <p className="text-xs text-(--muted-foreground)">
-                      {items.length} template{items.length === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                  <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(400px,400px))] sm:justify-start">
-                    {items.map((template) => {
-                      const displayTitle =
-                        template.templateTitle || template.title;
-                      const detailsHref = `/templates/${encodeURIComponent(template.docId)}`;
+            {templates.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-(--card-border) bg-(--card-bg-solid) px-4 py-10 text-center text-sm text-(--muted-foreground)">
+                No templates found for this filter.
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {Array.from(grouped.entries()).map(([category, items]) => (
+                  <section key={category} className="space-y-3">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h2 className="text-lg font-semibold text-foreground">
+                        {category}
+                      </h2>
+                      <p className="text-xs text-(--muted-foreground)">
+                        {items.length} template{items.length === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(400px,400px))] sm:justify-start">
+                      {items.map((template) => {
+                        const displayTitle =
+                          template.templateTitle || template.title;
+                        const detailsHref = `/templates/${encodeURIComponent(template.docId)}`;
 
-                      return (
-                        <article
-                          key={template.docId}
-                          className="w-[400px] overflow-hidden rounded-lg border border-(--card-border) bg-(--card-bg-solid)"
-                        >
-                          <Link
-                            href={detailsHref}
-                            className="block aspect-[16/8] overflow-hidden border-b border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]"
+                        return (
+                          <article
+                            key={template.docId}
+                            className="w-[400px] overflow-hidden rounded-lg border border-(--card-border) bg-(--card-bg-solid)"
                           >
-                            {template.previewImageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={template.previewImageUrl}
-                                alt={`${displayTitle} preview`}
-                                loading="lazy"
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full items-center justify-center px-4 text-center text-[11px] font-medium tracking-wide text-(--muted-foreground)">
-                                Preview image not set
-                              </div>
-                            )}
-                          </Link>
+                            <Link
+                              href={detailsHref}
+                              className="block aspect-[16/8] overflow-hidden border-b border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]"
+                            >
+                              {template.previewImageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={template.previewImageUrl}
+                                  alt={`${displayTitle} preview`}
+                                  loading="lazy"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full items-center justify-center px-4 text-center text-[11px] font-medium tracking-wide text-(--muted-foreground)">
+                                  Preview image not set
+                                </div>
+                              )}
+                            </Link>
 
-                          <div className="space-y-2.5 p-3">
-                            <div>
-                              <h3 className="text-sm font-semibold text-foreground">
-                                <Link
-                                  href={detailsHref}
-                                  className="hover:underline"
-                                >
-                                  {displayTitle}
-                                </Link>
-                              </h3>
-                              <div className="prose prose-sm mt-1.5 line-clamp-2 max-w-none text-xs text-(--muted-foreground) [&_p]:m-0">
-                                <ReactMarkdown remarkPlugins={markdownPlugins}>
-                                  {template.descriptionMarkdown ||
-                                    fallbackTemplateDescription}
-                                </ReactMarkdown>
-                              </div>
-                            </div>
-
-                            {template.tags.length > 0 ? (
-                              <div className="flex flex-wrap gap-1.5">
-                                {template.tags.map((tag) => (
-                                  <span
-                                    key={`${template.docId}:${tag}`}
-                                    className="rounded-full border border-(--card-border) bg-(--assistant-chip-bg) px-1.5 py-0.5 text-[10px] font-medium text-(--muted-foreground)"
+                            <div className="space-y-2.5 p-3">
+                              <div>
+                                <h3 className="text-sm font-semibold text-foreground">
+                                  <Link
+                                    href={detailsHref}
+                                    className="hover:underline"
                                   >
-                                    {tag}
-                                  </span>
-                                ))}
+                                    {displayTitle}
+                                  </Link>
+                                </h3>
+                                <div className="prose prose-sm mt-1.5 line-clamp-2 max-w-none text-xs text-(--muted-foreground) [&_p]:m-0">
+                                  <ReactMarkdown
+                                    remarkPlugins={markdownPlugins}
+                                  >
+                                    {template.descriptionMarkdown ||
+                                      fallbackTemplateDescription}
+                                  </ReactMarkdown>
+                                </div>
                               </div>
-                            ) : null}
 
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-[11px] text-(--muted-foreground)">
-                                Updated{" "}
-                                {new Intl.DateTimeFormat(undefined, {
-                                  dateStyle: "medium",
-                                }).format(new Date(template.updatedAt))}
-                              </p>
-                              <div className="flex items-center gap-2">
-                                {isAdmin ? (
-                                  <TemplateSettingsTrigger
-                                    template={template}
-                                    triggerMode="button"
-                                    triggerLabel="Edit template"
-                                    triggerClassName="h-7 rounded-md px-2.5 text-[11px]"
-                                  />
-                                ) : null}
-                                <a
-                                  href={`/templates/open/${encodeURIComponent(template.docId)}`}
-                                  className={getButtonClassName({
-                                    size: "sm",
-                                    className:
-                                      "h-7 rounded-md px-2.5 text-[11px]",
-                                  })}
-                                >
-                                  Open in Rnc
-                                </a>
+                              {template.tags.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {template.tags.map((tag) => (
+                                    <span
+                                      key={`${template.docId}:${tag}`}
+                                      className="rounded-full border border-(--card-border) bg-(--assistant-chip-bg) px-1.5 py-0.5 text-[10px] font-medium text-(--muted-foreground)"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] text-(--muted-foreground)">
+                                  Updated{" "}
+                                  {new Intl.DateTimeFormat(undefined, {
+                                    dateStyle: "medium",
+                                  }).format(new Date(template.updatedAt))}
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  {isAdmin ? (
+                                    <TemplateSettingsTrigger
+                                      template={template}
+                                      triggerMode="button"
+                                      triggerLabel="Edit template"
+                                      triggerClassName="h-7 rounded-md px-2.5 text-[11px]"
+                                    />
+                                  ) : null}
+                                  <a
+                                    href={`/templates/open/${encodeURIComponent(template.docId)}`}
+                                    className={getButtonClassName({
+                                      size: "sm",
+                                      className:
+                                        "h-7 rounded-md px-2.5 text-[11px]",
+                                    })}
+                                  >
+                                    Open in Rnc
+                                  </a>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )}
-        </section>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
 
-      <SiteFooter fullWidth />
+      <SiteFooter />
     </main>
   );
 }
