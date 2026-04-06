@@ -77,7 +77,7 @@ export function SignInSubmitButton({
   return (
     <button
       type="button"
-      className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-(--card-border) bg-(--card-bg-solid) text-base font-semibold text-foreground shadow-[0_2px_4px_var(--card-shadow)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+      className="group flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-(--panel-border) bg-(--card-bg-solid) px-4 text-base font-semibold text-foreground shadow-[0_8px_24px_var(--card-shadow)] transition duration-200 hover:-translate-y-0.5 hover:border-(--panel-border-strong) hover:bg-(--assistant-chip-bg) hover:shadow-[0_14px_30px_var(--card-shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-70"
       disabled={pending}
       aria-busy={pending}
       onClick={() => {
@@ -87,12 +87,12 @@ export function SignInSubmitButton({
       {pending ? (
         <>
           <Loader2 className="h-5 w-5 animate-spin" />
-          Signing in...
+          Redirecting...
         </>
       ) : (
         <>
           {isGoogle ? <GoogleBadge /> : <Github className="h-5 w-5" />}
-          {isGoogle ? "Sign in with Google" : "Sign in with GitHub"}
+          {isGoogle ? "Continue with Google" : "Continue with GitHub"}
         </>
       )}
     </button>
