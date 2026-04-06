@@ -323,7 +323,7 @@ export async function cleanupOldChatRuns(input: {
 
   const rows = await db<{ run_id: string }[]>`
     DELETE FROM public.chat_runs
-    WHERE completed_at < NOW() - INTERVAL '${hours} hours'
+    WHERE completed_at < NOW() - (${hours}::int * INTERVAL '1 hour')
     RETURNING run_id
   `;
 
@@ -348,7 +348,7 @@ export async function markStaleRunsAsFailed(input: {
       error_message = 'Run interrupted due to server restart. Please try again.',
       completed_at = NOW()
     WHERE status = 'running'
-      AND started_at < NOW() - INTERVAL '${minutes} minutes'
+      AND started_at < NOW() - (${minutes}::int * INTERVAL '1 minute')
     RETURNING run_id
   `;
 
@@ -383,9 +383,9 @@ export async function isRunStale(input: {
           SELECT 1
           FROM public.chat_run_events e
           WHERE e.run_id = r.run_id
-            AND e.created_at > NOW() - INTERVAL '${seconds} seconds'
+            AND e.created_at > NOW() - (${seconds}::int * INTERVAL '1 second')
         )
-        AND r.started_at < NOW() - INTERVAL '${seconds} seconds'
+        AND r.started_at < NOW() - (${seconds}::int * INTERVAL '1 second')
     ) AS is_stale
   `;
 
