@@ -1,4 +1,5 @@
 import { AdminCreditRefillCard } from "@/components/admin-credit-refill-card";
+import { PageTitleBlock } from "@/components/page-title-block";
 import { SignOutButton } from "@/components/sign-out-button";
 import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shell";
 import { isAdminUser } from "@/lib/auth/admin";
@@ -51,15 +52,10 @@ export default async function AccountSettingsPage() {
       }}
     >
       <section className="mx-auto w-full rounded-2xl border border-(--card-border) bg-(--card-bg-solid) p-7 shadow-[0_24px_70px_var(--card-shadow)] sm:p-8">
-        <div className="pb-2">
-          <h1 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
-            Settings
-          </h1>
-          <p className="mt-1 text-sm leading-7 text-(--muted-foreground) sm:text-base">
-            Update your account details and review your current credit
-            configuration.
-          </p>
-        </div>
+        <PageTitleBlock
+          title="Settings"
+          tagline="Update your account details and review your current credit configuration."
+        />
         <div className="space-y-6 pt-1 text-sm text-(--muted-foreground) sm:pt-2">
           <div className="space-y-3">
             <p>

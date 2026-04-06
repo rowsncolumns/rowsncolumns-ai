@@ -2717,6 +2717,7 @@ export function SheetsInstructions({
   charts,
   namedRanges,
   getDataRowCount,
+  getDataColumnCount,
   getSheetName,
   getSheetProperties,
 }: {
@@ -2734,6 +2735,9 @@ export function SheetsInstructions({
   getDataRowCount?: ReturnType<
     typeof useSpreadsheetState
   >["getDataRowCount"];
+  getDataColumnCount?: ReturnType<
+    typeof useSpreadsheetState
+  >["getDataColumnCount"];
   getSheetName?: ReturnType<typeof useSpreadsheetState>["getSheetName"];
   getSheetProperties?: ReturnType<
     typeof useSpreadsheetState
@@ -2760,24 +2764,52 @@ export function SheetsInstructions({
         sheetId: s.sheetId,
         frozenRowCount: s.frozenRowCount,
         frozenColumnCount: s.frozenColumnCount,
-        ...(typeof getDataRowCount === "function"
-          ? (() => {
-              const dataRowCountRaw = getDataRowCount(s.sheetId);
-              if (
-                typeof dataRowCountRaw !== "number" ||
-                !Number.isFinite(dataRowCountRaw) ||
-                dataRowCountRaw < 0
-              ) {
-                return {};
-              }
-              return {
-                dataRowCount: dataRowCountRaw,
-                hasData: dataRowCountRaw > 0,
-              };
-            })()
-          : {}),
+        ...(() => {
+          const dataRowCountRaw =
+            typeof getDataRowCount === "function"
+              ? getDataRowCount(s.sheetId)
+              : undefined;
+          const dataColumnCountRaw =
+            typeof getDataColumnCount === "function"
+              ? getDataColumnCount(s.sheetId)
+              : undefined;
+
+          const dataRowCount =
+            typeof dataRowCountRaw === "number" &&
+            Number.isFinite(dataRowCountRaw) &&
+            dataRowCountRaw >= 0
+              ? dataRowCountRaw
+              : typeof getDataRowCount === "function"
+                ? 0
+                : undefined;
+          const dataColumnCount =
+            typeof dataColumnCountRaw === "number" &&
+            Number.isFinite(dataColumnCountRaw) &&
+            dataColumnCountRaw >= 0
+              ? dataColumnCountRaw
+              : typeof getDataColumnCount === "function"
+                ? 0
+                : undefined;
+
+          const inferredHasData =
+            dataRowCount !== undefined && dataColumnCount !== undefined
+              ? dataRowCount > 0 && dataColumnCount > 0
+              : dataRowCount !== undefined
+                ? dataRowCount > 0
+                : dataColumnCount !== undefined
+                  ? dataColumnCount > 0
+                  : undefined;
+
+          return {
+            ...(dataRowCount !== undefined ? { dataRowCount } : {}),
+            ...(dataColumnCount !== undefined ? { dataColumnCount } : {}),
+            ...(typeof inferredHasData === "boolean"
+              ? { hasData: inferredHasData }
+              : {}),
+          };
+        })(),
       })) ?? [],
-    [getDataRowCount, sheets],
+    [getDataColumnCount, getDataRowCount, sheets],
   );
   const activeCellA1Address = React.useMemo(
     () =>

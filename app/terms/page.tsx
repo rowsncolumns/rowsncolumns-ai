@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { PageTitleBlock } from "@/components/page-title-block";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { supportEmail } from "@/components/site-navigation";
@@ -43,12 +44,10 @@ export default async function TermsPage() {
       <section className="px-5 pb-12 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <Card className="mx-auto w-full bg-[var(--card-bg-solid)] p-6 shadow-[0_24px_70px_var(--card-shadow)] sm:p-8">
-            <h1 className="display-font text-3xl font-semibold text-[var(--foreground)] sm:text-4xl">
-              Terms of Service
-            </h1>
-            <p className="mt-3 text-sm text-[var(--muted-foreground)]">
-              Last updated: March 29, 2026
-            </p>
+            <PageTitleBlock
+              title="Terms of Service"
+              tagline="Last updated: March 29, 2026"
+            />
 
             <div className="mt-6 space-y-6 text-sm leading-7 text-[var(--muted-foreground)] sm:text-base">
               <section>

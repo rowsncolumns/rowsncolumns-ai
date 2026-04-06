@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Search, X } from "lucide-react";
 
 import { NewSheetButton } from "@/components/new-sheet-button";
+import { PageTitleBlock } from "@/components/page-title-block";
 import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeaderFrame } from "@/components/site-header-frame";
@@ -149,12 +150,11 @@ export default async function SheetsPage({
           <div className="mb-4 space-y-2.5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h1 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
-                  My Sheets
-                </h1>
-                <p className="text-sm text-(--muted-foreground)">
-                  {descriptionByFilter[result.filter]}
-                </p>
+                <PageTitleBlock
+                  className="pb-0"
+                  title="My Sheets"
+                  tagline={descriptionByFilter[result.filter]}
+                />
               </div>
               <NewSheetButton className="h-9 shrink-0 rounded-lg px-4" />
             </div>

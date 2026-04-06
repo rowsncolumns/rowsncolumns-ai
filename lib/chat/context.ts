@@ -59,6 +59,7 @@ export type SpreadsheetAssistantContext = {
     frozenRowCount?: number | null;
     frozenColumnCount?: number | null;
     dataRowCount?: number | null;
+    dataColumnCount?: number | null;
     hasData?: boolean | null;
   }>;
   activeSheetId?: number;
@@ -94,6 +95,7 @@ type SpreadsheetContextPayloadInput = {
     frozenRowCount?: number | null;
     frozenColumnCount?: number | null;
     dataRowCount?: number | null;
+    dataColumnCount?: number | null;
     hasData?: boolean | null;
   }>;
   activeSheetId?: number | null;
@@ -434,19 +436,34 @@ export const buildSpreadsheetContextInstructions = (
       ),
     );
 
-    const sheetDataPresence = context.sheets.map((sheet) => ({
-      sheetId: sheet.sheetId,
-      title: sheet.title,
-      hasData:
+    const sheetDataPresence = context.sheets.map((sheet) => {
+      const dataRowCount =
+        typeof sheet.dataRowCount === "number" &&
+        Number.isFinite(sheet.dataRowCount) &&
+        sheet.dataRowCount >= 0
+          ? sheet.dataRowCount
+          : 0;
+      const dataColumnCount =
+        typeof sheet.dataColumnCount === "number" &&
+        Number.isFinite(sheet.dataColumnCount) &&
+        sheet.dataColumnCount >= 0
+          ? sheet.dataColumnCount
+          : 0;
+      const hasData =
         typeof sheet.hasData === "boolean"
           ? sheet.hasData
-          : typeof sheet.dataRowCount === "number"
-            ? sheet.dataRowCount > 0
-            : undefined,
-      ...(typeof sheet.dataRowCount === "number"
-        ? { dataRowCount: sheet.dataRowCount }
-        : {}),
-    }));
+          : dataRowCount > 0 && dataColumnCount > 0;
+
+      return {
+        sheetId: sheet.sheetId,
+        title: sheet.title,
+        dataRowCount,
+        dataColumnCount,
+        populatedContentSize: `${dataRowCount} x ${dataColumnCount}`,
+        hasData,
+        isBlankSheet: !hasData,
+      };
+    });
     lines.push(
       instructionLine(
         `Sheet data presence summary (use this to detect blank sheets before planning edits)`,
@@ -694,6 +711,7 @@ export const sanitizeSpreadsheetAssistantContext = (
           frozenRowCount: asNumber(item.frozenRowCount),
           frozenColumnCount: asNumber(item.frozenColumnCount),
           dataRowCount: asNumber(item.dataRowCount),
+          dataColumnCount: asNumber(item.dataColumnCount),
           hasData: asBoolean(item.hasData),
         },
       ];

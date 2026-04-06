@@ -3,6 +3,7 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import { Search, X } from "lucide-react";
 
+import { PageTitleBlock } from "@/components/page-title-block";
 import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shell";
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { Button, getButtonClassName } from "@/components/ui/button";
@@ -145,12 +146,11 @@ export default async function TemplatesPage({
         <div className="mb-4 space-y-2.5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h1 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
-                Templates
-              </h1>
-              <p className="text-sm text-(--muted-foreground)">
-                Browse curated spreadsheet templates and open your own copy.
-              </p>
+              <PageTitleBlock
+                className="pb-0"
+                title="Templates"
+                tagline="Browse curated spreadsheet templates and open your own copy."
+              />
             </div>
           </div>
 

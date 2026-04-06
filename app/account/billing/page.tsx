@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AccountBillingPanel } from "@/components/account-billing-panel";
+import { PageTitleBlock } from "@/components/page-title-block";
 import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shell";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import {
@@ -83,15 +84,10 @@ export default async function AccountBillingPage({
       }}
     >
       <section className="mx-auto w-full rounded-2xl border border-(--card-border) bg-(--card-bg-solid) p-7 shadow-[0_24px_70px_var(--card-shadow)] sm:p-8">
-        <div className="pb-2">
-          <h1 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
-            Billing
-          </h1>
-          <p className="mt-1 text-sm leading-7 text-(--muted-foreground) sm:text-base">
-            Manage your subscription, one-off top-ups, and current credit
-            balance in one place.
-          </p>
-        </div>
+        <PageTitleBlock
+          title="Billing"
+          tagline="Manage your subscription, one-off top-ups, and current credit balance in one place."
+        />
         <div className="pt-1 sm:pt-2">
           <AccountBillingPanel
             currentPlan={billing.plan}

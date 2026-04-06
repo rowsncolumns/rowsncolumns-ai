@@ -1413,6 +1413,7 @@ function SpreadsheetPane({
         cellXfs={cellXfs}
         tables={tables}
         getDataRowCount={getDataRowCount}
+        getDataColumnCount={getDataColumnCount}
         getSheetProperties={getSheetProperties}
         getSheetName={getSheetName}
         charts={charts}

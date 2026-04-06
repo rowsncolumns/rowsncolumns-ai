@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArrowRight, ChevronRight } from "lucide-react";
 
+import { PageTitleBlock } from "@/components/page-title-block";
 import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shell";
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { getButtonClassName } from "@/components/ui/button";
@@ -149,12 +150,12 @@ export default async function TemplateDetailsPage({
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,42%)]">
           <div className="space-y-4">
-            <h1 className="text-3xl font-semibold tracking-[-0.02em] text-foreground sm:text-4xl">
-              {template.templateTitle}
-            </h1>
-            <p className="max-w-2xl text-base text-(--muted-foreground)">
-              {summary}
-            </p>
+            <PageTitleBlock
+              className="pb-0"
+              title={template.templateTitle}
+              tagline={summary}
+              taglineClassName="max-w-2xl"
+            />
 
             <div className="flex flex-wrap items-center gap-3">
               <a
