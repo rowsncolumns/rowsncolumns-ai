@@ -419,11 +419,20 @@ export function ConfirmPlanExecutionToolCard({
   >["addResult"];
 }) {
   const [isSubmitted, setIsSubmitted] = React.useState(false);
-  const [isRequestingChanges, setIsRequestingChanges] = React.useState(false);
   const [feedback, setFeedback] = React.useState("");
   const [validationError, setValidationError] = React.useState<string | null>(
     null,
   );
+  const reviewHeader =
+    plan.reviewHeader?.trim() || "Review Plan Before Applying Changes";
+  const approveLabel = plan.approveButtonLabel?.trim() || "Approve & Apply";
+  const requestChangesLabel =
+    plan.requestChangesButtonLabel?.trim() ||
+    plan.submitChangesButtonLabel?.trim() ||
+    "Suggest Edits";
+  const feedbackPrompt =
+    plan.feedbackPrompt?.trim() ||
+    "Add feedback for the agent (optional for approval, required for edits).";
 
   const handleApprove = React.useCallback(() => {
     if (!addResult) {
@@ -471,69 +480,69 @@ export function ConfirmPlanExecutionToolCard({
   return (
     <div className="w-full max-w-2xl ">
       <div className="mb-2 text-xs font-semibold text-foreground">
-        Review Plan Before Applying Changes
+        {reviewHeader}
       </div>
 
       <div className="rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-3">
-        <div className="text-sm font-semibold text-foreground">
-          {plan.title}
-        </div>
-        <ToolCardMarkdown className="mt-1 text-xs text-(--muted-foreground)">
-          {plan.summary}
-        </ToolCardMarkdown>
-        {plan.reason ? (
-          <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
-            <ToolCardMarkdown>{plan.reason}</ToolCardMarkdown>
+        <div className="max-h-[28rem] overflow-y-auto pr-1">
+          <div className="text-sm font-semibold text-foreground">
+            {plan.title}
           </div>
-        ) : null}
-
-        <div className="prose prose-sm py-2 text-xs text-(--muted-foreground)">
-          <p>
-            <strong>Steps</strong>
-          </p>
-          <ol className="ml-2 list-decimal">
-            {plan.steps.map((step, index) => (
-              <li key={`${toolCallId}-step-${index}`}>{step}</li>
-            ))}
-          </ol>
-
-          {plan.risks.length > 0 ? (
-            <div className="mt-3 rounded border border-red-200 bg-red-50 px-2 py-2">
-              <div className="text-[11px] font-semibold text-red-700">
-                Risks
-              </div>
-              <ol className="ml-2 list-decimal">
-                {plan.risks.map((risk, index) => (
-                  <li
-                    key={`${toolCallId}-risk-${index}`}
-                    className="pb-1 text-red-700"
-                  >
-                    {risk}
-                  </li>
-                ))}
-              </ol>
+          <ToolCardMarkdown className="mt-1 text-xs text-(--muted-foreground)">
+            {plan.summary}
+          </ToolCardMarkdown>
+          {plan.reason ? (
+            <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+              <ToolCardMarkdown>{plan.reason}</ToolCardMarkdown>
             </div>
           ) : null}
+
+          <div className="prose prose-sm py-2 text-xs text-(--muted-foreground)">
+            <p>
+              <strong>Steps</strong>
+            </p>
+            <ol className="ml-2 list-decimal">
+              {plan.steps.map((step, index) => (
+                <li key={`${toolCallId}-step-${index}`}>{step}</li>
+              ))}
+            </ol>
+
+            {plan.risks.length > 0 ? (
+              <div className="mt-3 rounded border border-red-200 bg-red-50 px-2 py-2">
+                <div className="text-[11px] font-semibold text-red-700">
+                  Risks
+                </div>
+                <ol className="!mt-0 !mb-0 ml-2 list-decimal">
+                  {plan.risks.map((risk, index) => (
+                    <li
+                      key={`${toolCallId}-risk-${index}`}
+                      className="!m-0 pb-1 text-red-700"
+                    >
+                      {risk}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      {isRequestingChanges && !isSubmitted ? (
-        <div className="mt-3 rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2">
-          <div className="text-xs font-medium text-foreground">
-            What would you like adjusted?
-          </div>
-          <Textarea
-            value={feedback}
-            onChange={(event) => {
-              setValidationError(null);
-              setFeedback(event.target.value);
-            }}
-            placeholder="Describe what to adjust before I apply changes."
-            className="mt-2 min-h-[84px] text-xs"
-            disabled={isSubmitted}
-          />
+      <div className="mt-3 rounded-md border border-(--card-border) bg-(--card-bg-subtle) p-2">
+        <div className="text-xs font-medium text-foreground">
+          {feedbackPrompt}
         </div>
-      ) : null}
+        <Textarea
+          value={feedback}
+          onChange={(event) => {
+            setValidationError(null);
+            setFeedback(event.target.value);
+          }}
+          placeholder="Share feedback for the agent."
+          className="mt-2 min-h-[84px] text-xs"
+          disabled={isSubmitted}
+        />
+      </div>
 
       {validationError ? (
         <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
@@ -550,36 +559,19 @@ export function ConfirmPlanExecutionToolCard({
           className="h-7 rounded-md px-2.5 text-xs"
         >
           <Check className="h-3 w-3" />
-          {isSubmitted ? "Submitted" : "Approve & Apply"}
+          {isSubmitted ? "Submitted" : approveLabel}
         </Button>
-
-        {!isRequestingChanges ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              setValidationError(null);
-              setIsRequestingChanges(true);
-            }}
-            disabled={isSubmitted}
-            className="h-7 px-2.5 text-xs"
-          >
-            <X className="h-3 w-3" />
-            Suggest Edits
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={handleSubmitChangesRequest}
-            disabled={isSubmitted}
-            className="h-7 rounded-md px-2.5 text-xs"
-          >
-            Submit Edits
-          </Button>
-        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={handleSubmitChangesRequest}
+          disabled={isSubmitted}
+          className="h-7 rounded-md px-2.5 text-xs"
+        >
+          <X className="h-3 w-3" />
+          {requestChangesLabel}
+        </Button>
       </div>
     </div>
   );

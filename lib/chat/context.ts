@@ -1,4 +1,4 @@
-import { NamedRange, Sheet } from "@rowsncolumns/spreadsheet";
+import { NamedRange } from "@rowsncolumns/spreadsheet";
 import { selectionToAddress } from "@rowsncolumns/utils";
 
 export type TableSummary = {
@@ -58,6 +58,8 @@ export type SpreadsheetAssistantContext = {
     sheetId: number;
     frozenRowCount?: number | null;
     frozenColumnCount?: number | null;
+    dataRowCount?: number | null;
+    hasData?: boolean | null;
   }>;
   activeSheetId?: number;
   activeCell?: {
@@ -86,7 +88,14 @@ const COMPACT_BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
 type SpreadsheetContextPayloadInput = {
   documentId: string;
   documentName?: string;
-  sheets?: Array<{ title: string; sheetId: number }>;
+  sheets?: Array<{
+    title: string;
+    sheetId: number;
+    frozenRowCount?: number | null;
+    frozenColumnCount?: number | null;
+    dataRowCount?: number | null;
+    hasData?: boolean | null;
+  }>;
   activeSheetId?: number | null;
   activeCell?: {
     rowIndex: number;
@@ -111,6 +120,9 @@ const asRecord = (value: unknown) =>
 
 const asNumber = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const asBoolean = (value: unknown) =>
+  typeof value === "boolean" ? value : undefined;
 
 const asString = (value: unknown) =>
   typeof value === "string" && value.trim().length > 0
@@ -421,6 +433,26 @@ export const buildSpreadsheetContextInstructions = (
         context.sheets,
       ),
     );
+
+    const sheetDataPresence = context.sheets.map((sheet) => ({
+      sheetId: sheet.sheetId,
+      title: sheet.title,
+      hasData:
+        typeof sheet.hasData === "boolean"
+          ? sheet.hasData
+          : typeof sheet.dataRowCount === "number"
+            ? sheet.dataRowCount > 0
+            : undefined,
+      ...(typeof sheet.dataRowCount === "number"
+        ? { dataRowCount: sheet.dataRowCount }
+        : {}),
+    }));
+    lines.push(
+      instructionLine(
+        `Sheet data presence summary (use this to detect blank sheets before planning edits)`,
+        sheetDataPresence,
+      ),
+    );
   }
 
   if (typeof context.activeSheetId === "number") {
@@ -647,15 +679,24 @@ export const sanitizeSpreadsheetAssistantContext = (
   const record = asRecord(value);
   if (!record) return undefined;
 
-  const sheetsRaw: Sheet[] = Array.isArray(record.sheets) ? record.sheets : [];
+  const sheetsRaw = Array.isArray(record.sheets) ? record.sheets : [];
   const sheets =
     sheetsRaw?.flatMap((entry) => {
-      const item = asRecord(entry) as Sheet;
+      const item = asRecord(entry);
       if (!item) return [];
       const title = asString(item.title);
       const sheetId = asNumber(item.sheetId);
       if (!title || sheetId === undefined) return [];
-      return [{ ...item, title, sheetId }];
+      return [
+        {
+          title,
+          sheetId,
+          frozenRowCount: asNumber(item.frozenRowCount),
+          frozenColumnCount: asNumber(item.frozenColumnCount),
+          dataRowCount: asNumber(item.dataRowCount),
+          hasData: asBoolean(item.hasData),
+        },
+      ];
     }) ?? undefined;
 
   const activeCellRaw = asRecord(record.activeCell);

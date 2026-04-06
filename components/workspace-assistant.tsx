@@ -2716,6 +2716,7 @@ export function SheetsInstructions({
   theme,
   charts,
   namedRanges,
+  getDataRowCount,
   getSheetName,
   getSheetProperties,
 }: {
@@ -2730,6 +2731,9 @@ export function SheetsInstructions({
   theme?: SpreadsheetTheme;
   charts?: EmbeddedChart[];
   namedRanges?: NamedRange[];
+  getDataRowCount?: ReturnType<
+    typeof useSpreadsheetState
+  >["getDataRowCount"];
   getSheetName?: ReturnType<typeof useSpreadsheetState>["getSheetName"];
   getSheetProperties?: ReturnType<
     typeof useSpreadsheetState
@@ -2756,8 +2760,24 @@ export function SheetsInstructions({
         sheetId: s.sheetId,
         frozenRowCount: s.frozenRowCount,
         frozenColumnCount: s.frozenColumnCount,
+        ...(typeof getDataRowCount === "function"
+          ? (() => {
+              const dataRowCountRaw = getDataRowCount(s.sheetId);
+              if (
+                typeof dataRowCountRaw !== "number" ||
+                !Number.isFinite(dataRowCountRaw) ||
+                dataRowCountRaw < 0
+              ) {
+                return {};
+              }
+              return {
+                dataRowCount: dataRowCountRaw,
+                hasData: dataRowCountRaw > 0,
+              };
+            })()
+          : {}),
       })) ?? [],
-    [sheets],
+    [getDataRowCount, sheets],
   );
   const activeCellA1Address = React.useMemo(
     () =>

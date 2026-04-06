@@ -234,6 +234,22 @@ const getShareDbBaseUrl = () => {
   return `${protocol}://${window.location.hostname}:${port}`;
 };
 
+const toDashSeparatedLowercase = (
+  value: string | undefined,
+  fallback: string,
+): string => {
+  const normalized = (value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 120);
+
+  return normalized || fallback;
+};
+
 type ShareDBSocket = ConstructorParameters<typeof ShareDBClient.Connection>[0];
 type ShareDBSocketWithDiagnostics = ShareDBSocket & {
   connect: () => void;
@@ -1294,10 +1310,20 @@ function SpreadsheetPane({
 
   // Spreadsheet Api
   const api = useSpreadsheetApi<CellData>();
+  const exportWorkbookFilename = useMemo(
+    () =>
+      toDashSeparatedLowercase(documentName, toDashSeparatedLowercase(documentId, "spreadsheet")),
+    [documentId, documentName],
+  );
+  const exportCsvSheetSuffix = useMemo(() => {
+    const activeSheet = sheets.find((sheet) => sheet.sheetId === activeSheetId);
+    const fallback = `sheet-${activeSheetId}`;
+    return toDashSeparatedLowercase(activeSheet?.title, fallback);
+  }, [activeSheetId, sheets]);
 
   const handleExportExcel = useCallback(async () => {
     await exportToExcel({
-      filename: `spreadsheet-${documentId}`,
+      filename: exportWorkbookFilename,
       sheets,
       sheetData,
       tables,
@@ -1313,7 +1339,7 @@ function SpreadsheetPane({
       citations,
     });
   }, [
-    documentId,
+    exportWorkbookFilename,
     sheets,
     sheetData,
     tables,
@@ -1331,11 +1357,17 @@ function SpreadsheetPane({
 
   const handleExportCSV = useCallback(async () => {
     await exportToCSV({
-      filename: `spreadsheet-${documentId}-${activeSheetId}`,
+      filename: `${exportWorkbookFilename}-${exportCsvSheetSuffix}`,
       rowData: sheetData[activeSheetId] ?? [],
       sharedStrings,
     });
-  }, [documentId, activeSheetId, sheetData, sharedStrings]);
+  }, [
+    activeSheetId,
+    exportWorkbookFilename,
+    exportCsvSheetSuffix,
+    sheetData,
+    sharedStrings,
+  ]);
 
   const handleImportExcel = useCallback(
     async (file: File) => {
@@ -1377,6 +1409,7 @@ function SpreadsheetPane({
         documentName={documentName}
         cellXfs={cellXfs}
         tables={tables}
+        getDataRowCount={getDataRowCount}
         getSheetProperties={getSheetProperties}
         getSheetName={getSheetName}
         charts={charts}
