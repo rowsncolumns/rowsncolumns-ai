@@ -63,8 +63,8 @@ export default async function SignInPage({
 
       <section className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-5 py-5 sm:px-8 sm:py-7 lg:px-12">
         <header className="hero-grid rounded-2xl border border-(--card-border) bg-(--card-bg) p-3 sm:p-4">
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-(--panel-border) bg-(--card-bg-solid) px-3 py-2.5 sm:px-4 sm:py-3">
-            <Link href="/" className="flex min-w-0 items-center gap-3">
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-(--panel-border) bg-(--card-bg-solid) px-3 py-2.5 sm:gap-4 sm:px-4 sm:py-3">
+            <Link href="/" className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
               <Image
                 src="/logo-square.png"
                 alt="RowsnColumns AI logo"
@@ -73,7 +73,7 @@ export default async function SignInPage({
                 className="rounded-sm max-w-10 sm:max-w-12.5"
               />
               <div className="min-w-0">
-                <p className="display-font truncate text-sm font-semibold sm:text-lg">
+                <p className="display-font text-sm font-semibold sm:text-lg">
                   RowsnColumns AI
                 </p>
                 <p className="hidden text-xs text-(--muted-foreground) sm:block">
@@ -84,10 +84,11 @@ export default async function SignInPage({
 
             <Link
               href="/"
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-3 py-2 text-sm font-medium text-foreground transition hover:bg-(--assistant-chip-hover)"
+              aria-label="Back Home"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) text-sm font-medium text-foreground transition hover:bg-(--assistant-chip-hover) sm:h-auto sm:w-auto sm:gap-1.5 sm:px-3 sm:py-2"
             >
               <ArrowLeft className="h-4 w-4" />
-              Back Home
+              <span className="hidden sm:inline">Back Home</span>
             </Link>
           </div>
         </header>
@@ -97,13 +98,13 @@ export default async function SignInPage({
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(255,109,52,0.12),transparent_48%)]" />
 
             <div className="relative grid h-full gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,27rem)] lg:gap-10">
-              <div className="rise-in flex flex-col justify-between space-y-8">
+              <div className="order-2 rise-in flex flex-col justify-between space-y-8 lg:order-1">
                 <div className="space-y-5">
                   <span className="inline-flex items-center rounded-full border border-(--panel-border) bg-(--assistant-chip-bg) px-3 py-1 text-xs font-semibold tracking-[0.03em] text-(--muted-foreground)">
                     Secure workspace access
                   </span>
                   <h1 className="display-font max-w-3xl text-3xl leading-tight font-semibold text-foreground sm:text-4xl lg:text-[3.1rem]">
-                    Sign in and pick up exactly where you left off.
+                    Sign in to continue your spreadsheet workflow.
                   </h1>
                   <p className="max-w-2xl text-base text-(--muted-foreground) sm:text-lg">
                     Use Google or GitHub to continue to your spreadsheet
@@ -140,7 +141,7 @@ export default async function SignInPage({
                 </div>
               </div>
 
-              <div className="rise-in-delayed self-center">
+              <div className="order-1 rise-in-delayed self-start lg:order-2 lg:self-center">
                 <div className="relative overflow-hidden rounded-3xl border border-(--card-border) bg-[linear-gradient(165deg,var(--card-bg-solid),color-mix(in_srgb,var(--card-bg)_74%,white))] p-6 shadow-[0_28px_70px_var(--card-shadow)] sm:p-8">
                   <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(circle_at_top,rgba(255,109,52,0.16),transparent_70%)]" />
                   <div className="relative">
