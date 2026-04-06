@@ -59,13 +59,60 @@ const createPublicViewerIdentity = (documentId: string) => {
 
 export async function generateMetadata({
   params,
-}: Pick<PageProps, "params">): Promise<Metadata> {
+  searchParams,
+}: Pick<PageProps, "params" | "searchParams">): Promise<Metadata> {
   const { documentId } = await params;
   const shortId = toShortDocumentId(documentId);
-
-  return {
+  const fallbackMetadata: Metadata = {
     title: `Sheet ${shortId}`,
     description: `Spreadsheet workspace for sheet ${shortId}.`,
+  };
+
+  if (!(await documentExists(documentId))) {
+    return fallbackMetadata;
+  }
+
+  const resolvedSearchParams = await searchParams;
+  const shareToken = resolveShareToken(resolvedSearchParams.share);
+  const session = await getServerSessionSafe();
+
+  if (!session?.user) {
+    const [publicAccess, isPublicTemplate] = await Promise.all([
+      getPublicDocumentAccessByShareToken({
+        docId: documentId,
+        shareToken,
+      }),
+      isTemplateDocumentPubliclyViewable({
+        docId: documentId,
+      }),
+    ]);
+
+    if (!publicAccess.canAccess && !isPublicTemplate) {
+      return fallbackMetadata;
+    }
+
+    const metadata = await ensureDocumentMetadata({ docId: documentId });
+    return {
+      title: metadata.title,
+      description: `Spreadsheet workspace for ${metadata.title}.`,
+    };
+  }
+
+  const access = await ensureDocumentAccess({
+    docId: documentId,
+    userId: session.user.id,
+    shareToken,
+  });
+
+  if (!access.canAccess) {
+    return fallbackMetadata;
+  }
+
+  const metadata = await ensureDocumentMetadata({ docId: documentId });
+
+  return {
+    title: metadata.title,
+    description: `Spreadsheet workspace for ${metadata.title}.`,
   };
 }
 
@@ -118,12 +165,16 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
 
     if (!publicAccess.canAccess && !isPublicTemplate) {
       if (!shareToken?.trim()) {
-        redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
+        redirect(
+          `/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`,
+        );
       }
       notFound();
     }
 
-    const documentMetadata = await ensureDocumentMetadata({ docId: documentId });
+    const documentMetadata = await ensureDocumentMetadata({
+      docId: documentId,
+    });
 
     return (
       <>
