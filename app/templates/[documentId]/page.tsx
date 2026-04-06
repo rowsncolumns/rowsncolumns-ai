@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -14,6 +15,7 @@ import {
   listOwnedDocumentIds,
   listTemplateDocuments,
 } from "@/lib/documents/repository";
+import { passthroughImageLoader } from "@/lib/image/passthrough-loader";
 
 type RouteParams = Promise<{ documentId: string }>;
 
@@ -187,13 +189,16 @@ export default async function TemplateDetailsPage({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
+          <div className="relative overflow-hidden rounded-xl border border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
             {template.previewImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <Image
+                loader={passthroughImageLoader}
                 src={template.previewImageUrl}
                 alt={`${template.templateTitle} preview`}
-                className="h-full w-full object-cover"
+                fill
+                unoptimized
+                sizes="(min-width: 1024px) 42vw, 100vw"
+                className="object-cover"
               />
             ) : (
               <div className="flex aspect-[16/9] h-full items-center justify-center p-6 text-center text-sm text-(--muted-foreground)">
@@ -301,13 +306,16 @@ export default async function TemplateDetailsPage({
                 href={`/templates/${encodeURIComponent(item.docId)}`}
                 className="group overflow-hidden rounded-xl border border-(--card-border) bg-(--card-bg)"
               >
-                <div className="aspect-[16/9] bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
+                <div className="relative aspect-[16/9] bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
                   {item.previewImageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <Image
+                      loader={passthroughImageLoader}
                       src={item.previewImageUrl}
                       alt={`${item.templateTitle} preview`}
-                      className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.01]"
+                      fill
+                      unoptimized
+                      sizes="(min-width: 768px) 30vw, 100vw"
+                      className="object-cover transition duration-200 group-hover:scale-[1.01]"
                     />
                   ) : null}
                 </div>

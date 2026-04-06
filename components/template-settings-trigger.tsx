@@ -3,9 +3,11 @@
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Loader2, Settings2 } from "lucide-react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { passthroughImageLoader } from "@/lib/image/passthrough-loader";
 import {
   isSupportedImageFile,
   uploadAssistantImage,
@@ -541,13 +543,16 @@ export function TemplateSettingsTrigger({
               <div className="border-b border-(--panel-border) px-3 py-2 text-xs font-semibold uppercase tracking-wide text-(--muted-foreground)">
                 Image Preview
               </div>
-              <div className="aspect-[16/9] bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
+              <div className="relative aspect-[16/9] bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]">
                 {form.previewImageUrl.trim() ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <Image
+                    loader={passthroughImageLoader}
                     src={form.previewImageUrl.trim()}
                     alt="Template preview"
-                    className="h-full w-full object-cover"
+                    fill
+                    unoptimized
+                    sizes="(min-width: 640px) 420px, 92vw"
+                    className="object-cover"
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center px-4 text-center text-xs text-(--muted-foreground)">

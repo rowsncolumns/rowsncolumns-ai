@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { Metadata } from "next";
 import { Search, X } from "lucide-react";
 
@@ -10,6 +11,7 @@ import {
   listOwnedDocumentIds,
   listTemplateDocuments,
 } from "@/lib/documents/repository";
+import { passthroughImageLoader } from "@/lib/image/passthrough-loader";
 import { cn } from "@/lib/utils";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -261,15 +263,17 @@ export default async function TemplatesPage({
                       >
                         <Link
                           href={detailsHref}
-                          className="block aspect-16/8 overflow-hidden border-b border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]"
+                          className="relative block aspect-16/8 overflow-hidden border-b border-(--card-border) bg-[linear-gradient(120deg,#eef2ff,#f8fafc)]"
                         >
                           {template.previewImageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
+                            <Image
+                              loader={passthroughImageLoader}
                               src={template.previewImageUrl}
                               alt={`${displayTitle} preview`}
-                              loading="lazy"
-                              className="h-full w-full object-cover"
+                              fill
+                              unoptimized
+                              sizes="(min-width: 1280px) 22vw, (min-width: 640px) 45vw, 94vw"
+                              className="object-cover"
                             />
                           ) : (
                             <div className="flex h-full items-center justify-center px-4 text-center text-[11px] font-medium tracking-wide text-(--muted-foreground)">
