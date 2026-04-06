@@ -2,11 +2,11 @@ ALTER TABLE document_share_links
   ADD COLUMN IF NOT EXISTS permission TEXT;
 
 UPDATE document_share_links
-SET permission = 'edit'
+SET permission = 'view'
 WHERE permission IS NULL;
 
 ALTER TABLE document_share_links
-  ALTER COLUMN permission SET DEFAULT 'edit';
+  ALTER COLUMN permission SET DEFAULT 'view';
 
 ALTER TABLE document_share_links
   ALTER COLUMN permission SET NOT NULL;

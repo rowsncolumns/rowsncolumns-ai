@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
-import { ensureDocumentAccess } from "@/lib/documents/repository";
+import {
+  ensureDocumentAccess,
+  getPublicDocumentAccessByShareToken,
+} from "@/lib/documents/repository";
 import {
   canIssueShareDbWsAccessToken,
   issueShareDbWsAccessToken,
@@ -34,15 +37,6 @@ const getShareTokenFromRequest = (request: Request): string | undefined => {
 
 export async function GET(request: Request) {
   try {
-    const { data: session } = await auth.getSession();
-    const user = session?.user;
-    if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized." },
-        { status: 401, headers: NO_STORE_HEADERS },
-      );
-    }
-
     const docId = getDocIdFromRequest(request);
     if (!docId) {
       return NextResponse.json(
@@ -52,25 +46,55 @@ export async function GET(request: Request) {
     }
 
     const shareToken = getShareTokenFromRequest(request);
+    const { data: session } = await auth.getSession();
+    const user = session?.user;
 
-    const access = await ensureDocumentAccess({
-      docId,
-      userId: user.id,
-      shareToken,
-    });
-    if (!access.canAccess) {
-      return NextResponse.json(
-        { error: "Forbidden." },
-        { status: 403, headers: NO_STORE_HEADERS },
-      );
+    let tokenUserId: string;
+    let tokenPermission: "view" | "edit";
+    let tokenEmail: string | null = null;
+    let tokenName: string | null = null;
+
+    if (user) {
+      const access = await ensureDocumentAccess({
+        docId,
+        userId: user.id,
+        shareToken,
+      });
+      if (!access.canAccess) {
+        return NextResponse.json(
+          { error: "Forbidden." },
+          { status: 403, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      tokenUserId = user.id;
+      tokenPermission = access.permission;
+      tokenEmail = user.email ?? null;
+      tokenName = user.name ?? null;
+    } else {
+      const publicAccess = await getPublicDocumentAccessByShareToken({
+        docId,
+        shareToken,
+      });
+      if (!publicAccess.canAccess) {
+        return NextResponse.json(
+          { error: "Unauthorized." },
+          { status: 401, headers: NO_STORE_HEADERS },
+        );
+      }
+
+      // Logged-out viewers with a share link are always read-only.
+      tokenUserId = `public:${docId}:${crypto.randomUUID()}`;
+      tokenPermission = "view";
+      tokenName = "Public Viewer";
     }
 
     const token = await issueShareDbWsAccessToken({
-      userId: user.id,
+      userId: tokenUserId,
       docId,
-      permission: access.permission,
-      email: user.email ?? null,
-      name: user.name ?? null,
+      permission: tokenPermission,
+      email: tokenEmail,
+      name: tokenName,
       ttlSeconds: WS_TOKEN_TTL_SECONDS,
     });
 

@@ -11,6 +11,7 @@ type DocumentShareLinkRow = {
   doc_id: string;
   share_token: string;
   is_active: boolean;
+  is_public?: boolean | null;
   permission?: string | null;
   created_by_user_id: string;
   created_at: Date | string;
@@ -50,6 +51,7 @@ export type DocumentShareLinkRecord = {
   docId: string;
   shareToken: string;
   isActive: boolean;
+  isPublic: boolean;
   permission: DocumentSharePermission;
   createdByUserId: string;
   createdAt: string;
@@ -116,6 +118,7 @@ const mapShareLinkRow = (
   docId: row.doc_id,
   shareToken: row.share_token,
   isActive: row.is_active,
+  isPublic: normalizePublicAccess(row.is_public),
   permission: normalizeSharePermission(row.permission),
   createdByUserId: row.created_by_user_id,
   createdAt: new Date(row.created_at).toISOString(),
@@ -136,7 +139,10 @@ const normalizeShareToken = (shareToken?: string | null) => {
 
 const normalizeSharePermission = (
   permission?: string | null,
-): DocumentSharePermission => (permission === "view" ? "view" : "edit");
+): DocumentSharePermission => (permission === "edit" ? "edit" : "view");
+
+const normalizePublicAccess = (isPublic?: boolean | null): boolean =>
+  isPublic === true;
 
 const SHAREDB_COLLECTION =
   process.env.SHAREDB_COLLECTION?.trim() || "spreadsheets";
@@ -1038,7 +1044,7 @@ const getActiveSharePermissionByDocumentId = async (
           AND is_active = TRUE
         LIMIT 1
       `;
-      return rows.length > 0 ? "edit" : null;
+      return rows.length > 0 ? "view" : null;
     }
     throw error;
   }
@@ -1050,12 +1056,19 @@ const getActiveShareLinkByToken = async ({
 }: {
   docId: string;
   shareToken: string;
-}): Promise<{ docId: string; permission: DocumentSharePermission } | null> => {
+}): Promise<
+  { docId: string; permission: DocumentSharePermission; isPublic: boolean } | null
+> => {
   try {
-    const rows = await db<{ doc_id: string; permission: string | null }[]>`
+    const rows = await db<{
+      doc_id: string;
+      permission: string | null;
+      is_public: boolean | null;
+    }[]>`
       SELECT
         doc_id,
-        permission
+        permission,
+        is_public
       FROM public.document_share_links
       WHERE doc_id = ${docId}
         AND is_active = TRUE
@@ -1067,23 +1080,49 @@ const getActiveShareLinkByToken = async ({
     return {
       docId: row.doc_id,
       permission: normalizeSharePermission(row.permission),
+      isPublic: normalizePublicAccess(row.is_public),
     };
   } catch (error) {
     if (isMissingColumnError(error)) {
-      const rows = await db<{ doc_id: string }[]>`
-        SELECT doc_id
-        FROM public.document_share_links
-        WHERE doc_id = ${docId}
-          AND is_active = TRUE
-          AND share_token = ${shareToken}
-        LIMIT 1
-      `;
-      const row = rows[0];
-      if (!row) return null;
-      return {
-        docId: row.doc_id,
-        permission: "edit",
-      };
+      try {
+        const rows = await db<{ doc_id: string; permission: string | null }[]>`
+          SELECT
+            doc_id,
+            permission
+          FROM public.document_share_links
+          WHERE doc_id = ${docId}
+            AND is_active = TRUE
+            AND share_token = ${shareToken}
+          LIMIT 1
+        `;
+        const row = rows[0];
+        if (!row) return null;
+        return {
+          docId: row.doc_id,
+          permission: normalizeSharePermission(row.permission),
+          isPublic: false,
+        };
+      } catch (innerError) {
+        if (!isMissingColumnError(innerError)) {
+          throw innerError;
+        }
+
+        const rows = await db<{ doc_id: string }[]>`
+          SELECT doc_id
+          FROM public.document_share_links
+          WHERE doc_id = ${docId}
+            AND is_active = TRUE
+            AND share_token = ${shareToken}
+          LIMIT 1
+        `;
+        const row = rows[0];
+        if (!row) return null;
+        return {
+          docId: row.doc_id,
+          permission: "view",
+          isPublic: false,
+        };
+      }
     }
     throw error;
   }
@@ -1111,7 +1150,7 @@ export async function ensureDocumentAccess({
   const hasPersistedAccess = await hasDocumentAccessGrant({ docId, userId });
   if (hasPersistedAccess) {
     const permission =
-      (await getActiveSharePermissionByDocumentId(docId)) ?? "edit";
+      (await getActiveSharePermissionByDocumentId(docId)) ?? "view";
     return {
       ...ownershipResult,
       canAccess: true,
@@ -1147,6 +1186,32 @@ export async function ensureDocumentAccess({
   };
 }
 
+export async function getPublicDocumentAccessByShareToken({
+  docId,
+  shareToken,
+}: {
+  docId: string;
+  shareToken?: string | null;
+}): Promise<{ canAccess: boolean; permission: DocumentSharePermission }> {
+  const normalizedToken = normalizeShareToken(shareToken);
+  if (!normalizedToken) {
+    return {
+      canAccess: false,
+      permission: "view",
+    };
+  }
+
+  const shareAccess = await getActiveShareLinkByToken({
+    docId,
+    shareToken: normalizedToken,
+  });
+
+  return {
+    canAccess: Boolean(shareAccess?.isPublic),
+    permission: shareAccess?.permission ?? "view",
+  };
+}
+
 export async function getOrCreateDocumentShareLink({
   docId,
   userId,
@@ -1165,6 +1230,7 @@ export async function getOrCreateDocumentShareLink({
         doc_id,
         share_token,
         is_active,
+        is_public,
         permission,
         created_by_user_id,
         created_at,
@@ -1186,6 +1252,7 @@ export async function getOrCreateDocumentShareLink({
         doc_id,
         share_token,
         is_active,
+        is_public,
         permission,
         created_by_user_id
       )
@@ -1193,13 +1260,15 @@ export async function getOrCreateDocumentShareLink({
         ${docId},
         ${nextShareToken},
         TRUE,
-        'edit',
+        FALSE,
+        'view',
         ${userId}
       )
       ON CONFLICT (doc_id) DO UPDATE
         SET
           share_token = EXCLUDED.share_token,
           is_active = TRUE,
+          is_public = COALESCE(public.document_share_links.is_public, EXCLUDED.is_public),
           permission = COALESCE(public.document_share_links.permission, EXCLUDED.permission),
           created_by_user_id = EXCLUDED.created_by_user_id,
           updated_at = NOW()
@@ -1207,6 +1276,7 @@ export async function getOrCreateDocumentShareLink({
         doc_id,
         share_token,
         is_active,
+        is_public,
         permission,
         created_by_user_id,
         created_at,
@@ -1224,59 +1294,124 @@ export async function getOrCreateDocumentShareLink({
       throw error;
     }
 
-    const existingRows = await db<DocumentShareLinkRow[]>`
-      SELECT
-        doc_id,
-        share_token,
-        is_active,
-        created_by_user_id,
-        created_at,
-        updated_at
-      FROM public.document_share_links
-      WHERE doc_id = ${docId}
-        AND is_active = TRUE
-      LIMIT 1
-    `;
-    const existingRow = existingRows[0];
-    if (existingRow) {
-      return mapShareLinkRow(existingRow);
+    try {
+      const existingRows = await db<DocumentShareLinkRow[]>`
+        SELECT
+          doc_id,
+          share_token,
+          is_active,
+          permission,
+          created_by_user_id,
+          created_at,
+          updated_at
+        FROM public.document_share_links
+        WHERE doc_id = ${docId}
+          AND is_active = TRUE
+        LIMIT 1
+      `;
+      const existingRow = existingRows[0];
+      if (existingRow) {
+        return mapShareLinkRow(existingRow);
+      }
+
+      const nextShareToken = crypto.randomUUID();
+      const upsertedRows = await db<DocumentShareLinkRow[]>`
+        INSERT INTO public.document_share_links (
+          doc_id,
+          share_token,
+          is_active,
+          permission,
+          created_by_user_id
+        )
+        VALUES (
+          ${docId},
+          ${nextShareToken},
+          TRUE,
+          'view',
+          ${userId}
+        )
+        ON CONFLICT (doc_id) DO UPDATE
+          SET
+            share_token = EXCLUDED.share_token,
+            is_active = TRUE,
+            permission = COALESCE(public.document_share_links.permission, EXCLUDED.permission),
+            created_by_user_id = EXCLUDED.created_by_user_id,
+            updated_at = NOW()
+        RETURNING
+          doc_id,
+          share_token,
+          is_active,
+          permission,
+          created_by_user_id,
+          created_at,
+          updated_at
+      `;
+
+      const row = upsertedRows[0];
+      if (!row) {
+        throw new Error("Failed to create a document share link.");
+      }
+
+      return mapShareLinkRow(row);
+    } catch (innerError) {
+      if (!isMissingColumnError(innerError)) {
+        throw innerError;
+      }
+
+      const existingRows = await db<DocumentShareLinkRow[]>`
+        SELECT
+          doc_id,
+          share_token,
+          is_active,
+          created_by_user_id,
+          created_at,
+          updated_at
+        FROM public.document_share_links
+        WHERE doc_id = ${docId}
+          AND is_active = TRUE
+        LIMIT 1
+      `;
+      const existingRow = existingRows[0];
+      if (existingRow) {
+        return mapShareLinkRow(existingRow);
+      }
+
+      const nextShareToken = crypto.randomUUID();
+      const upsertedRows = await db<DocumentShareLinkRow[]>`
+        INSERT INTO public.document_share_links (
+          doc_id,
+          share_token,
+          is_active,
+          created_by_user_id
+        )
+        VALUES (
+          ${docId},
+          ${nextShareToken},
+          TRUE,
+          ${userId}
+        )
+        ON CONFLICT (doc_id) DO UPDATE
+          SET
+            share_token = EXCLUDED.share_token,
+            is_active = TRUE,
+            created_by_user_id = EXCLUDED.created_by_user_id,
+            updated_at = NOW()
+        RETURNING
+          doc_id,
+          share_token,
+          is_active,
+          created_by_user_id,
+          created_at,
+          updated_at
+      `;
+
+      const row = upsertedRows[0];
+      if (!row) {
+        throw new Error("Failed to create a document share link.");
+      }
+
+      return mapShareLinkRow(row);
     }
-
-    const nextShareToken = crypto.randomUUID();
-    const upsertedRows = await db<DocumentShareLinkRow[]>`
-      INSERT INTO public.document_share_links (
-        doc_id,
-        share_token,
-        is_active,
-        created_by_user_id
-      )
-      VALUES (
-        ${docId},
-        ${nextShareToken},
-        TRUE,
-        ${userId}
-      )
-      ON CONFLICT (doc_id) DO UPDATE
-        SET
-          share_token = EXCLUDED.share_token,
-          is_active = TRUE,
-          created_by_user_id = EXCLUDED.created_by_user_id,
-          updated_at = NOW()
-      RETURNING
-        doc_id,
-        share_token,
-        is_active,
-        created_by_user_id,
-        created_at,
-        updated_at
-    `;
-
-    const row = upsertedRows[0];
-    if (!row) {
-      throw new Error("Failed to create a document share link.");
-    }
-
-    return mapShareLinkRow(row);
   }
 }
 
@@ -1298,6 +1433,7 @@ export async function getDocumentShareLinkState({
         doc_id,
         share_token,
         is_active,
+        is_public,
         permission,
         created_by_user_id,
         created_at,
@@ -1317,24 +1453,50 @@ export async function getDocumentShareLinkState({
       throw error;
     }
 
-    const rows = await db<DocumentShareLinkRow[]>`
-      SELECT
-        doc_id,
-        share_token,
-        is_active,
-        created_by_user_id,
-        created_at,
-        updated_at
-      FROM public.document_share_links
-      WHERE doc_id = ${docId}
-        AND is_active = TRUE
-      LIMIT 1
-    `;
-    const row = rows[0];
-    return {
-      isOwner: true,
-      shareLink: row ? mapShareLinkRow(row) : null,
-    };
+    try {
+      const rows = await db<DocumentShareLinkRow[]>`
+        SELECT
+          doc_id,
+          share_token,
+          is_active,
+          permission,
+          created_by_user_id,
+          created_at,
+          updated_at
+        FROM public.document_share_links
+        WHERE doc_id = ${docId}
+          AND is_active = TRUE
+        LIMIT 1
+      `;
+      const row = rows[0];
+      return {
+        isOwner: true,
+        shareLink: row ? mapShareLinkRow(row) : null,
+      };
+    } catch (innerError) {
+      if (!isMissingColumnError(innerError)) {
+        throw innerError;
+      }
+
+      const rows = await db<DocumentShareLinkRow[]>`
+        SELECT
+          doc_id,
+          share_token,
+          is_active,
+          created_by_user_id,
+          created_at,
+          updated_at
+        FROM public.document_share_links
+        WHERE doc_id = ${docId}
+          AND is_active = TRUE
+        LIMIT 1
+      `;
+      const row = rows[0];
+      return {
+        isOwner: true,
+        shareLink: row ? mapShareLinkRow(row) : null,
+      };
+    }
   }
 }
 
@@ -1402,6 +1564,7 @@ export async function updateDocumentSharePermission({
         doc_id,
         share_token,
         is_active,
+        is_public,
         permission,
         created_by_user_id
       )
@@ -1409,12 +1572,14 @@ export async function updateDocumentSharePermission({
         ${docId},
         ${nextShareToken},
         TRUE,
+        FALSE,
         ${normalizedPermission},
         ${userId}
       )
       ON CONFLICT (doc_id) DO UPDATE
         SET
           is_active = TRUE,
+          is_public = COALESCE(public.document_share_links.is_public, EXCLUDED.is_public),
           permission = EXCLUDED.permission,
           created_by_user_id = EXCLUDED.created_by_user_id,
           updated_at = NOW()
@@ -1422,6 +1587,7 @@ export async function updateDocumentSharePermission({
         doc_id,
         share_token,
         is_active,
+        is_public,
         permission,
         created_by_user_id,
         created_at,
@@ -1436,8 +1602,119 @@ export async function updateDocumentSharePermission({
     return mapShareLinkRow(row);
   } catch (error) {
     if (isMissingColumnError(error)) {
+      try {
+        const rows = await db<DocumentShareLinkRow[]>`
+          INSERT INTO public.document_share_links (
+            doc_id,
+            share_token,
+            is_active,
+            permission,
+            created_by_user_id
+          )
+          VALUES (
+            ${docId},
+            ${nextShareToken},
+            TRUE,
+            ${normalizedPermission},
+            ${userId}
+          )
+          ON CONFLICT (doc_id) DO UPDATE
+            SET
+              is_active = TRUE,
+              permission = EXCLUDED.permission,
+              created_by_user_id = EXCLUDED.created_by_user_id,
+              updated_at = NOW()
+          RETURNING
+            doc_id,
+            share_token,
+            is_active,
+            permission,
+            created_by_user_id,
+            created_at,
+            updated_at
+        `;
+
+        const row = rows[0];
+        if (!row) {
+          throw new Error("Failed to update document share permissions.");
+        }
+
+        return mapShareLinkRow(row);
+      } catch (innerError) {
+        if (isMissingColumnError(innerError)) {
+          throw new Error(
+            "Document share permissions are not initialized. Run the share-permissions migration.",
+          );
+        }
+        throw innerError;
+      }
+    }
+    throw error;
+  }
+}
+
+export async function updateDocumentSharePublicAccess({
+  docId,
+  userId,
+  isPublic,
+}: {
+  docId: string;
+  userId: string;
+  isPublic: boolean;
+}): Promise<DocumentShareLinkRecord | null> {
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  if (!ownershipResult.isOwner) {
+    return null;
+  }
+
+  const nextShareToken = crypto.randomUUID();
+
+  try {
+    const rows = await db<DocumentShareLinkRow[]>`
+      INSERT INTO public.document_share_links (
+        doc_id,
+        share_token,
+        is_active,
+        is_public,
+        permission,
+        created_by_user_id
+      )
+      VALUES (
+        ${docId},
+        ${nextShareToken},
+        TRUE,
+        ${isPublic},
+        'view',
+        ${userId}
+      )
+      ON CONFLICT (doc_id) DO UPDATE
+        SET
+          is_active = TRUE,
+          is_public = EXCLUDED.is_public,
+          permission = COALESCE(public.document_share_links.permission, EXCLUDED.permission),
+          created_by_user_id = EXCLUDED.created_by_user_id,
+          updated_at = NOW()
+      RETURNING
+        doc_id,
+        share_token,
+        is_active,
+        is_public,
+        permission,
+        created_by_user_id,
+        created_at,
+        updated_at
+    `;
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error("Failed to update public share access.");
+    }
+
+    return mapShareLinkRow(row);
+  } catch (error) {
+    if (isMissingColumnError(error)) {
       throw new Error(
-        "Document share permissions are not initialized. Run the share-permissions migration.",
+        "Public share access is not initialized. Run the public-share migration.",
       );
     }
     throw error;

@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 
 type ShareDocumentButtonProps = {
   documentId: string;
@@ -19,9 +20,13 @@ type ShareLinkResponse = {
   isActive?: boolean;
   wasActive?: boolean;
   shareUrl?: string;
+  isPublic?: boolean;
   permission?: SharePermission;
   error?: string;
 };
+
+const resolveSharePermission = (value: SharePermission | undefined) =>
+  value === "edit" ? "edit" : "view";
 
 export function ShareDocumentButton({
   documentId,
@@ -33,9 +38,12 @@ export function ShareDocumentButton({
     "load",
   );
   const [isUpdatingPermission, setIsUpdatingPermission] = React.useState(false);
+  const [isUpdatingPublicAccess, setIsUpdatingPublicAccess] =
+    React.useState(false);
   const [isUnsharing, setIsUnsharing] = React.useState(false);
   const [shareUrl, setShareUrl] = React.useState("");
-  const [permission, setPermission] = React.useState<SharePermission>("edit");
+  const [isPublic, setIsPublic] = React.useState(false);
+  const [permission, setPermission] = React.useState<SharePermission>("view");
   const [copied, setCopied] = React.useState(false);
   const [canNativeShare, setCanNativeShare] = React.useState(false);
 
@@ -63,9 +71,9 @@ export function ShareDocumentButton({
     }, 1800);
   }, []);
 
-  const createShareLink = React.useCallback(async () => {
+  const createShareLink = React.useCallback(async (): Promise<string | null> => {
     if (!canManageShare) {
-      return;
+      return null;
     }
 
     setLoadingAction("create");
@@ -93,13 +101,16 @@ export function ShareDocumentButton({
       }
 
       setShareUrl(nextShareUrl);
-      setPermission(payload?.permission === "view" ? "view" : "edit");
+      setIsPublic(payload?.isPublic === true);
+      setPermission(resolveSharePermission(payload?.permission));
+      return nextShareUrl;
     } catch (errorValue) {
       const message =
         errorValue instanceof Error
           ? errorValue.message
           : "Failed to create share link.";
       toast.error(message);
+      return null;
     } finally {
       setIsLoading(false);
     }
@@ -131,12 +142,14 @@ export function ShareDocumentButton({
 
       if (!hasActiveShareLink) {
         setShareUrl("");
-        setPermission(payload?.permission === "view" ? "view" : "edit");
+        setIsPublic(false);
+        setPermission(resolveSharePermission(payload?.permission));
         return;
       }
 
       setShareUrl(nextShareUrl);
-      setPermission(payload?.permission === "view" ? "view" : "edit");
+      setIsPublic(payload?.isPublic === true);
+      setPermission(resolveSharePermission(payload?.permission));
     } catch (errorValue) {
       const message =
         errorValue instanceof Error
@@ -204,6 +217,7 @@ export function ShareDocumentButton({
         !shareUrl ||
         isLoading ||
         isUpdatingPermission ||
+        isUpdatingPublicAccess ||
         isUnsharing
       ) {
         return;
@@ -235,7 +249,7 @@ export function ShareDocumentButton({
         if (payload?.shareUrl) {
           setShareUrl(payload.shareUrl.trim());
         }
-        setPermission(payload?.permission === "view" ? "view" : "edit");
+        setPermission(resolveSharePermission(payload?.permission));
         toast.success(
           nextPermission === "view"
             ? "Share permission set to Can view."
@@ -255,9 +269,92 @@ export function ShareDocumentButton({
       canManageShare,
       documentId,
       isLoading,
+      isUpdatingPublicAccess,
       isUnsharing,
       isUpdatingPermission,
       permission,
+      shareUrl,
+    ],
+  );
+
+  const updatePublicAccess = React.useCallback(
+    async (
+      nextIsPublic: boolean,
+      options?: { allowCreateOnEnable?: boolean },
+    ) => {
+      if (
+        !canManageShare ||
+        isLoading ||
+        isUpdatingPermission ||
+        isUpdatingPublicAccess ||
+        isUnsharing
+      ) {
+        return;
+      }
+      let hasShareLink = shareUrl.trim().length > 0;
+      if (
+        !hasShareLink &&
+        nextIsPublic &&
+        options?.allowCreateOnEnable === true
+      ) {
+        const createdShareUrl = await createShareLink();
+        hasShareLink = (createdShareUrl?.trim().length ?? 0) > 0;
+      }
+      if (!hasShareLink) {
+        return;
+      }
+      if (nextIsPublic === isPublic) {
+        return;
+      }
+
+      setIsUpdatingPublicAccess(true);
+      try {
+        const response = await fetch("/api/documents/share", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            documentId,
+            isPublic: nextIsPublic,
+          }),
+        });
+
+        const payload = (await response
+          .json()
+          .catch(() => null)) as ShareLinkResponse | null;
+        if (!response.ok) {
+          throw new Error(payload?.error || "Failed to update public access.");
+        }
+
+        if (payload?.shareUrl) {
+          setShareUrl(payload.shareUrl.trim());
+        }
+        setIsPublic(payload?.isPublic === true);
+        toast.success(
+          nextIsPublic
+            ? "Public access enabled."
+            : "Public access disabled.",
+        );
+      } catch (errorValue) {
+        const message =
+          errorValue instanceof Error
+            ? errorValue.message
+            : "Failed to update public access.";
+        toast.error(message);
+      } finally {
+        setIsUpdatingPublicAccess(false);
+      }
+    },
+    [
+      canManageShare,
+      createShareLink,
+      documentId,
+      isLoading,
+      isPublic,
+      isUnsharing,
+      isUpdatingPermission,
+      isUpdatingPublicAccess,
       shareUrl,
     ],
   );
@@ -268,6 +365,7 @@ export function ShareDocumentButton({
       !shareUrl ||
       isLoading ||
       isUpdatingPermission ||
+      isUpdatingPublicAccess ||
       isUnsharing
     ) {
       return;
@@ -292,7 +390,8 @@ export function ShareDocumentButton({
       }
 
       setShareUrl("");
-      setPermission("edit");
+      setIsPublic(false);
+      setPermission("view");
       toast.success("Sharing disabled.");
     } catch (errorValue) {
       const message =
@@ -307,6 +406,7 @@ export function ShareDocumentButton({
     canManageShare,
     documentId,
     isLoading,
+    isUpdatingPublicAccess,
     isUnsharing,
     isUpdatingPermission,
     shareUrl,
@@ -374,8 +474,8 @@ export function ShareDocumentButton({
                         Share Link
                       </p>
                       <p className="text-xs text-(--muted-foreground)">
-                        Anyone with this link can open this document. Permission
-                        controls whether they can edit.
+                        Share with link-based access. Use Public access to allow
+                        logged-out read-only viewing.
                       </p>
                     </div>
                     <button
@@ -405,6 +505,7 @@ export function ShareDocumentButton({
                           disabled={
                             !hasShareLink ||
                             isUpdatingPermission ||
+                            isUpdatingPublicAccess ||
                             isLoading ||
                             isUnsharing
                           }
@@ -422,6 +523,7 @@ export function ShareDocumentButton({
                           disabled={
                             !hasShareLink ||
                             isUpdatingPermission ||
+                            isUpdatingPublicAccess ||
                             isLoading ||
                             isUnsharing
                           }
@@ -437,13 +539,38 @@ export function ShareDocumentButton({
                             ? "Recipients can view but cannot edit."
                             : "Recipients can view and edit."}
                       </p>
+                      <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-2.5 py-2">
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-medium text-foreground">
+                            Allow public access
+                          </p>
+                          <p className="text-[11px] text-(--muted-foreground)">
+                            Logged-out users with the link can open in read-only mode.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={isPublic}
+                          onCheckedChange={(checked) => {
+                            void updatePublicAccess(checked === true, {
+                              allowCreateOnEnable: true,
+                            });
+                          }}
+                          disabled={
+                            isLoading ||
+                            isUpdatingPermission ||
+                            isUpdatingPublicAccess ||
+                            isUnsharing
+                          }
+                          aria-label="Allow public access"
+                        />
+                      </div>
                     </div>
                     <div className="relative">
                       <input
                         readOnly
                         value={shareUrl}
                         placeholder={inputPlaceholder}
-                        className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 pr-9 text-xs text-foreground outline-none"
+                        className="h-9 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 pr-11 text-xs text-foreground outline-none"
                       />
                       {isLoading ? (
                         <span className="pointer-events-none absolute inset-y-0 right-3 inline-flex items-center text-(--muted-foreground)">
@@ -468,7 +595,10 @@ export function ShareDocumentButton({
                             size="sm"
                             onClick={() => void createShareLink()}
                             disabled={
-                              isLoading || isUpdatingPermission || isUnsharing
+                              isLoading ||
+                              isUpdatingPermission ||
+                              isUpdatingPublicAccess ||
+                              isUnsharing
                             }
                             className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"
                           >
@@ -482,7 +612,10 @@ export function ShareDocumentButton({
                             variant="secondary"
                             onClick={() => void handleStopSharing()}
                             disabled={
-                              isLoading || isUpdatingPermission || isUnsharing
+                              isLoading ||
+                              isUpdatingPermission ||
+                              isUpdatingPublicAccess ||
+                              isUnsharing
                             }
                             className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
                           >
@@ -499,6 +632,7 @@ export function ShareDocumentButton({
                               !hasShareLink ||
                               isLoading ||
                               isUpdatingPermission ||
+                              isUpdatingPublicAccess ||
                               isUnsharing
                             }
                             className="h-8 rounded-lg border border-(--card-border) bg-(--assistant-chip-bg) px-3 text-xs font-medium shadow-none hover:bg-(--assistant-chip-hover)"
@@ -515,6 +649,7 @@ export function ShareDocumentButton({
                             !hasShareLink ||
                             isLoading ||
                             isUpdatingPermission ||
+                            isUpdatingPublicAccess ||
                             isUnsharing
                           }
                           className="h-8 rounded-lg bg-(--accent) px-3 text-xs text-(--accent-foreground) hover:bg-(--accent-strong)"

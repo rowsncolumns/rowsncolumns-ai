@@ -6,6 +6,7 @@ import {
   deactivateDocumentShareLink,
   getDocumentShareLinkState,
   getOrCreateDocumentShareLink,
+  updateDocumentSharePublicAccess,
   updateDocumentSharePermission,
 } from "@/lib/documents/repository";
 
@@ -20,14 +21,25 @@ const createShareLinkSchema = z.object({
     .max(200, "documentId is too long."),
 });
 
-const updateSharePermissionSchema = z.object({
-  documentId: z
-    .string()
-    .trim()
-    .min(1, "documentId is required.")
-    .max(200, "documentId is too long."),
-  permission: z.enum(["view", "edit"]),
-});
+const updateShareSettingsSchema = z
+  .object({
+    documentId: z
+      .string()
+      .trim()
+      .min(1, "documentId is required.")
+      .max(200, "documentId is too long."),
+    permission: z.enum(["view", "edit"]).optional(),
+    isPublic: z.boolean().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.permission === undefined && value.isPublic === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "permission or isPublic is required.",
+        path: ["permission"],
+      });
+    }
+  });
 
 export async function GET(request: Request) {
   try {
@@ -61,6 +73,8 @@ export async function GET(request: Request) {
     if (!state.shareLink) {
       return NextResponse.json({
         isActive: false,
+        isPublic: false,
+        permission: "view",
       });
     }
 
@@ -71,6 +85,7 @@ export async function GET(request: Request) {
       shareUrl,
       shareToken: state.shareLink.shareToken,
       isActive: state.shareLink.isActive,
+      isPublic: state.shareLink.isPublic,
       permission: state.shareLink.permission,
     });
   } catch (error) {
@@ -114,6 +129,7 @@ export async function POST(request: Request) {
       shareUrl,
       shareToken: shareLink.shareToken,
       isActive: shareLink.isActive,
+      isPublic: shareLink.isPublic,
       permission: shareLink.permission,
     });
   } catch (error) {
@@ -170,21 +186,31 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json().catch(() => null);
-    const parsed = updateSharePermissionSchema.safeParse(body);
+    const parsed = updateShareSettingsSchema.safeParse(body);
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message ?? "Invalid request.";
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    const shareLink = await updateDocumentSharePermission({
-      docId: parsed.data.documentId,
-      userId,
-      permission: parsed.data.permission,
-    });
+    let shareLink = null;
+    if (parsed.data.permission !== undefined) {
+      shareLink = await updateDocumentSharePermission({
+        docId: parsed.data.documentId,
+        userId,
+        permission: parsed.data.permission,
+      });
+    }
+    if (parsed.data.isPublic !== undefined) {
+      shareLink = await updateDocumentSharePublicAccess({
+        docId: parsed.data.documentId,
+        userId,
+        isPublic: parsed.data.isPublic,
+      });
+    }
 
     if (!shareLink) {
       return NextResponse.json(
-        { error: "Only the document owner can update sharing permissions." },
+        { error: "Only the document owner can update sharing settings." },
         { status: 403 },
       );
     }
@@ -196,6 +222,7 @@ export async function PATCH(request: Request) {
       shareUrl,
       shareToken: shareLink.shareToken,
       isActive: shareLink.isActive,
+      isPublic: shareLink.isPublic,
       permission: shareLink.permission,
     });
   } catch (error) {

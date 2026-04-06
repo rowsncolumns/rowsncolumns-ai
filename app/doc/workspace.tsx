@@ -1376,9 +1376,7 @@ function SpreadsheetPane({
       />
       <Toolbar
         enableFloating
-        className={`rnc-workspace-toolbar rounded-tl-xl rounded-tr-xl ${
-          canEdit ? "" : "pointer-events-none opacity-70"
-        }`}
+        className={`rnc-workspace-toolbar rounded-tl-xl rounded-tr-xl`}
       >
         <FileMenu
           onImportExcel={handleImportExcel}
@@ -1755,11 +1753,7 @@ function SpreadsheetPane({
         </IconButton>
       </Toolbar>
 
-      <FormulaBar
-        className={`rnc-workspace-formula-bar ${
-          canEdit ? "" : "pointer-events-none"
-        }`}
-      >
+      <FormulaBar className={`rnc-workspace-formula-bar`}>
         <RangeSelector
           selections={selections}
           activeCell={activeCell}
@@ -2482,6 +2476,7 @@ export function NewWorkspace({
   const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
   const [showAssistantBubbleEntrance, setShowAssistantBubbleEntrance] =
     useState(false);
+  const isPublicAnonymousViewer = currentUser.id.startsWith("public:");
   const [assistantSheetContext, setAssistantSheetContext] = useState<{
     sheets: Sheet[];
     activeSheetId: number;
@@ -2606,18 +2601,20 @@ export function NewWorkspace({
     />
   );
 
+  const headerInitialUser = isPublicAnonymousViewer
+    ? undefined
+    : {
+        id: currentUser.id,
+        name: currentUser.name,
+        email: currentUser.email,
+        image: currentUser.image,
+      };
+
   return (
     <AssistantRuntimeProvider runtime={assistantRuntime.runtime}>
       <main className="rnc-workspace-page flex h-[100svh] w-full flex-col overflow-hidden px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-dvh sm:px-5 sm:pt-5 sm:pb-5">
         <div className="rnc-workspace-site-header mb-4">
-          <SiteHeader
-            initialUser={{
-              id: currentUser.id,
-              name: currentUser.name,
-              email: currentUser.email,
-              image: currentUser.image,
-            }}
-          />
+          <SiteHeader initialUser={headerInitialUser} />
         </div>
         <DocumentTitleInlineEditor
           documentId={documentId}

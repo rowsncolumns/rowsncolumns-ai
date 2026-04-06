@@ -108,10 +108,14 @@ function ThemeToggleButton() {
 export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
   const { data: sessionData } = authClient.useSession();
   const pathname = usePathname() ?? "/";
-  const user = sessionData?.user ?? initialUser;
+  const resolvedUser = sessionData?.user ?? initialUser;
+  const isPseudoPublicUser =
+    resolvedUser?.id?.startsWith("public:") === true ||
+    resolvedUser?.id?.startsWith("mcp-") === true ||
+    (resolvedUser?.name === "Public Viewer" && !resolvedUser?.email);
+  const user = isPseudoPublicUser ? undefined : resolvedUser;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const navigationItems = user ? authenticatedSiteNavigation : siteNavigation;
-
   return (
     <>
       <header className="rnc-site-header relative rounded-xl border p-3 backdrop-blur sm:rounded-[18px] sm:p-4 md:p-5">

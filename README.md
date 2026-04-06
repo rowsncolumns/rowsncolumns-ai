@@ -190,6 +190,8 @@ Track document ownership (`doc_id -> user_id`) in Neon:
 ```bash
 yarn db:migrate:documents
 yarn db:migrate:document-shares
+yarn db:migrate:document-share-permissions
+yarn db:migrate:document-share-public-access
 ```
 
 ## Auth Cookie Compatibility (Excel Taskpane)

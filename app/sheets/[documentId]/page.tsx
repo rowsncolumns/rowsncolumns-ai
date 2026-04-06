@@ -7,6 +7,7 @@ import { isAdminUser } from "@/lib/auth/admin";
 import { getUserBillingEntitlement } from "@/lib/billing/repository";
 import {
   documentExists,
+  getPublicDocumentAccessByShareToken,
   ensureDocumentAccess,
   ensureDocumentMetadata,
 } from "@/lib/documents/repository";
@@ -44,6 +45,17 @@ const getRequestCountryCode = (headerStore: Headers): string | null =>
   headerStore.get("x-country-code") ??
   headerStore.get("x-appengine-country");
 
+const createPublicViewerIdentity = (documentId: string) => {
+  const sessionId = crypto.randomUUID();
+  const shortId = sessionId.slice(0, 6).toUpperCase();
+  return {
+    id: `public:${documentId}:${sessionId}`,
+    name: `User ${shortId}`,
+    email: null,
+    image: null,
+  };
+};
+
 export async function generateMetadata({
   params,
 }: Pick<PageProps, "params">): Promise<Metadata> {
@@ -66,25 +78,10 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
     : `/sheets/${documentId}`;
 
   const session = await getServerSessionSafe();
-  if (!session?.user) {
-    redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
-  }
 
   if (!(await documentExists(documentId))) {
     notFound();
   }
-
-  const access = await ensureDocumentAccess({
-    docId: documentId,
-    userId: session.user.id,
-    shareToken,
-  });
-
-  if (!access.canAccess) {
-    notFound();
-  }
-
-  const documentMetadata = await ensureDocumentMetadata({ docId: documentId });
 
   const cookieStore = await cookies();
   const headerStore = await headers();
@@ -106,6 +103,56 @@ export default async function SheetPage({ params, searchParams }: PageProps) {
   const initialIsMobileLayout =
     secChUaMobile === "?1" ||
     (secChUaMobile === null && MOBILE_USER_AGENT_REGEX.test(userAgent));
+
+  if (!session?.user) {
+    if (!shareToken?.trim()) {
+      redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
+    }
+
+    const publicAccess = await getPublicDocumentAccessByShareToken({
+      docId: documentId,
+      shareToken,
+    });
+    if (!publicAccess.canAccess) {
+      notFound();
+    }
+
+    const documentMetadata = await ensureDocumentMetadata({ docId: documentId });
+
+    return (
+      <>
+        <NewBodyClass />
+        <NewWorkspace
+          defaultLayout={defaultLayout}
+          documentId={documentId}
+          initialDocumentTitle={documentMetadata.title}
+          canManageShare={false}
+          canEdit={false}
+          canUseAuditHistory={false}
+          initialThemeMode={initialThemeMode}
+          initialAssistantCollapsed={initialAssistantCollapsed}
+          initialIsMobileLayout={initialIsMobileLayout}
+          isAdmin={false}
+          locale={locale}
+          currency={currency}
+          currentUser={createPublicViewerIdentity(documentId)}
+        />
+      </>
+    );
+  }
+
+  const access = await ensureDocumentAccess({
+    docId: documentId,
+    userId: session.user.id,
+    shareToken,
+  });
+
+  if (!access.canAccess) {
+    notFound();
+  }
+
+  const documentMetadata = await ensureDocumentMetadata({ docId: documentId });
+
   const isAdmin = isAdminUser({
     id: session.user.id,
     email: session.user.email,
