@@ -82,7 +82,7 @@ export function SheetsFilterPicker({
     <>
       <span
         className={`text-xs font-semibold text-(--muted-foreground) ${
-          hideLabelOnMobile ? "hidden sm:inline" : ""
+          hideLabelOnMobile ? "hidden sm:!inline" : ""
         }`}
       >
         View

@@ -205,7 +205,7 @@ export function AuthModalTrigger({
           {showIconOnMobile ? (
             <>
               <User className="h-4 w-4 sm:hidden" />
-              <span className="hidden sm:inline">{resolvedTriggerText}</span>
+              <span className="hidden sm:!inline">{resolvedTriggerText}</span>
             </>
           ) : (
             resolvedTriggerText
@@ -221,7 +221,7 @@ export function AuthModalTrigger({
         >
           <>
             <span className="sm:hidden">{resolvedMobileTriggerText}</span>
-            <span className="hidden sm:inline">{resolvedTriggerText}</span>
+            <span className="hidden sm:!inline">{resolvedTriggerText}</span>
           </>
         </Button>
       )}
