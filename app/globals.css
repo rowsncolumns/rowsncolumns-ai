@@ -1,7 +1,5 @@
 @import "tailwindcss";
 
-@import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
-
 :root {
   --background: #f6efe6;
   --foreground: #111827;

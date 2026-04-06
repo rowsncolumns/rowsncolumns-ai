@@ -1,5 +1,3 @@
-import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
-
 import { NewBodyClass } from "@/app/doc/body-class";
 
 export default function McpDocLayout({
