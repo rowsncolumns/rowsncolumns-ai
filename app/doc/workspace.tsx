@@ -1,5 +1,4 @@
 "use client";
-import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css";
 import { functionDescriptions, functions } from "@rowsncolumns/functions";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
