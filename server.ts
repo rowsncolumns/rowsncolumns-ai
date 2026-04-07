@@ -37,6 +37,23 @@ loadEnv({
   override: false,
   quiet: true,
 });
+
+const sanitizeDatabaseUrl = (connectionString: string): string => {
+  try {
+    const parsed = new URL(connectionString);
+    parsed.searchParams.delete("sslmode");
+    parsed.searchParams.delete("sslrootcert");
+    parsed.searchParams.delete("uselibpqcompat");
+    return parsed.toString();
+  } catch {
+    return connectionString;
+  }
+};
+
+if (process.env.PGSSLROOTCERT?.trim().toLowerCase() === "system") {
+  // Some providers expose PGSSLROOTCERT=system, which breaks Node pg TLS.
+  delete process.env.PGSSLROOTCERT;
+}
 const shareDbDatabaseUrl =
   process.env.SHAREDB_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -45,9 +62,10 @@ if (!shareDbDatabaseUrl) {
     "Missing SHAREDB_DATABASE_URL/DATABASE_URL for ShareDB server.",
   );
 }
-const SHAREDB_DATABASE_URL: string = shareDbDatabaseUrl;
+const SHAREDB_DATABASE_URL: string = sanitizeDatabaseUrl(shareDbDatabaseUrl);
 
 const SHAREDB_REQUIRE_SSL = process.env.SHAREDB_REQUIRE_SSL !== "false";
+const SHAREDB_SSL_REJECT_UNAUTHORIZED = process.env.SHAREDB_SSL_REJECT_UNAUTHORIZED === "true";
 const parsePositiveInt = (value: string | undefined, fallback: number) => {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
@@ -1205,9 +1223,6 @@ async function startServer() {
     );
   }
 
-  const shouldForceSsl =
-    SHAREDB_REQUIRE_SSL && !/sslmode=/i.test(SHAREDB_DATABASE_URL);
-
   const db = createShareDBPostgres({
     connectionString: SHAREDB_DATABASE_URL,
     max: SHAREDB_PG_MAX_POOL_SIZE,
@@ -1218,7 +1233,9 @@ async function startServer() {
       : {}),
     keepAlive: SHAREDB_PG_KEEP_ALIVE,
     keepAliveInitialDelayMillis: SHAREDB_PG_KEEP_ALIVE_INITIAL_DELAY_MS,
-    ...(shouldForceSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+    ...(SHAREDB_REQUIRE_SSL
+      ? { ssl: { rejectUnauthorized: SHAREDB_SSL_REJECT_UNAUTHORIZED } }
+      : {}),
   }) as never;
 
   const pubsub: ShareDB.PubSub | undefined = (() => {

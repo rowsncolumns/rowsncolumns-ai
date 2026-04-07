@@ -1,5 +1,9 @@
 # Cross-Subdomain Authentication
 
+> Legacy doc: this file describes the old Neon Auth flow.  
+> Current auth stack uses Better Auth (`/api/auth/*`) with `BETTER_AUTH_URL` / `CHAT_AUTH_BASE_URL`.
+> See [README](../README.md) for current configuration.
+
 This document explains how authentication works between the main app (`rowsncolumns.ai`) and the chat server (`chat.rowsncolumns.ai`).
 
 ## Overview

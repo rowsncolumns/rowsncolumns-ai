@@ -95,15 +95,25 @@ const CHAT_SSE_HEARTBEAT_INTERVAL_MS = Math.max(
 );
 
 const normalizeAuthBaseUrl = () => {
-  const raw = process.env.NEON_AUTH_BASE_URL?.trim();
+  const raw =
+    process.env.CHAT_AUTH_BASE_URL?.trim() ??
+    process.env.BETTER_AUTH_URL?.trim();
   if (!raw) {
-    throw new Error("Missing NEON_AUTH_BASE_URL for Render chat server.");
+    throw new Error(
+      "Missing CHAT_AUTH_BASE_URL or BETTER_AUTH_URL for Render chat server.",
+    );
   }
   return raw.replace(/\/+$/, "");
 };
 
 const AUTH_BASE_URL = normalizeAuthBaseUrl();
 const AUTH_BASE_ORIGIN = new URL(AUTH_BASE_URL).origin;
+const AUTH_BASE_PATH = (
+  process.env.CHAT_AUTH_BASE_PATH?.trim() || "/api/auth"
+).replace(/\/+$/, "");
+const AUTH_API_BASE = AUTH_BASE_PATH.startsWith("/")
+  ? `${AUTH_BASE_URL}${AUTH_BASE_PATH}`
+  : `${AUTH_BASE_URL}/${AUTH_BASE_PATH}`;
 const CHAT_AUTH_JWKS_URL = process.env.CHAT_AUTH_JWKS_URL?.trim() || undefined;
 const CHAT_AUTH_EXPECTED_ISSUER =
   process.env.CHAT_AUTH_EXPECTED_ISSUER?.trim() || AUTH_BASE_ORIGIN;
@@ -283,7 +293,7 @@ const verifyTokenViaVerifyJwtEndpoint = async (
   token: string,
 ): Promise<JwtPayloadLike | null> => {
   try {
-    const response = await fetch(`${AUTH_BASE_URL}/verify-jwt`, {
+    const response = await fetch(`${AUTH_API_BASE}/verify-jwt`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -326,7 +336,7 @@ const tryGetSessionFromCookieName = async (
   token: string,
 ): Promise<SessionIntrospectionResult> => {
   try {
-    const response = await fetch(`${AUTH_BASE_URL}/get-session`, {
+    const response = await fetch(`${AUTH_API_BASE}/get-session`, {
       method: "GET",
       headers: {
         Cookie: `${cookieName}=${encodeURIComponent(token)}`,
@@ -351,6 +361,8 @@ const verifyTokenViaSessionIntrospection = async (
   token: string,
 ): Promise<AuthIdentity | null> => {
   const cookieNames = [
+    "__Secure-better-auth.session_token",
+    "better-auth.session_token",
     "__Secure-neon-auth.session_token",
     "neon-auth.session_token",
     "session_token",
@@ -482,6 +494,8 @@ const getSessionTokenFromCookies = (
 
   // Try different cookie names in order of preference
   const cookieNames = [
+    "__Secure-better-auth.session_token",
+    "better-auth.session_token",
     "__Secure-neon-auth.session_token",
     "neon-auth.session_token",
     "session_token",

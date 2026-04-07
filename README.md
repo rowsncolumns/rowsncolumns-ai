@@ -42,8 +42,8 @@ NEXT_PUBLIC_CHAT_API_BASE_URL=https://chat.rowsncolumns.ai
 NEXT_PUBLIC_CHAT_API_PATH=/chat
 ```
 
-When `NEXT_PUBLIC_CHAT_API_BASE_URL` is set, the browser calls Render chat directly with a bearer token from Neon auth.
-The token used is the Neon session token (`getSession().session.token`), and Render validates it via Neon `/get-session`.
+When `NEXT_PUBLIC_CHAT_API_BASE_URL` is set, the browser calls Render chat directly.
+Render chat validates Better Auth sessions via `/api/auth/get-session` on your auth host.
 Client payload includes only `threadId`, `docId`, and `message`.
 
 ### Chat service (Render)
@@ -67,8 +67,10 @@ CHAT_REASONING_ENABLED=false
 # Optional fixed server-side instructions (never sent by browser)
 CHAT_SYSTEM_INSTRUCTIONS=
 
-# Required auth backend URL (same value used by Next.js auth server)
-NEON_AUTH_BASE_URL=
+# Required auth backend URL for session introspection
+# Falls back to BETTER_AUTH_URL when omitted.
+CHAT_AUTH_BASE_URL=
+CHAT_AUTH_BASE_PATH=/api/auth
 
 # Reuse existing app runtime envs:
 DATABASE_URL=
@@ -145,14 +147,14 @@ yarn stripe:migrate:pro-35
 yarn stripe:migrate:pro-35 --apply
 ```
 
-## ShareDB On Postgres (Neon)
+## ShareDB On Postgres
 
 ShareDB server storage uses PostgreSQL.
 
 Set in `.env.local`:
 
 ```bash
-# Recommended: Neon Postgres URL
+# Recommended: Postgres URL
 SHAREDB_DATABASE_URL=
 
 # Optional fallback used when SHAREDB_DATABASE_URL is missing
@@ -185,7 +187,7 @@ yarn db:migrate:sharedb
 
 ## Document Ownership Mapping
 
-Track document ownership (`doc_id -> user_id`) in Neon:
+Track document ownership (`doc_id -> user_id`) in Postgres:
 
 ```bash
 yarn db:migrate:documents
@@ -194,49 +196,36 @@ yarn db:migrate:document-share-permissions
 yarn db:migrate:document-share-public-access
 ```
 
-## Auth Cookie Compatibility (Excel Taskpane)
+## Better Auth
 
-Excel taskpane runs inside a third-party iframe, so auth cookies must preserve upstream `SameSite=None; Secure` attributes (and optionally `Partitioned`) for OAuth/session continuity.
-
-This app applies compatibility at app boundaries (not in `node_modules`):
-
-- Utility: `lib/auth/cookie-compat.ts`
-- API boundary: `app/api/auth/[...path]/route.ts`
-- Middleware boundary: `proxy.ts`
-
-Compatibility rules:
-
-- Default (web Safari): normalize Neon auth cookies for Safari compatibility
-  - remove `Partitioned`
-  - rewrite `SameSite=None` to `SameSite=Lax`
-- Taskpane iframe flows: preserve upstream `Set-Cookie` attributes unchanged
-  - enabled via `cookieCompat=preserve` on callback URLs
-
-Notes:
-
-- `/auth/callback` remains simple (handles explicit OAuth error params; otherwise redirects to `redirectTo`)
-- OAuth verifier exchange remains middleware-driven
-- No polling/retry logic and no SDK monkey patching
-
-Quick validation:
+Set these auth env vars in `.env.local` (and in Vercel/Render):
 
 ```bash
-# local
-curl -i -X POST 'http://localhost:3000/api/auth/sign-in/social' \
-  -H 'content-type: application/json' \
-  --data '{"provider":"google","callbackURL":"/auth/callback?redirectTo=%2Fdoc","disableRedirect":true}'
+BETTER_AUTH_URL=https://your-domain.com
+BETTER_AUTH_SECRET=your-strong-secret
 
-# production
-curl -i -X POST 'https://rowsncolumns.ai/api/auth/sign-in/social' \
-  -H 'content-type: application/json' \
-  -H 'origin: https://rowsncolumns.ai' \
-  --data '{"provider":"google","callbackURL":"/auth/callback?redirectTo=%2Fdoc","disableRedirect":true}'
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
 ```
 
-Expected `Set-Cookie` for Neon auth cookies:
+Generate/migrate Better Auth tables:
 
-- Web Safari flow: contains `SameSite=Lax`, does not contain `Partitioned`
-- Taskpane flow (`cookieCompat=preserve`): preserves upstream attributes exactly
+```bash
+yarn db:migrate:auth
+```
+
+For a fresh schema-only setup (no data migration), run:
+
+```bash
+yarn db:migrate:schema
+```
+
+For full provider cutover steps (including optional template/user-document data
+migration scripts), see:
+
+- `docs/postgres-provider-migration.md`
 
 ## Getting Started
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { SignInSubmitButton } from "./sign-in-submit-button";
+import { SiteFooter } from "@/components/site-footer";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -64,7 +65,10 @@ export default async function SignInPage({
       <section className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-5 py-5 sm:px-8 sm:py-7 lg:px-12">
         <header className="hero-grid rounded-2xl border border-(--card-border) bg-(--card-bg) p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2 rounded-xl border border-(--panel-border) bg-(--card-bg-solid) px-3 py-2.5 sm:gap-4 sm:px-4 sm:py-3">
-            <Link href="/" className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
+            <Link
+              href="/"
+              className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3"
+            >
               <Image
                 src="/logo-square.png"
                 alt="RowsnColumns AI logo"
@@ -194,6 +198,7 @@ export default async function SignInPage({
               </div>
             </div>
           </div>
+          <SiteFooter className="px-0 sm:px-0 lg:px-0" />
         </section>
       </section>
     </main>

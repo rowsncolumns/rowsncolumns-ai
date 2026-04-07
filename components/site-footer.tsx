@@ -3,12 +3,17 @@ import { cn } from "@/lib/utils";
 
 type SiteFooterProps = {
   fullWidth?: boolean;
+  className?: string;
 };
 
-export function SiteFooter({ fullWidth = false }: SiteFooterProps) {
+export function SiteFooter({ fullWidth = false, className }: SiteFooterProps) {
   return (
     <footer
-      className={cn("px-5 pb-10 pt-4 sm:px-8 lg:px-12", fullWidth && "px-4")}
+      className={cn(
+        "px-5 pb-10 pt-4 sm:px-8 lg:px-12",
+        fullWidth && "px-4",
+        className,
+      )}
     >
       <div
         className={`flex flex-col gap-4 rounded-[18px] border border-(--card-border) bg-(--card-bg) px-6 py-5 text-sm text-(--muted-foreground) md:flex-row md:items-center md:justify-between ${

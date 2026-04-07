@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 import { Github, Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
-import { withCookieCompatCallbackURL } from "@/lib/auth/cookie-compat-client";
 
 type Provider = "google" | "github";
 
@@ -31,9 +30,7 @@ function GoogleBadge() {
 }
 
 function callbackURLFromPath(path: string): string {
-  return withCookieCompatCallbackURL(
-    `/auth/callback?redirectTo=${encodeURIComponent(path)}`,
-  );
+  return `/auth/callback?redirectTo=${encodeURIComponent(path)}`;
 }
 
 export function SignInSubmitButton({
