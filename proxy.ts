@@ -16,6 +16,5 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  runtime: "nodejs",
   matcher: ["/doc/:path*", "/account/:path*"],
 };
