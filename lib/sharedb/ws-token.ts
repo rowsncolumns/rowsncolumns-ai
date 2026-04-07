@@ -6,6 +6,7 @@ export type ShareDbWsAccessClaims = {
   kind: "sharedb_ws_access";
   userId: string;
   docId: string;
+  organizationId?: string;
   permission: ShareDbWsTokenPermission;
   email?: string | null;
   name?: string | null;
@@ -53,6 +54,7 @@ const normalizeOptionalString = (value: string | null | undefined) => {
 export async function issueShareDbWsAccessToken(input: {
   userId: string;
   docId: string;
+  organizationId?: string | null;
   permission: ShareDbWsTokenPermission;
   email?: string | null;
   name?: string | null;
@@ -75,6 +77,7 @@ export async function issueShareDbWsAccessToken(input: {
       : DEFAULT_TTL_SECONDS;
   const normalizedEmail = normalizeOptionalString(input.email);
   const normalizedName = normalizeOptionalString(input.name);
+  const normalizedOrganizationId = normalizeOptionalString(input.organizationId);
   const { issuer, audience } = getWsTokenConfig();
 
   const claims: ShareDbWsAccessClaims = {
@@ -82,6 +85,9 @@ export async function issueShareDbWsAccessToken(input: {
     userId,
     docId,
     permission: input.permission === "view" ? "view" : "edit",
+    ...(normalizedOrganizationId
+      ? { organizationId: normalizedOrganizationId }
+      : {}),
     ...(normalizedEmail ? { email: normalizedEmail } : {}),
     ...(normalizedName ? { name: normalizedName } : {}),
   };
@@ -128,6 +134,10 @@ export async function verifyShareDbWsAccessToken(
       userId: payload.userId.trim(),
       docId: payload.docId.trim(),
       permission,
+      ...(typeof payload.organizationId === "string" &&
+      payload.organizationId.trim().length > 0
+        ? { organizationId: payload.organizationId.trim() }
+        : {}),
       ...(typeof payload.email === "string" && payload.email.trim().length > 0
         ? { email: payload.email.trim() }
         : {}),

@@ -729,7 +729,11 @@ export const executeChatRunStream = async (input: {
     await withShareDbRuntimeContext(
       {
         mcpTokenFactory: ({ docId, permission }) =>
-          issueMcpShareDbAccessToken({ docId, permission }),
+          issueMcpShareDbAccessToken({
+            docId,
+            permission,
+            organizationId: input.organizationId,
+          }),
         ...(input.shareDbWsHeaders
           ? { wsHeaders: input.shareDbWsHeaders }
           : {}),

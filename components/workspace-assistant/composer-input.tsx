@@ -50,6 +50,7 @@ type AssistantComposerInputProps = {
   value: string;
   placeholder: string;
   readOnly?: boolean;
+  richTextEnabled?: boolean;
   mentionOptions: ComposerMentionOption[];
   onSearchMentions?: (query: string) => Promise<ComposerMentionOption[]>;
   onChange: (value: string) => void;
@@ -608,7 +609,79 @@ const createMentionSuggestion = ({
   };
 };
 
-export function AssistantComposerInput({
+function PlainAssistantComposerInput({
+  value,
+  placeholder,
+  readOnly = false,
+  onChange,
+  onSubmit,
+  onPasteFiles,
+}: Pick<
+  AssistantComposerInputProps,
+  "value" | "placeholder" | "readOnly" | "onChange" | "onSubmit" | "onPasteFiles"
+>) {
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (readOnly) {
+        event.preventDefault();
+        return;
+      }
+      if (event.nativeEvent.isComposing) {
+        return;
+      }
+      if (event.key !== "Enter" || event.shiftKey) {
+        return;
+      }
+      event.preventDefault();
+      onSubmit();
+    },
+    [onSubmit, readOnly],
+  );
+
+  const handlePaste = React.useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (readOnly) {
+        return;
+      }
+      const pastedFiles = Array.from(event.clipboardData.items)
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+
+      if (pastedFiles.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      onPasteFiles?.(pastedFiles);
+    },
+    [onPasteFiles, readOnly],
+  );
+
+  return (
+    <div className="relative min-h-12 sm:min-h-16">
+      <textarea
+        value={value}
+        readOnly={readOnly}
+        rows={2}
+        aria-label="Message"
+        placeholder={placeholder}
+        data-composer-input="true"
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        onChange={(event) => onChange(normalizeComposerValue(event.target.value))}
+        className={cn(
+          "min-h-12 sm:min-h-16 w-full resize-none px-0 py-0 leading-6 text-[16px] sm:text-sm text-foreground outline-none bg-transparent",
+          readOnly && "cursor-not-allowed opacity-70",
+        )}
+      />
+      <div className="pointer-events-none absolute inset-0 rounded-md ring-0 transition" />
+    </div>
+  );
+}
+
+function RichAssistantComposerInput({
   value,
   placeholder,
   readOnly = false,
@@ -984,4 +1057,21 @@ export function AssistantComposerInput({
       <div className="pointer-events-none absolute inset-0 rounded-md ring-0 transition" />
     </div>
   );
+}
+
+export function AssistantComposerInput(props: AssistantComposerInputProps) {
+  if (props.richTextEnabled === false) {
+    return (
+      <PlainAssistantComposerInput
+        value={props.value}
+        placeholder={props.placeholder}
+        readOnly={props.readOnly}
+        onChange={props.onChange}
+        onSubmit={props.onSubmit}
+        onPasteFiles={props.onPasteFiles}
+      />
+    );
+  }
+
+  return <RichAssistantComposerInput {...props} />;
 }

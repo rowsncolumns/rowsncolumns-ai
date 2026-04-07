@@ -3826,6 +3826,7 @@ function AssistantComposer({
   contextUsage,
   threadId,
   isReadOnly = false,
+  isLoggedOut = false,
   forceCompactHeader = false,
   hasCredits,
   panelImageDrop,
@@ -4942,6 +4943,7 @@ function AssistantComposer({
           value={composerText}
           placeholder="Type to start sending a message"
           readOnly={isReadOnly}
+          richTextEnabled={!isLoggedOut}
           mentionOptions={mentionOptions}
           onSearchMentions={searchMentionOptions}
           onChange={handleComposerTextChange}
@@ -5607,6 +5609,7 @@ function WorkspaceAssistantPanel({
                   contextUsage={contextUsage}
                   threadId={threadId}
                   isReadOnly={isReadOnly}
+                  isLoggedOut={isLoggedOut}
                   forceCompactHeader={forceCompactHeader}
                   hasCredits={hasCredits}
                   panelImageDrop={panelImageDrop}

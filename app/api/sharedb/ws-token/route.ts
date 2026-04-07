@@ -53,6 +53,7 @@ export async function GET(request: Request) {
 
     let tokenUserId: string;
     let tokenPermission: "view" | "edit";
+    let tokenOrganizationId: string | null = null;
     let tokenEmail: string | null = null;
     let tokenName: string | null = null;
 
@@ -83,8 +84,10 @@ export async function GET(request: Request) {
         }
 
         const isReadOnlyTemplateView = isPublicTemplate && !access.isOwner;
+        const isShareLinkAccess = access.accessSource === "share" && Boolean(shareToken);
         tokenUserId = user.id;
         tokenPermission = isReadOnlyTemplateView ? "view" : access.permission;
+        tokenOrganizationId = isShareLinkAccess ? null : orgId;
         tokenEmail = user.email ?? null;
         tokenName = user.name ?? null;
       } else if (publicAccess.canAccess || isPublicTemplate) {
@@ -127,6 +130,7 @@ export async function GET(request: Request) {
     const token = await issueShareDbWsAccessToken({
       userId: tokenUserId,
       docId,
+      organizationId: tokenOrganizationId,
       permission: tokenPermission,
       email: tokenEmail,
       name: tokenName,

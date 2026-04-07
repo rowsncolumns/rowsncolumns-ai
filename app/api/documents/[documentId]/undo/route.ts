@@ -206,7 +206,7 @@ export async function POST(request: Request, context: RouteContext) {
     const shareDbResult = await withShareDbRuntimeContext(
       {
         mcpTokenFactory: ({ docId, permission }) =>
-          issueMcpShareDbAccessToken({ docId, permission }),
+          issueMcpShareDbAccessToken({ docId, permission, organizationId: orgId }),
         wsHeaders: buildShareDbWsHeaders(request),
       },
       async () => getShareDBDocument(documentId),

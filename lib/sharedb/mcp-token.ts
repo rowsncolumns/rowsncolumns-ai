@@ -5,7 +5,16 @@ export type McpTokenPermission = "view" | "edit";
 export type McpShareDbAccessClaims = {
   kind: "mcp_sharedb_access";
   docId: string;
+  organizationId?: string;
   permission: McpTokenPermission;
+};
+
+const normalizeOptionalString = (value: string | null | undefined) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 };
 
 const DEFAULT_TTL_SECONDS = 60 * 60;
@@ -32,6 +41,7 @@ export const canIssueMcpShareDbToken = (): boolean => {
 
 export async function issueMcpShareDbAccessToken(input: {
   docId: string;
+  organizationId?: string | null;
   permission?: McpTokenPermission;
   ttlSeconds?: number;
 }): Promise<string | null> {
@@ -41,6 +51,7 @@ export async function issueMcpShareDbAccessToken(input: {
   }
 
   const permission = input.permission ?? "edit";
+  const organizationId = normalizeOptionalString(input.organizationId);
   const ttlSeconds =
     typeof input.ttlSeconds === "number" && input.ttlSeconds > 0
       ? input.ttlSeconds
@@ -50,6 +61,7 @@ export async function issueMcpShareDbAccessToken(input: {
   return new SignJWT({
     kind: "mcp_sharedb_access",
     docId: input.docId,
+    ...(organizationId ? { organizationId } : {}),
     permission,
   } satisfies McpShareDbAccessClaims)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -88,6 +100,10 @@ export async function verifyMcpShareDbAccessToken(
     return {
       kind: "mcp_sharedb_access",
       docId: payload.docId.trim(),
+      ...(typeof payload.organizationId === "string" &&
+      payload.organizationId.trim().length > 0
+        ? { organizationId: payload.organizationId.trim() }
+        : {}),
       permission,
     };
   } catch {

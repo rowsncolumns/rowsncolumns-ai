@@ -15,7 +15,10 @@ const createShareDBRedisPubSub = require("sharedb-redis-pubsub") as (options: {
   prefix?: string;
 }) => unknown;
 import { getFlags, isTrackingEnabledForSource } from "./lib/feature-flags";
-import { ensureDocumentAccess } from "./lib/documents/repository";
+import {
+  ensureDocumentAccess,
+  getDocumentOwnerOrganizationId,
+} from "./lib/documents/repository";
 import { verifyMcpShareDbAccessToken } from "./lib/sharedb/mcp-token";
 import { verifyShareDbWsAccessToken } from "./lib/sharedb/ws-token";
 import { resolveAuditHistoryAccess } from "./lib/operation-history/access";
@@ -231,10 +234,12 @@ type AgentAuthState = {
   wsAccess: {
     docId: string;
     permission: DocumentPermission;
+    organizationId: string | null;
   } | null;
   mcpAccess: {
     docId: string;
     permission: DocumentPermission;
+    organizationId: string | null;
   } | null;
   failureReason: AuthFailureReason | null;
   statusCode?: number;
@@ -556,6 +561,15 @@ const ensureAgentAuthState = async (
       if (wsToken) {
         const access = await verifyShareDbWsAccessToken(wsToken);
         if (access) {
+          const tokenOrgId = access.organizationId?.trim() || null;
+          if (tokenOrgId) {
+            const ownerOrgId = await getDocumentOwnerOrganizationId(access.docId);
+            if (!ownerOrgId || ownerOrgId !== tokenOrgId) {
+              state.failureReason = "invalid_ws_token";
+              custom.__authState = state;
+              return state;
+            }
+          }
           state.identity = {
             userId: access.userId,
             email: access.email ?? null,
@@ -564,6 +578,7 @@ const ensureAgentAuthState = async (
           state.wsAccess = {
             docId: access.docId,
             permission: access.permission,
+            organizationId: tokenOrgId,
           };
           state.failureReason = null;
         } else {
@@ -574,9 +589,19 @@ const ensureAgentAuthState = async (
         if (mcpToken) {
           const access = await verifyMcpShareDbAccessToken(mcpToken);
           if (access) {
+            const tokenOrgId = access.organizationId?.trim() || null;
+            if (tokenOrgId) {
+              const ownerOrgId = await getDocumentOwnerOrganizationId(access.docId);
+              if (!ownerOrgId || ownerOrgId !== tokenOrgId) {
+                state.failureReason = "invalid_mcp_token";
+                custom.__authState = state;
+                return state;
+              }
+            }
             state.mcpAccess = {
               docId: access.docId,
               permission: access.permission,
+              organizationId: tokenOrgId,
             };
             state.failureReason = null;
           } else {
