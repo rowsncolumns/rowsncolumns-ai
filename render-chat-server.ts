@@ -42,6 +42,7 @@ import { db } from "@/lib/db/postgres";
 type AuthIdentity = {
   userId: string;
   email: string | null;
+  activeOrganizationId?: string | null;
 };
 
 type JwtPayloadLike = {
@@ -338,6 +339,7 @@ type SessionIntrospectionResult = {
   } | null;
   session?: {
     token?: string;
+    activeOrganizationId?: string | null;
   } | null;
 } | null;
 
@@ -395,8 +397,14 @@ const verifyTokenViaSessionIntrospection = async (
       typeof emailRaw === "string" && emailRaw.trim().length > 0
         ? emailRaw.trim()
         : null;
+    const activeOrganizationIdRaw = sessionData?.session?.activeOrganizationId;
+    const activeOrganizationId =
+      typeof activeOrganizationIdRaw === "string" &&
+      activeOrganizationIdRaw.trim().length > 0
+        ? activeOrganizationIdRaw.trim()
+        : null;
 
-    return { userId, email };
+    return { userId, email, activeOrganizationId };
   }
 
   return null;
@@ -637,9 +645,9 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
   const chatRequest = resolved.value;
 
   const isAdmin = isAdminUser({ id: identity.userId, email: identity.email });
-  const organizationId = await resolveActiveOrganizationIdForUser(
-    identity.userId,
-  );
+  const organizationId =
+    identity.activeOrganizationId?.trim() ||
+    (await resolveActiveOrganizationIdForUser(identity.userId));
   if (!organizationId) {
     sendJson(req, res, 409, {
       error: "No active organization. Create an organization first.",
