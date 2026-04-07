@@ -556,6 +556,7 @@ function SpreadsheetPane({
   canUseAuditHistory,
   onOpenHistorySidebar,
   onAssistantContextChange,
+  newDocumentBasePath = "/sheets",
   locale,
   currency,
 }: {
@@ -571,6 +572,7 @@ function SpreadsheetPane({
     sheets: Sheet[];
     activeSheetId: number;
   }) => void;
+  newDocumentBasePath?: string;
   locale: string;
   currency: string;
 }) {
@@ -1461,7 +1463,11 @@ function SpreadsheetPane({
           onImportCSV={handleImportCSV}
           onExportExcel={handleExportExcel}
           onExportCSV={handleExportCSV}
-          onCreateNew={(newDocId) => router.push(`/sheets/${newDocId}`)}
+          onCreateNew={(newDocId) =>
+            router.push(
+              `${newDocumentBasePath}/${encodeURIComponent(newDocId)}`,
+            )
+          }
           shareDocumentId={documentId}
           canManageShare={canManageShare}
         />
@@ -2255,6 +2261,9 @@ type NewWorkspaceProps = {
   isAdmin: boolean;
   locale: string;
   currency: string;
+  sheetsBasePath?: string;
+  breadcrumbHref?: string;
+  breadcrumbLabel?: string;
 };
 
 type SpreadsheetOnlyWorkspaceProps = {
@@ -2575,6 +2584,9 @@ export function NewWorkspace({
   isAdmin,
   locale,
   currency,
+  sheetsBasePath = "/sheets",
+  breadcrumbHref,
+  breadcrumbLabel,
 }: NewWorkspaceProps) {
   const isMobileLayout = useMediaQueryMatch(
     MOBILE_LAYOUT_MEDIA_QUERY,
@@ -2589,8 +2601,21 @@ export function NewWorkspace({
     useState(false);
   const isPublicAnonymousViewer = currentUser.id.startsWith("public:");
   const isAssistantReadOnly = isReadOnlyTemplateView === true;
+  const organizationIdFromSheetsBasePath = useMemo(() => {
+    const match = /^\/org\/([^/]+)\/sheets(?:\/)?$/.exec(sheetsBasePath);
+    if (!match?.[1]) {
+      return null;
+    }
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }, [sheetsBasePath]);
   const forkTemplateHref = isAssistantReadOnly
-    ? `/templates/open/${encodeURIComponent(documentId)}`
+    ? organizationIdFromSheetsBasePath
+      ? `/templates/open/${encodeURIComponent(documentId)}?orgId=${encodeURIComponent(organizationIdFromSheetsBasePath)}`
+      : `/templates/open/${encodeURIComponent(documentId)}`
     : null;
   const [assistantSheetContext, setAssistantSheetContext] = useState<{
     sheets: Sheet[];
@@ -2665,6 +2690,7 @@ export function NewWorkspace({
       canUseAuditHistory={canUseAuditHistory}
       onOpenHistorySidebar={() => setIsHistorySidebarOpen(true)}
       onAssistantContextChange={setAssistantSheetContext}
+      newDocumentBasePath={sheetsBasePath}
       locale={locale}
       currency={currency}
     />
@@ -2738,8 +2764,12 @@ export function NewWorkspace({
           initialTitle={initialDocumentTitle}
           canEdit={canManageShare}
           canManageShare={canManageShare}
-          breadcrumbHref={isTemplateDocument ? "/templates" : "/sheets"}
-          breadcrumbLabel={isTemplateDocument ? "Templates" : "My Sheets"}
+          breadcrumbHref={
+            isTemplateDocument ? "/templates" : (breadcrumbHref ?? sheetsBasePath)
+          }
+          breadcrumbLabel={
+            isTemplateDocument ? "Templates" : (breadcrumbLabel ?? "My Sheets")
+          }
           forkTemplateHref={forkTemplateHref}
         />
 

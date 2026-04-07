@@ -10,7 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
-import { getUserBillingEntitlement } from "@/lib/billing/repository";
+import {
+  buildOrganizationBillingPath,
+  resolveActiveOrganizationIdForSession,
+} from "@/lib/auth/organization";
+import { getOrganizationBillingEntitlement } from "@/lib/billing/repository";
 import {
   FREE_DAILY_CREDITS,
   MAX_MONTHLY_CREDITS,
@@ -80,8 +84,11 @@ const planCards = [
 
 export default async function PricingPage() {
   const session = await getServerSessionSafe();
-  const billing = session?.user
-    ? await getUserBillingEntitlement(session.user.id)
+  const activeOrganizationId = session?.user
+    ? await resolveActiveOrganizationIdForSession(session)
+    : null;
+  const billing = session?.user && activeOrganizationId
+    ? await getOrganizationBillingEntitlement(activeOrganizationId)
     : null;
   const initialUser = session?.user
     ? {
@@ -94,7 +101,9 @@ export default async function PricingPage() {
 
   const isAuthenticated = Boolean(initialUser);
   const currentPlan = billing?.plan ?? "free";
-  const billingHref = "/account/billing";
+  const billingHref = activeOrganizationId
+    ? buildOrganizationBillingPath(activeOrganizationId)
+    : `/onboarding/organization?callbackURL=${encodeURIComponent("/pricing")}`;
   const startHref = "/sheets";
 
   return (

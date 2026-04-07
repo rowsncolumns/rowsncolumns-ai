@@ -1,4 +1,4 @@
-import { getUserBillingEntitlement } from "@/lib/billing/repository";
+import { getOrganizationBillingEntitlement } from "@/lib/billing/repository";
 import { db } from "@/lib/db/postgres";
 import {
   chargeFromBuckets,
@@ -8,8 +8,8 @@ import {
 } from "@/lib/credits/buckets";
 import { INITIAL_CREDITS, MIN_CREDITS_PER_RUN } from "@/lib/credits/pricing";
 
-export type UserCreditsRecord = {
-  userId: string;
+export type OrganizationCreditsRecord = {
+  organizationId: string;
   balance: number;
   availableCredits: number;
   dailyFreeRemaining: number;
@@ -19,8 +19,8 @@ export type UserCreditsRecord = {
   updatedAt: string;
 };
 
-type UserCreditsRow = {
-  user_id: string;
+type OrganizationCreditsRow = {
+  organization_id: string;
   balance: number;
   daily_free_remaining: number;
   credit_day: Date | string;
@@ -28,8 +28,8 @@ type UserCreditsRow = {
   updated_at: Date | string;
 };
 
-type ChargeUserCreditsForRunInput = {
-  userId: string;
+type ChargeOrganizationCreditsForRunInput = {
+  organizationId: string;
   runId: string;
   requestedCredits: number;
   metadata?: Record<string, unknown>;
@@ -43,16 +43,16 @@ type ChargedCreditsResult = {
 
 type RefillMode = "set" | "add";
 
-type AdminRefillUserCreditsInput = {
-  targetUserId: string;
+type AdminRefillOrganizationCreditsInput = {
+  targetOrganizationId: string;
   adminUserId: string;
   amount: number;
   mode: RefillMode;
   note?: string;
 };
 
-type AdminRefillUserCreditsResult = {
-  userId: string;
+type AdminRefillOrganizationCreditsResult = {
+  organizationId: string;
   previousBalance: number;
   nextBalance: number;
   delta: number;
@@ -65,15 +65,15 @@ export type BillingGrantReason =
   | "subscription_cycle_grant"
   | "topup_purchase_grant";
 
-type GrantCreditsFromBillingInput = {
-  userId: string;
+type GrantOrganizationCreditsFromBillingInput = {
+  organizationId: string;
   amount: number;
   reason: BillingGrantReason;
   idempotencyKey: string;
   metadata?: Record<string, unknown>;
 };
 
-type GrantCreditsFromBillingResult = {
+type GrantOrganizationCreditsFromBillingResult = {
   applied: boolean;
   amount: number;
   nextBalance: number;
@@ -113,12 +113,22 @@ const ensureCreditSchemaReady = async () => {
 
   ensureCreditSchemaPromise = (async () => {
     await db`
-      ALTER TABLE public.user_credits
+      CREATE TABLE IF NOT EXISTS public.organization_credits (
+        organization_id TEXT PRIMARY KEY,
+        balance INTEGER NOT NULL DEFAULT 0,
+        credit_day DATE NOT NULL DEFAULT ((NOW() AT TIME ZONE 'UTC')::date),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await db`
+      ALTER TABLE public.organization_credits
       ADD COLUMN IF NOT EXISTS daily_free_remaining INTEGER
     `;
 
     await db`
-      UPDATE public.user_credits
+      UPDATE public.organization_credits
       SET
         daily_free_remaining = LEAST(balance, ${INITIAL_CREDITS}),
         balance = GREATEST(balance - LEAST(balance, ${INITIAL_CREDITS}), 0)
@@ -126,23 +136,92 @@ const ensureCreditSchemaReady = async () => {
     `;
 
     await db`
-      ALTER TABLE public.user_credits
+      ALTER TABLE public.organization_credits
       ALTER COLUMN balance SET DEFAULT 0
     `;
 
     await db.unsafe(
-      `ALTER TABLE public.user_credits ALTER COLUMN daily_free_remaining SET DEFAULT ${INITIAL_CREDITS}`,
+      `ALTER TABLE public.organization_credits ALTER COLUMN daily_free_remaining SET DEFAULT ${INITIAL_CREDITS}`,
     );
 
     await db`
-      UPDATE public.user_credits
+      UPDATE public.organization_credits
       SET daily_free_remaining = ${INITIAL_CREDITS}
       WHERE daily_free_remaining IS NULL
     `;
 
     await db`
-      ALTER TABLE public.user_credits
+      ALTER TABLE public.organization_credits
       ALTER COLUMN daily_free_remaining SET NOT NULL
+    `;
+
+    await db`
+      CREATE TABLE IF NOT EXISTS public.organization_credit_ledger (
+        id TEXT PRIMARY KEY,
+        organization_id TEXT NOT NULL,
+        run_id TEXT,
+        delta INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        balance_after INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+
+    await db`
+      CREATE UNIQUE INDEX IF NOT EXISTS organization_credit_ledger_org_run_reason_unique_idx
+        ON public.organization_credit_ledger (organization_id, run_id, reason)
+        WHERE run_id IS NOT NULL
+    `;
+
+    await db`
+      CREATE INDEX IF NOT EXISTS organization_credit_ledger_org_created_idx
+        ON public.organization_credit_ledger (organization_id, created_at DESC)
+    `;
+
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'organization_credits_balance_non_negative'
+        ) THEN
+          ALTER TABLE public.organization_credits
+            ADD CONSTRAINT organization_credits_balance_non_negative
+            CHECK (balance >= 0);
+        END IF;
+      END$$
+    `;
+
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'organization_credits_daily_free_non_negative'
+        ) THEN
+          ALTER TABLE public.organization_credits
+            ADD CONSTRAINT organization_credits_daily_free_non_negative
+            CHECK (daily_free_remaining >= 0);
+        END IF;
+      END$$
+    `;
+
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'organization_credit_ledger_balance_after_non_negative'
+        ) THEN
+          ALTER TABLE public.organization_credit_ledger
+            ADD CONSTRAINT organization_credit_ledger_balance_after_non_negative
+            CHECK (balance_after >= 0);
+        END IF;
+      END$$
     `;
   })();
 
@@ -154,13 +233,15 @@ const ensureCreditSchemaReady = async () => {
   }
 };
 
-const toBuckets = (row: Pick<UserCreditsRow, "balance" | "daily_free_remaining">): CreditBuckets => ({
+const toBuckets = (
+  row: Pick<OrganizationCreditsRow, "balance" | "daily_free_remaining">,
+): CreditBuckets => ({
   dailyFreeRemaining: clampNonNegativeInteger(row.daily_free_remaining),
   paidBalance: clampNonNegativeInteger(row.balance),
 });
 
 const resolveBucketsForCurrentDay = (input: {
-  row: Pick<UserCreditsRow, "balance" | "daily_free_remaining" | "credit_day">;
+  row: Pick<OrganizationCreditsRow, "balance" | "daily_free_remaining" | "credit_day">;
   currentCreditDay: string;
   usesDailyFreeBucket: boolean;
 }): CreditBuckets => {
@@ -179,9 +260,9 @@ const resolveBucketsForCurrentDay = (input: {
 };
 
 const mapCreditsRow = (
-  row: UserCreditsRow,
+  row: OrganizationCreditsRow,
   usesDailyFreeBucket: boolean,
-): UserCreditsRecord => {
+): OrganizationCreditsRecord => {
   const dailyFreeRemaining = usesDailyFreeBucket
     ? clampNonNegativeInteger(row.daily_free_remaining)
     : 0;
@@ -189,7 +270,7 @@ const mapCreditsRow = (
   const availableCredits = dailyFreeRemaining + paidBalance;
 
   return {
-    userId: row.user_id,
+    organizationId: row.organization_id,
     balance: availableCredits,
     availableCredits,
     dailyFreeRemaining,
@@ -200,25 +281,34 @@ const mapCreditsRow = (
   };
 };
 
-export async function ensureUserCredits(userId: string): Promise<void> {
+export async function ensureOrganizationCredits(
+  organizationId: string,
+): Promise<void> {
   await ensureCreditSchemaReady();
   const currentCreditDay = getCurrentUtcCreditDay();
 
   await db`
-    INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
-    VALUES (${userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
-    ON CONFLICT (user_id) DO NOTHING
+    INSERT INTO public.organization_credits (
+      organization_id,
+      balance,
+      daily_free_remaining,
+      credit_day
+    )
+    VALUES (${organizationId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
+    ON CONFLICT (organization_id) DO NOTHING
   `;
 }
 
-export async function getUserCredits(userId: string): Promise<UserCreditsRecord> {
-  await ensureUserCredits(userId);
+export async function getOrganizationCredits(
+  organizationId: string,
+): Promise<OrganizationCreditsRecord> {
+  await ensureOrganizationCredits(organizationId);
   const currentCreditDay = getCurrentUtcCreditDay();
-  const entitlement = await getUserBillingEntitlement(userId);
+  const entitlement = await getOrganizationBillingEntitlement(organizationId);
   const usesDailyFreeBucket = entitlement.plan === "free";
 
-  const rows = await db<UserCreditsRow[]>`
-    UPDATE public.user_credits
+  const rows = await db<OrganizationCreditsRow[]>`
+    UPDATE public.organization_credits
     SET
       daily_free_remaining = CASE
         WHEN ${usesDailyFreeBucket} = FALSE THEN 0
@@ -235,9 +325,9 @@ export async function getUserCredits(userId: string): Promise<UserCreditsRecord>
           THEN NOW()
         ELSE updated_at
       END
-    WHERE user_id = ${userId}
+    WHERE organization_id = ${organizationId}
     RETURNING
-      user_id,
+      organization_id,
       balance,
       daily_free_remaining,
       credit_day,
@@ -247,31 +337,36 @@ export async function getUserCredits(userId: string): Promise<UserCreditsRecord>
 
   const row = rows[0];
   if (!row) {
-    throw new Error("Failed to load user credits.");
+    throw new Error("Failed to load organization credits.");
   }
 
   return mapCreditsRow(row, usesDailyFreeBucket);
 }
 
-export async function chargeUserCreditsForRun({
-  userId,
+export async function chargeOrganizationCreditsForRun({
+  organizationId,
   runId,
   requestedCredits,
   metadata = {},
-}: ChargeUserCreditsForRunInput): Promise<ChargedCreditsResult> {
+}: ChargeOrganizationCreditsForRunInput): Promise<ChargedCreditsResult> {
   await ensureCreditSchemaReady();
   const requested = clampRequestedCredits(requestedCredits);
   const currentCreditDay = getCurrentUtcCreditDay();
-  const entitlement = await getUserBillingEntitlement(userId);
+  const entitlement = await getOrganizationBillingEntitlement(organizationId);
   const usesDailyFreeBucket = entitlement.plan === "free";
 
   return db.begin(async (transaction) => {
     const tx = transaction as unknown as typeof db;
 
     await tx`
-      INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
-      VALUES (${userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
-      ON CONFLICT (user_id) DO NOTHING
+      INSERT INTO public.organization_credits (
+        organization_id,
+        balance,
+        daily_free_remaining,
+        credit_day
+      )
+      VALUES (${organizationId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
+      ON CONFLICT (organization_id) DO NOTHING
     `;
 
     const existingRows = await tx<
@@ -280,8 +375,8 @@ export async function chargeUserCreditsForRun({
       SELECT
         delta,
         balance_after
-      FROM public.credit_ledger
-      WHERE user_id = ${userId}
+      FROM public.organization_credit_ledger
+      WHERE organization_id = ${organizationId}
         AND run_id = ${runId}
         AND reason = ${CHAT_RUN_REASON}
       LIMIT 1
@@ -296,22 +391,22 @@ export async function chargeUserCreditsForRun({
       };
     }
 
-    const creditsRows = await tx<UserCreditsRow[]>`
+    const creditsRows = await tx<OrganizationCreditsRow[]>`
       SELECT
-        user_id,
+        organization_id,
         balance,
         daily_free_remaining,
         credit_day,
         created_at,
         updated_at
-      FROM public.user_credits
-      WHERE user_id = ${userId}
+      FROM public.organization_credits
+      WHERE organization_id = ${organizationId}
       FOR UPDATE
     `;
 
     const creditRow = creditsRows[0];
     if (!creditRow) {
-      throw new Error("Failed to lock user credits row.");
+      throw new Error("Failed to lock organization credits row.");
     }
 
     const buckets = resolveBucketsForCurrentDay({
@@ -329,19 +424,19 @@ export async function chargeUserCreditsForRun({
     const remainingCredits = getAvailableCredits(charged.buckets);
 
     await tx`
-      UPDATE public.user_credits
+      UPDATE public.organization_credits
       SET
         balance = ${charged.buckets.paidBalance},
         daily_free_remaining = ${charged.buckets.dailyFreeRemaining},
         credit_day = ${currentCreditDay}::date,
         updated_at = NOW()
-      WHERE user_id = ${userId}
+      WHERE organization_id = ${organizationId}
     `;
 
     await tx`
-      INSERT INTO public.credit_ledger (
+      INSERT INTO public.organization_credit_ledger (
         id,
-        user_id,
+        organization_id,
         run_id,
         delta,
         reason,
@@ -350,7 +445,7 @@ export async function chargeUserCreditsForRun({
       )
       VALUES (
         ${crypto.randomUUID()},
-        ${userId},
+        ${organizationId},
         ${runId},
         ${-charged.chargedCredits},
         ${CHAT_RUN_REASON},
@@ -373,9 +468,9 @@ export async function chargeUserCreditsForRun({
   });
 }
 
-export async function grantUserCreditsFromBillingEvent(
-  input: GrantCreditsFromBillingInput,
-): Promise<GrantCreditsFromBillingResult> {
+export async function grantOrganizationCreditsFromBillingEvent(
+  input: GrantOrganizationCreditsFromBillingInput,
+): Promise<GrantOrganizationCreditsFromBillingResult> {
   await ensureCreditSchemaReady();
   const currentCreditDay = getCurrentUtcCreditDay();
   const amount = clampNonNegativeInteger(input.amount);
@@ -386,23 +481,35 @@ export async function grantUserCreditsFromBillingEvent(
     throw new Error("idempotencyKey is required.");
   }
 
-  const entitlement = await getUserBillingEntitlement(input.userId);
+  const entitlement = await getOrganizationBillingEntitlement(
+    input.organizationId,
+  );
   const usesDailyFreeBucket = entitlement.plan === "free";
 
   return db.begin(async (transaction) => {
     const tx = transaction as unknown as typeof db;
 
     await tx`
-      INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
-      VALUES (${input.userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
-      ON CONFLICT (user_id) DO NOTHING
+      INSERT INTO public.organization_credits (
+        organization_id,
+        balance,
+        daily_free_remaining,
+        credit_day
+      )
+      VALUES (
+        ${input.organizationId},
+        0,
+        ${INITIAL_CREDITS},
+        ${currentCreditDay}::date
+      )
+      ON CONFLICT (organization_id) DO NOTHING
     `;
 
     const existingRows = await tx<{ balance_after: number }[]>`
       SELECT
         balance_after
-      FROM public.credit_ledger
-      WHERE user_id = ${input.userId}
+      FROM public.organization_credit_ledger
+      WHERE organization_id = ${input.organizationId}
         AND run_id = ${input.idempotencyKey}
         AND reason = ${input.reason}
       LIMIT 1
@@ -410,16 +517,16 @@ export async function grantUserCreditsFromBillingEvent(
 
     const existingRow = existingRows[0];
     if (existingRow) {
-      const currentRows = await tx<UserCreditsRow[]>`
+      const currentRows = await tx<OrganizationCreditsRow[]>`
         SELECT
-          user_id,
+          organization_id,
           balance,
           daily_free_remaining,
           credit_day,
           created_at,
           updated_at
-        FROM public.user_credits
-        WHERE user_id = ${input.userId}
+        FROM public.organization_credits
+        WHERE organization_id = ${input.organizationId}
         LIMIT 1
       `;
       const current = currentRows[0];
@@ -439,21 +546,21 @@ export async function grantUserCreditsFromBillingEvent(
       };
     }
 
-    const creditsRows = await tx<UserCreditsRow[]>`
+    const creditsRows = await tx<OrganizationCreditsRow[]>`
       SELECT
-        user_id,
+        organization_id,
         balance,
         daily_free_remaining,
         credit_day,
         created_at,
         updated_at
-      FROM public.user_credits
-      WHERE user_id = ${input.userId}
+      FROM public.organization_credits
+      WHERE organization_id = ${input.organizationId}
       FOR UPDATE
     `;
     const row = creditsRows[0];
     if (!row) {
-      throw new Error("Failed to lock user credits row.");
+      throw new Error("Failed to lock organization credits row.");
     }
 
     const buckets = resolveBucketsForCurrentDay({
@@ -469,19 +576,19 @@ export async function grantUserCreditsFromBillingEvent(
     const nextAvailableCredits = getAvailableCredits(nextBuckets);
 
     await tx`
-      UPDATE public.user_credits
+      UPDATE public.organization_credits
       SET
         balance = ${nextBuckets.paidBalance},
         daily_free_remaining = ${nextBuckets.dailyFreeRemaining},
         credit_day = ${currentCreditDay}::date,
         updated_at = NOW()
-      WHERE user_id = ${input.userId}
+      WHERE organization_id = ${input.organizationId}
     `;
 
     await tx`
-      INSERT INTO public.credit_ledger (
+      INSERT INTO public.organization_credit_ledger (
         id,
-        user_id,
+        organization_id,
         run_id,
         delta,
         reason,
@@ -490,7 +597,7 @@ export async function grantUserCreditsFromBillingEvent(
       )
       VALUES (
         ${crypto.randomUUID()},
-        ${input.userId},
+        ${input.organizationId},
         ${input.idempotencyKey},
         ${amount},
         ${input.reason},
@@ -508,17 +615,17 @@ export async function grantUserCreditsFromBillingEvent(
   });
 }
 
-export async function adminRefillUserCredits({
-  targetUserId,
+export async function adminRefillOrganizationCredits({
+  targetOrganizationId,
   adminUserId,
   amount,
   mode,
   note,
-}: AdminRefillUserCreditsInput): Promise<AdminRefillUserCreditsResult> {
+}: AdminRefillOrganizationCreditsInput): Promise<AdminRefillOrganizationCreditsResult> {
   await ensureCreditSchemaReady();
-  const userId = targetUserId.trim();
-  if (!userId) {
-    throw new Error("targetUserId is required.");
+  const organizationId = targetOrganizationId.trim();
+  if (!organizationId) {
+    throw new Error("targetOrganizationId is required.");
   }
 
   const normalizedAmount = clampNonNegativeInteger(amount);
@@ -530,34 +637,44 @@ export async function adminRefillUserCredits({
   const reason = mode === "set" ? ADMIN_REFILL_SET_REASON : ADMIN_REFILL_ADD_REASON;
   const normalizedNote = note?.trim();
 
-  const entitlement = await getUserBillingEntitlement(userId);
+  const entitlement = await getOrganizationBillingEntitlement(organizationId);
   const usesDailyFreeBucket = entitlement.plan === "free";
 
   return db.begin(async (transaction) => {
     const tx = transaction as unknown as typeof db;
 
     await tx`
-      INSERT INTO public.user_credits (user_id, balance, daily_free_remaining, credit_day)
-      VALUES (${userId}, 0, ${INITIAL_CREDITS}, ${currentCreditDay}::date)
-      ON CONFLICT (user_id) DO NOTHING
+      INSERT INTO public.organization_credits (
+        organization_id,
+        balance,
+        daily_free_remaining,
+        credit_day
+      )
+      VALUES (
+        ${organizationId},
+        0,
+        ${INITIAL_CREDITS},
+        ${currentCreditDay}::date
+      )
+      ON CONFLICT (organization_id) DO NOTHING
     `;
 
-    const creditsRows = await tx<UserCreditsRow[]>`
+    const creditsRows = await tx<OrganizationCreditsRow[]>`
       SELECT
-        user_id,
+        organization_id,
         balance,
         daily_free_remaining,
         credit_day,
         created_at,
         updated_at
-      FROM public.user_credits
-      WHERE user_id = ${userId}
+      FROM public.organization_credits
+      WHERE organization_id = ${organizationId}
       FOR UPDATE
     `;
 
     const creditRow = creditsRows[0];
     if (!creditRow) {
-      throw new Error("Failed to lock user credits row.");
+      throw new Error("Failed to lock organization credits row.");
     }
 
     const currentBuckets = resolveBucketsForCurrentDay({
@@ -578,20 +695,20 @@ export async function adminRefillUserCredits({
     const nextAvailableCredits = getAvailableCredits(nextBuckets);
 
     const updatedRows = await tx<{ updated_at: Date | string }[]>`
-      UPDATE public.user_credits
+      UPDATE public.organization_credits
       SET
         balance = ${nextBuckets.paidBalance},
         daily_free_remaining = ${nextBuckets.dailyFreeRemaining},
         credit_day = ${currentCreditDay}::date,
         updated_at = NOW()
-      WHERE user_id = ${userId}
+      WHERE organization_id = ${organizationId}
       RETURNING updated_at
     `;
 
     await tx`
-      INSERT INTO public.credit_ledger (
+      INSERT INTO public.organization_credit_ledger (
         id,
-        user_id,
+        organization_id,
         delta,
         reason,
         metadata,
@@ -599,7 +716,7 @@ export async function adminRefillUserCredits({
       )
       VALUES (
         ${crypto.randomUUID()},
-        ${userId},
+        ${organizationId},
         ${delta},
         ${reason},
         ${JSON.stringify({
@@ -615,7 +732,7 @@ export async function adminRefillUserCredits({
     `;
 
     return {
-      userId,
+      organizationId,
       previousBalance,
       nextBalance,
       delta,

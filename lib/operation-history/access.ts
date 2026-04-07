@@ -1,9 +1,13 @@
 import { isAdminUser } from "@/lib/auth/admin";
-import { getUserBillingEntitlement } from "@/lib/billing/repository";
+import {
+  getOrganizationBillingEntitlement,
+  getUserBillingEntitlement,
+} from "@/lib/billing/repository";
 
 export interface AuditHistoryAccessInput {
   userId: string;
   email?: string | null;
+  orgId?: string | null;
 }
 
 export interface AuditHistoryAccessResult {
@@ -28,7 +32,9 @@ export async function resolveAuditHistoryAccess(
     };
   }
 
-  const entitlement = await getUserBillingEntitlement(input.userId);
+  const entitlement = input.orgId
+    ? await getOrganizationBillingEntitlement(input.orgId)
+    : await getUserBillingEntitlement(input.userId);
   const plan = entitlement.plan;
 
   return {

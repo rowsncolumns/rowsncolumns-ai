@@ -3,6 +3,7 @@ import { db } from "@/lib/db/postgres";
 type DocumentOwnerRow = {
   doc_id: string;
   user_id: string;
+  org_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -75,6 +76,7 @@ type TemplateSitemapRow = {
 export type DocumentOwnerRecord = {
   docId: string;
   userId: string;
+  orgId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -188,6 +190,7 @@ export type DuplicateDocumentResult = {
 const mapRow = (row: DocumentOwnerRow): DocumentOwnerRecord => ({
   docId: row.doc_id,
   userId: row.user_id,
+  orgId: row.org_id?.trim() || null,
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
 });
@@ -238,6 +241,32 @@ const MAX_TEMPLATE_TAG_LENGTH = 40;
 const MAX_TEMPLATE_TAG_COUNT = 20;
 const MAX_TEMPLATE_PREVIEW_URL_LENGTH = 2048;
 const UNCATEGORIZED_TEMPLATE_LABEL = "Uncategorized";
+let ensureDocumentOwnersOrgSchemaPromise: Promise<void> | null = null;
+
+const ensureDocumentOwnersOrgSchemaReady = async () => {
+  if (ensureDocumentOwnersOrgSchemaPromise) {
+    await ensureDocumentOwnersOrgSchemaPromise;
+    return;
+  }
+
+  ensureDocumentOwnersOrgSchemaPromise = (async () => {
+    await db`
+      ALTER TABLE public.document_owners
+      ADD COLUMN IF NOT EXISTS org_id TEXT
+    `;
+    await db`
+      CREATE INDEX IF NOT EXISTS document_owners_org_updated_idx
+      ON public.document_owners (org_id, updated_at DESC)
+    `;
+  })();
+
+  try {
+    await ensureDocumentOwnersOrgSchemaPromise;
+  } catch (error) {
+    ensureDocumentOwnersOrgSchemaPromise = null;
+    throw error;
+  }
+};
 
 export const getDefaultDocumentTitle = (docId: string): string => {
   const shortId = docId.slice(0, 8);
@@ -427,20 +456,34 @@ const createFallbackMetadata = (
 export async function ensureDocumentOwnership({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<EnsureDocumentOwnershipResult> {
-  await db`
-    INSERT INTO public.document_owners (doc_id, user_id)
-    VALUES (${docId}, ${userId})
-    ON CONFLICT (doc_id) DO NOTHING
-  `;
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
+
+  if (normalizedOrgId) {
+    await db`
+      INSERT INTO public.document_owners (doc_id, user_id, org_id)
+      VALUES (${docId}, ${userId}, ${normalizedOrgId})
+      ON CONFLICT (doc_id) DO NOTHING
+    `;
+  } else {
+    await db`
+      INSERT INTO public.document_owners (doc_id, user_id)
+      VALUES (${docId}, ${userId})
+      ON CONFLICT (doc_id) DO NOTHING
+    `;
+  }
 
   const rows = await db<DocumentOwnerRow[]>`
     SELECT
       doc_id,
       user_id,
+      org_id,
       created_at,
       updated_at
     FROM public.document_owners
@@ -453,17 +496,44 @@ export async function ensureDocumentOwnership({
     throw new Error("Failed to load document ownership.");
   }
 
+  const rowOrgId = row.org_id?.trim() || null;
+  const isOwner =
+    row.user_id === userId &&
+    (!normalizedOrgId || !rowOrgId || rowOrgId === normalizedOrgId);
+
+  if (isOwner && normalizedOrgId && !rowOrgId) {
+    await db`
+      UPDATE public.document_owners
+      SET
+        org_id = ${normalizedOrgId},
+        updated_at = NOW()
+      WHERE doc_id = ${docId}
+        AND user_id = ${userId}
+        AND org_id IS NULL
+    `;
+    row.org_id = normalizedOrgId;
+  }
+
   return {
     ownership: mapRow(row),
-    isOwner: row.user_id === userId,
+    isOwner,
   };
 }
 
-export async function listOwnedDocumentIds(userId: string): Promise<string[]> {
+export async function listOwnedDocumentIds(
+  userId: string,
+  orgId?: string | null,
+): Promise<string[]> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   const rows = await db<{ doc_id: string }[]>`
     SELECT doc_id
     FROM public.document_owners
     WHERE user_id = ${userId}
+      AND (
+        ${normalizedOrgId}::text IS NULL
+        OR org_id = ${normalizedOrgId}::text
+      )
     ORDER BY created_at DESC
   `;
 
@@ -481,18 +551,40 @@ export async function documentExists(docId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+export async function getDocumentOwnerOrganizationId(
+  docId: string,
+): Promise<string | null> {
+  const rows = await db<{ org_id: string | null }[]>`
+    SELECT org_id
+    FROM public.document_owners
+    WHERE doc_id = ${docId}
+    LIMIT 1
+  `;
+
+  const orgId = rows[0]?.org_id?.trim() || null;
+  return orgId;
+}
+
 export async function isDocumentOwner({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<boolean> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   const rows = await db<{ doc_id: string }[]>`
     SELECT doc_id
     FROM public.document_owners
     WHERE doc_id = ${docId}
       AND user_id = ${userId}
+      AND (
+        ${normalizedOrgId}::text IS NULL
+        OR org_id = ${normalizedOrgId}::text
+      )
     LIMIT 1
   `;
 
@@ -555,17 +647,21 @@ const normalizeListFilter = (
 
 export async function listOwnedDocuments({
   userId,
+  orgId,
   page = 1,
   pageSize = 20,
   filter = "owned",
   query,
 }: {
   userId: string;
+  orgId?: string | null;
   page?: number;
   pageSize?: number;
   filter?: DocumentListFilter;
   query?: string | null;
 }): Promise<ListOwnedDocumentsResult> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   const safePageSize = normalizePaginationValue(pageSize, { min: 1, max: 100 });
   const safePage = normalizePaginationValue(page, { min: 1, max: 100000 });
   const normalizedFilter = normalizeListFilter(filter);
@@ -612,6 +708,10 @@ export async function listOwnedDocuments({
         ON public.snapshots.collection = ${SHAREDB_COLLECTION}
         AND public.snapshots.doc_id = owners.doc_id
       WHERE owners.user_id = ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
 
       UNION ALL
 
@@ -653,6 +753,10 @@ export async function listOwnedDocuments({
         AND public.snapshots.doc_id = grants.doc_id
       WHERE grants.user_id = ${userId}
         AND owners.user_id <> ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
     )
     SELECT COUNT(*)::text AS count
     FROM user_documents
@@ -719,6 +823,10 @@ export async function listOwnedDocuments({
         ON public.snapshots.collection = ${SHAREDB_COLLECTION}
         AND public.snapshots.doc_id = owners.doc_id
       WHERE owners.user_id = ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
 
       UNION ALL
 
@@ -760,6 +868,10 @@ export async function listOwnedDocuments({
         AND public.snapshots.doc_id = grants.doc_id
       WHERE grants.user_id = ${userId}
         AND owners.user_id <> ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
     )
     SELECT
       doc_id,
@@ -806,23 +918,37 @@ export async function listOwnedDocuments({
 export async function setDocumentFavorite({
   docId,
   userId,
+  orgId,
   favorite,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
   favorite: boolean;
 }): Promise<boolean> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   const accessibleRows = await db<{ doc_id: string }[]>`
     WITH accessible_documents AS (
       SELECT owners.doc_id
       FROM public.document_owners AS owners
       WHERE owners.doc_id = ${docId}
         AND owners.user_id = ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
       UNION
       SELECT grants.doc_id
       FROM public.document_access_grants AS grants
+      INNER JOIN public.document_owners AS owners
+        ON owners.doc_id = grants.doc_id
       WHERE grants.doc_id = ${docId}
         AND grants.user_id = ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
     )
     SELECT doc_id
     FROM accessible_documents
@@ -902,13 +1028,15 @@ export async function ensureDocumentMetadata({
 export async function updateDocumentTitle({
   docId,
   userId,
+  orgId,
   title,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
   title: string;
 }): Promise<DocumentMetadataRecord | null> {
-  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId, orgId });
   if (!ownershipResult.isOwner) {
     return null;
   }
@@ -1263,11 +1391,15 @@ export async function duplicateDocument({
   sourceDocId,
   duplicatedDocId,
   userId,
+  orgId,
 }: {
   sourceDocId: string;
   duplicatedDocId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<DuplicateDocumentResult | null> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   return db.begin(async (tx) => {
     const sourceRows = await tx.unsafe<SourceDocumentForDuplicateRow[]>(
       `
@@ -1276,11 +1408,21 @@ export async function duplicateDocument({
           FROM public.document_owners AS owners
           WHERE owners.doc_id = $1
             AND owners.user_id = $2
+            AND (
+              $3::text IS NULL
+              OR owners.org_id = $3::text
+            )
           UNION
           SELECT grants.doc_id
           FROM public.document_access_grants AS grants
+          INNER JOIN public.document_owners AS owners
+            ON owners.doc_id = grants.doc_id
           WHERE grants.doc_id = $1
             AND grants.user_id = $2
+            AND (
+              $3::text IS NULL
+              OR owners.org_id = $3::text
+            )
         )
         SELECT
           accessible_documents.doc_id,
@@ -1290,7 +1432,7 @@ export async function duplicateDocument({
           ON metadata.doc_id = accessible_documents.doc_id
         LIMIT 1
       `,
-      [sourceDocId, userId],
+      [sourceDocId, userId, normalizedOrgId],
     );
 
     const sourceRow = sourceRows[0];
@@ -1305,10 +1447,10 @@ export async function duplicateDocument({
 
     await tx.unsafe(
       `
-        INSERT INTO public.document_owners (doc_id, user_id)
-        VALUES ($1, $2)
+        INSERT INTO public.document_owners (doc_id, user_id, org_id)
+        VALUES ($1, $2, $3)
       `,
-      [duplicatedDocId, userId],
+      [duplicatedDocId, userId, normalizedOrgId],
     );
 
     await tx.unsafe(
@@ -1337,11 +1479,15 @@ export async function duplicateTemplateDocument({
   sourceDocId,
   duplicatedDocId,
   userId,
+  orgId,
 }: {
   sourceDocId: string;
   duplicatedDocId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<DuplicateDocumentResult | null> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   return db.begin(async (tx) => {
     const sourceRows = await tx.unsafe<SourceDocumentForDuplicateRow[]>(
       `
@@ -1368,10 +1514,10 @@ export async function duplicateTemplateDocument({
 
     await tx.unsafe(
       `
-        INSERT INTO public.document_owners (doc_id, user_id)
-        VALUES ($1, $2)
+        INSERT INTO public.document_owners (doc_id, user_id, org_id)
+        VALUES ($1, $2, $3)
       `,
-      [duplicatedDocId, userId],
+      [duplicatedDocId, userId, normalizedOrgId],
     );
 
     await tx.unsafe(
@@ -1399,10 +1545,14 @@ export async function duplicateTemplateDocument({
 export async function isOwnedTemplateDocument({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<boolean> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   try {
     const rows = await db<{ template_scope: string | null }[]>`
       SELECT COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope
@@ -1411,6 +1561,10 @@ export async function isOwnedTemplateDocument({
         ON metadata.doc_id = owners.doc_id
       WHERE owners.doc_id = ${docId}
         AND owners.user_id = ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
       LIMIT 1
     `;
 
@@ -1426,10 +1580,14 @@ export async function isOwnedTemplateDocument({
 export async function isOwnedGlobalTemplateDocument({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<boolean> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   try {
     const rows = await db<{ template_scope: string | null }[]>`
       SELECT COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') AS template_scope
@@ -1438,6 +1596,10 @@ export async function isOwnedGlobalTemplateDocument({
         ON metadata.doc_id = owners.doc_id
       WHERE owners.doc_id = ${docId}
         AND owners.user_id = ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
       LIMIT 1
     `;
 
@@ -1453,19 +1615,27 @@ export async function isOwnedGlobalTemplateDocument({
 export async function deleteOwnedDocument({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<boolean> {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   return db.begin(async (tx) => {
     const deletedOwnerRows = await tx.unsafe<{ doc_id: string }[]>(
       `
         DELETE FROM public.document_owners
         WHERE doc_id = $1
           AND user_id = $2
+          AND (
+            $3::text IS NULL
+            OR org_id = $3::text
+          )
         RETURNING doc_id
       `,
-      [docId, userId],
+      [docId, userId, normalizedOrgId],
     );
 
     if (deletedOwnerRows.length === 0) {
@@ -1615,16 +1785,26 @@ export async function deleteOwnedDocument({
 const hasDocumentAccessGrant = async ({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<boolean> => {
+  await ensureDocumentOwnersOrgSchemaReady();
+  const normalizedOrgId = orgId?.trim() || null;
   try {
     const rows = await db<{ doc_id: string }[]>`
-      SELECT doc_id
-      FROM public.document_access_grants
-      WHERE doc_id = ${docId}
-        AND user_id = ${userId}
+      SELECT grants.doc_id
+      FROM public.document_access_grants AS grants
+      INNER JOIN public.document_owners AS owners
+        ON owners.doc_id = grants.doc_id
+      WHERE grants.doc_id = ${docId}
+        AND grants.user_id = ${userId}
+        AND (
+          ${normalizedOrgId}::text IS NULL
+          OR owners.org_id = ${normalizedOrgId}::text
+        )
       LIMIT 1
     `;
     return rows.length > 0;
@@ -1772,13 +1952,32 @@ const getActiveShareLinkByToken = async ({
 export async function ensureDocumentAccess({
   docId,
   userId,
+  orgId,
   shareToken,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
   shareToken?: string | null;
 }): Promise<EnsureDocumentAccessResult> {
-  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  const normalizedOrgId = orgId?.trim() || null;
+  const ownershipResult = await ensureDocumentOwnership({
+    docId,
+    userId,
+    orgId: normalizedOrgId,
+  });
+  if (
+    normalizedOrgId &&
+    ownershipResult.ownership.orgId &&
+    ownershipResult.ownership.orgId !== normalizedOrgId
+  ) {
+    return {
+      ...ownershipResult,
+      canAccess: false,
+      accessSource: "none",
+      permission: "view",
+    };
+  }
   if (ownershipResult.isOwner) {
     return {
       ...ownershipResult,
@@ -1788,7 +1987,11 @@ export async function ensureDocumentAccess({
     };
   }
 
-  const hasPersistedAccess = await hasDocumentAccessGrant({ docId, userId });
+  const hasPersistedAccess = await hasDocumentAccessGrant({
+    docId,
+    userId,
+    orgId: normalizedOrgId,
+  });
   if (hasPersistedAccess) {
     const permission =
       (await getActiveSharePermissionByDocumentId(docId)) ?? "view";
@@ -1889,11 +2092,13 @@ export async function getPublicDocumentAccessByShareToken({
 export async function getOrCreateDocumentShareLink({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<DocumentShareLinkRecord | null> {
-  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId, orgId });
   if (!ownershipResult.isOwner) {
     return null;
   }
@@ -2092,11 +2297,13 @@ export async function getOrCreateDocumentShareLink({
 export async function getDocumentShareLinkState({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<{ isOwner: boolean; shareLink: DocumentShareLinkRecord | null }> {
-  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId, orgId });
   if (!ownershipResult.isOwner) {
     return { isOwner: false, shareLink: null };
   }
@@ -2177,11 +2384,13 @@ export async function getDocumentShareLinkState({
 export async function deactivateDocumentShareLink({
   docId,
   userId,
+  orgId,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
 }): Promise<{ isOwner: boolean; wasActive: boolean }> {
-  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId, orgId });
   if (!ownershipResult.isOwner) {
     return { isOwner: false, wasActive: false };
   }
@@ -2218,13 +2427,15 @@ export async function deactivateDocumentShareLink({
 export async function updateDocumentSharePermission({
   docId,
   userId,
+  orgId,
   permission,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
   permission: DocumentSharePermission;
 }): Promise<DocumentShareLinkRecord | null> {
-  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId, orgId });
   if (!ownershipResult.isOwner) {
     return null;
   }
@@ -2330,13 +2541,15 @@ export async function updateDocumentSharePermission({
 export async function updateDocumentSharePublicAccess({
   docId,
   userId,
+  orgId,
   isPublic,
 }: {
   docId: string;
   userId: string;
+  orgId?: string | null;
   isPublic: boolean;
 }): Promise<DocumentShareLinkRecord | null> {
-  const ownershipResult = await ensureDocumentOwnership({ docId, userId });
+  const ownershipResult = await ensureDocumentOwnership({ docId, userId, orgId });
   if (!ownershipResult.isOwner) {
     return null;
   }

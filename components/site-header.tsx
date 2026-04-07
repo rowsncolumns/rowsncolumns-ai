@@ -50,18 +50,10 @@ const isNavigationItemActive = (pathname: string, href: string): boolean => {
     return pathname === "/";
   }
   if (pathOnly === "/sheets") {
-    return pathname === "/sheets" || pathname.startsWith("/sheets/");
-  }
-  if (pathOnly === "/account/settings") {
     return (
-      pathname === "/account/settings" ||
-      pathname.startsWith("/account/settings/")
-    );
-  }
-  if (pathOnly === "/account/billing") {
-    return (
-      pathname === "/account/billing" ||
-      pathname.startsWith("/account/billing/")
+      pathname === "/sheets" ||
+      pathname.startsWith("/sheets/") ||
+      /^\/org\/[^/]+\/sheets(?:\/|$)/.test(pathname)
     );
   }
   return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`);

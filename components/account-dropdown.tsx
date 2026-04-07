@@ -2,10 +2,15 @@
 
 import { useRef, useState } from "react";
 import {
+  Building2,
+  Check,
   ChevronDown,
   CreditCard,
+  Loader2,
   LogOut,
+  PlusSquareIcon,
   Settings,
+  Settings2,
   Sparkles,
 } from "lucide-react";
 
@@ -16,6 +21,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { authClient } from "@/lib/auth/client";
@@ -34,9 +42,39 @@ function initialsFromName(name: string): string {
 }
 
 export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
+  const { data: sessionData } = authClient.useSession();
+  const { data: organizationData } = authClient.useListOrganizations();
   const initials = initialsFromName(name);
   const signOutFormRef = useRef<HTMLFormElement>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [switchingOrganizationId, setSwitchingOrganizationId] = useState<
+    string | null
+  >(null);
+
+  const activeOrganizationId =
+    typeof sessionData?.session?.activeOrganizationId === "string"
+      ? sessionData.session.activeOrganizationId
+      : null;
+
+  const organizations = Array.isArray(organizationData)
+    ? organizationData.filter((item) =>
+        Boolean(item && typeof item.id === "string" && item.id.length > 0),
+      )
+    : [];
+  const organizationBasePath = activeOrganizationId
+    ? `/org/${encodeURIComponent(activeOrganizationId)}`
+    : null;
+  const onboardingOrganizationHref = `/onboarding/organization?callbackURL=${encodeURIComponent("/pricing")}`;
+  const accountSettingsHref = "/account/settings";
+  const organizationSettingsHref = organizationBasePath
+    ? `${organizationBasePath}/settings`
+    : null;
+  const organizationBillingHref = organizationBasePath
+    ? `${organizationBasePath}/billing`
+    : onboardingOrganizationHref;
+  const organizationPeopleHref = organizationBasePath
+    ? `${organizationBasePath}/people`
+    : null;
 
   const handleSignOut = async () => {
     if (isSigningOut) {
@@ -55,6 +93,28 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
       signOutFormRef.current?.requestSubmit();
     } finally {
       setIsSigningOut(false);
+    }
+  };
+
+  const handleSetActiveOrganization = async (organizationId: string) => {
+    if (
+      switchingOrganizationId ||
+      !organizationId ||
+      activeOrganizationId === organizationId
+    ) {
+      return;
+    }
+
+    setSwitchingOrganizationId(organizationId);
+    try {
+      const { error } = await authClient.organization.setActive({
+        organizationId,
+      });
+      if (!error) {
+        window.location.assign("/sheets");
+      }
+    } finally {
+      setSwitchingOrganizationId(null);
     }
   };
 
@@ -99,20 +159,83 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
 
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Building2 className="h-4 w-4" />
+            Organization
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-64">
+            {organizations.length > 0 ? (
+              organizations.map((organization) => {
+                const organizationName =
+                  organization.name?.trim() || "Organization";
+                const isActive = activeOrganizationId === organization.id;
+                const isSwitching = switchingOrganizationId === organization.id;
+                return (
+                  <DropdownMenuItem
+                    key={organization.id}
+                    disabled={Boolean(switchingOrganizationId)}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleSetActiveOrganization(organization.id);
+                    }}
+                  >
+                    {isSwitching ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Building2 className="h-4 w-4" />
+                    )}
+                    <span className="max-w-[180px] truncate">
+                      {organizationName}
+                    </span>
+                    {isActive ? <Check className="ml-auto h-4 w-4" /> : null}
+                  </DropdownMenuItem>
+                );
+              })
+            ) : (
+              <DropdownMenuItem disabled>
+                <Building2 className="h-4 w-4" />
+                No organizations
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+
+            {organizationSettingsHref ? (
+              <DropdownMenuItem asChild>
+                <a href={organizationSettingsHref} className="cursor-pointer">
+                  <Settings className="h-4 w-4" />
+                  Organization settings
+                </a>
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem asChild>
+              <a href="/onboarding/organization" className="cursor-pointer">
+                <PlusSquareIcon className="h-4 w-4" />
+                Create organization
+              </a>
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <a href="/account/settings" className="cursor-pointer">
+          <a href={accountSettingsHref} className="cursor-pointer">
             <Settings className="h-4 w-4" />
-            Settings
+            Account settings
           </a>
         </DropdownMenuItem>
+
+        {organizationPeopleHref ? (
+          <DropdownMenuItem asChild>
+            <a href={organizationPeopleHref} className="cursor-pointer">
+              <Building2 className="h-4 w-4" />
+              People
+            </a>
+          </DropdownMenuItem>
+        ) : null}
+
         <DropdownMenuItem asChild>
-          <a href="/pricing" className="cursor-pointer">
-            <Sparkles className="h-4 w-4" />
-            Pricing
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <a href="/account/billing" className="cursor-pointer">
+          <a href={organizationBillingHref} className="cursor-pointer">
             <CreditCard className="h-4 w-4" />
             Billing
           </a>

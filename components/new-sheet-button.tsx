@@ -8,14 +8,18 @@ import { Button } from "@/components/ui/button";
 
 type NewSheetButtonProps = {
   className?: string;
+  basePath?: string;
 };
 
-export function NewSheetButton({ className }: NewSheetButtonProps) {
+export function NewSheetButton({
+  className,
+  basePath = "/sheets",
+}: NewSheetButtonProps) {
   const router = useRouter();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const handleDocumentCreated = async (documentId: string) => {
-    router.push(`/sheets/${documentId}`);
+    router.push(`${basePath}/${encodeURIComponent(documentId)}`);
   };
 
   return (

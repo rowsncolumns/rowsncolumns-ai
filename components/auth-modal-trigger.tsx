@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Github, User, X } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -19,7 +19,7 @@ type AuthModalTriggerProps = {
   className?: string;
   showIconOnMobile?: boolean;
 };
-type SocialProvider = "google" | "github";
+type SocialProvider = "google" | "github" | "microsoft";
 
 function GoogleBadge() {
   return (
@@ -43,6 +43,43 @@ function GoogleBadge() {
     </svg>
   );
 }
+
+function MicrosoftBadge() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#F25022" d="M1 1h10v10H1z" />
+      <path fill="#7FBA00" d="M13 1h10v10H13z" />
+      <path fill="#00A4EF" d="M1 13h10v10H1z" />
+      <path fill="#FFB900" d="M13 13h10v10H13z" />
+    </svg>
+  );
+}
+
+const socialSignInButtons: Array<{
+  provider: SocialProvider;
+  label: string;
+  loadingLabel: string;
+  icon: ReactNode;
+}> = [
+  {
+    provider: "google",
+    label: "Sign in with Google",
+    loadingLabel: "Signing in...",
+    icon: <GoogleBadge />,
+  },
+  {
+    provider: "microsoft",
+    label: "Sign in with Microsoft",
+    loadingLabel: "Signing in...",
+    icon: <MicrosoftBadge />,
+  },
+  {
+    provider: "github",
+    label: "Sign in with GitHub",
+    loadingLabel: "Signing in...",
+    icon: <Github className="h-5 w-5" />,
+  },
+];
 
 export function AuthModalTrigger({
   triggerText,
@@ -156,29 +193,22 @@ export function AuthModalTrigger({
         </div>
 
         <div className="mt-6">
-          <button
-            type="button"
-            disabled={!!loadingProvider}
-            onClick={() => handleSocialSignIn("google")}
-            className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-(--card-border) bg-(--card-bg-solid) text-base font-semibold text-foreground shadow-[0_2px_4px_var(--card-shadow)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <GoogleBadge />
-            {loadingProvider === "google"
-              ? "Signing in..."
-              : "Sign in with Google"}
-          </button>
-
-          <button
-            type="button"
-            disabled={!!loadingProvider}
-            onClick={() => handleSocialSignIn("github")}
-            className="mt-3 flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-(--card-border) bg-(--card-bg-solid) text-base font-semibold text-foreground shadow-[0_2px_4px_var(--card-shadow)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Github className="h-5 w-5" />
-            {loadingProvider === "github"
-              ? "Signing in..."
-              : "Sign in with GitHub"}
-          </button>
+          {socialSignInButtons.map((button, index) => (
+            <button
+              key={button.provider}
+              type="button"
+              disabled={!!loadingProvider}
+              onClick={() => handleSocialSignIn(button.provider)}
+              className={`flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-(--card-border) bg-(--card-bg-solid) text-base font-semibold text-foreground shadow-[0_2px_4px_var(--card-shadow)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${
+                index > 0 ? "mt-3" : ""
+              }`}
+            >
+              {button.icon}
+              {loadingProvider === button.provider
+                ? button.loadingLabel
+                : button.label}
+            </button>
+          ))}
         </div>
 
         {error ? (

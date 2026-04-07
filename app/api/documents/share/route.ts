@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import {
   deactivateDocumentShareLink,
   getDocumentShareLinkState,
@@ -48,6 +49,16 @@ export async function GET(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const url = new URL(request.url);
     const parsed = createShareLinkSchema.safeParse({
@@ -61,6 +72,7 @@ export async function GET(request: Request) {
     const state = await getDocumentShareLinkState({
       docId: parsed.data.documentId,
       userId,
+      orgId,
     });
 
     if (!state.isOwner) {
@@ -102,6 +114,16 @@ export async function POST(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const body = await request.json().catch(() => null);
     const parsed = createShareLinkSchema.safeParse(body);
@@ -113,6 +135,7 @@ export async function POST(request: Request) {
     const shareLink = await getOrCreateDocumentShareLink({
       docId: parsed.data.documentId,
       userId,
+      orgId,
     });
 
     if (!shareLink) {
@@ -146,6 +169,16 @@ export async function DELETE(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const body = await request.json().catch(() => null);
     const parsed = createShareLinkSchema.safeParse(body);
@@ -157,6 +190,7 @@ export async function DELETE(request: Request) {
     const result = await deactivateDocumentShareLink({
       docId: parsed.data.documentId,
       userId,
+      orgId,
     });
 
     if (!result.isOwner) {
@@ -184,6 +218,16 @@ export async function PATCH(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const body = await request.json().catch(() => null);
     const parsed = updateShareSettingsSchema.safeParse(body);
@@ -197,6 +241,7 @@ export async function PATCH(request: Request) {
       shareLink = await updateDocumentSharePermission({
         docId: parsed.data.documentId,
         userId,
+        orgId,
         permission: parsed.data.permission,
       });
     }
@@ -204,6 +249,7 @@ export async function PATCH(request: Request) {
       shareLink = await updateDocumentSharePublicAccess({
         docId: parsed.data.documentId,
         userId,
+        orgId,
         isPublic: parsed.data.isPublic,
       });
     }

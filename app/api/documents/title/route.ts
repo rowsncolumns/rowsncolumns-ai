@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { updateDocumentTitle } from "@/lib/documents/repository";
 
 export const runtime = "nodejs";
@@ -26,6 +27,16 @@ export async function PATCH(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const body = await request.json().catch(() => null);
     const parsed = updateDocumentTitleSchema.safeParse(body);
@@ -37,6 +48,7 @@ export async function PATCH(request: Request) {
     const titleRecord = await updateDocumentTitle({
       docId: parsed.data.documentId,
       userId,
+      orgId,
       title: parsed.data.title,
     });
 

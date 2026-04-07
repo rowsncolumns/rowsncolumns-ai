@@ -1,20 +1,21 @@
 import type Stripe from "stripe";
 
 import {
-  getUserBillingEntitlement,
-  getUserBillingProfileByStripeCustomerId,
-  upsertStripeCustomerForUser,
-  upsertUserBillingSubscriptionState,
+  getOrganizationBillingEntitlement,
+  getOrganizationBillingProfileByStripeCustomerId,
+  upsertOrganizationBillingSubscriptionState,
+  upsertStripeCustomerForOrganization,
 } from "@/lib/billing/repository";
 import { TOPUP_CREDITS } from "@/lib/billing/plans";
 import {
   getStripeClient,
   resolvePlanTierFromStripeSubscription,
 } from "@/lib/billing/stripe";
-import { grantUserCreditsFromBillingEvent } from "@/lib/credits/repository";
+import { grantOrganizationCreditsFromBillingEvent } from "@/lib/credits/repository";
 
 type SyncCheckoutSessionInput = {
   userId: string;
+  orgId: string;
   checkoutSessionId: string;
 };
 
@@ -85,14 +86,19 @@ const resolveSessionUserId = (session: Stripe.Checkout.Session) =>
   session.metadata?.user_id?.trim() ||
   null;
 
-const syncSubscriptionStateForUser = async (input: {
-  userId: string;
+const resolveSessionOrgId = (session: Stripe.Checkout.Session) =>
+  session.metadata?.org_id?.trim() || null;
+
+const syncSubscriptionStateForOrganization = async (input: {
+  orgId: string;
+  ownerUserId: string;
   stripeCustomerId: string;
   subscription: Stripe.Subscription;
 }) => {
   const effective = await resolveEffectiveSubscriptionState(input.subscription);
-  await upsertUserBillingSubscriptionState({
-    userId: input.userId,
+  await upsertOrganizationBillingSubscriptionState({
+    organizationId: input.orgId,
+    ownerUserId: input.ownerUserId,
     stripeCustomerId: input.stripeCustomerId,
     stripeSubscriptionId: input.subscription.id,
     planTier: effective.planTier,
@@ -104,8 +110,9 @@ const syncSubscriptionStateForUser = async (input: {
   return effective;
 };
 
-export async function syncCheckoutSessionForUser({
+export async function syncCheckoutSessionForOrganization({
   userId,
+  orgId,
   checkoutSessionId,
 }: SyncCheckoutSessionInput) {
   const normalizedSessionId = checkoutSessionId.trim();
@@ -116,20 +123,28 @@ export async function syncCheckoutSessionForUser({
     expand: ["subscription"],
   });
   const sessionUserId = resolveSessionUserId(session);
+  const sessionOrgId = resolveSessionOrgId(session);
 
   if (sessionUserId && sessionUserId !== userId) {
     throw new Error("Checkout session does not belong to the current user.");
   }
+  if (sessionOrgId && sessionOrgId !== orgId) {
+    throw new Error(
+      "Checkout session does not belong to the active organization.",
+    );
+  }
 
   const stripeCustomerId = parseStripeCustomerId(session.customer ?? null);
   if (stripeCustomerId) {
-    const owner = await getUserBillingProfileByStripeCustomerId(stripeCustomerId);
-    if (owner && owner.userId !== userId) {
-      throw new Error("Stripe customer is linked to a different user.");
+    const owner =
+      await getOrganizationBillingProfileByStripeCustomerId(stripeCustomerId);
+    if (owner && owner.organizationId !== orgId) {
+      throw new Error("Stripe customer is linked to a different organization.");
     }
 
-    await upsertStripeCustomerForUser({
-      userId,
+    await upsertStripeCustomerForOrganization({
+      organizationId: orgId,
+      ownerUserId: userId,
       stripeCustomerId,
     });
   }
@@ -139,8 +154,8 @@ export async function syncCheckoutSessionForUser({
       return;
     }
 
-    await grantUserCreditsFromBillingEvent({
-      userId,
+    await grantOrganizationCreditsFromBillingEvent({
+      organizationId: orgId,
       amount: TOPUP_CREDITS,
       reason: "topup_purchase_grant",
       idempotencyKey: `topup:${session.id}`,
@@ -148,6 +163,8 @@ export async function syncCheckoutSessionForUser({
         source: "checkout_return_sync",
         checkoutSessionId: session.id,
         customerId: stripeCustomerId,
+        orgId,
+        userId,
       },
     });
     return;
@@ -167,16 +184,17 @@ export async function syncCheckoutSessionForUser({
     return;
   }
 
-  const effective = await syncSubscriptionStateForUser({
-    userId,
+  const effective = await syncSubscriptionStateForOrganization({
+    orgId,
+    ownerUserId: userId,
     stripeCustomerId,
     subscription,
   });
   if (effective.planTier === "free") return;
 }
 
-export async function syncBillingProfileFromStripeForUser(userId: string) {
-  const entitlement = await getUserBillingEntitlement(userId);
+export async function syncBillingProfileFromStripeForOrganization(orgId: string) {
+  const entitlement = await getOrganizationBillingEntitlement(orgId);
   const stripeCustomerId = entitlement.stripeCustomerId;
   if (!stripeCustomerId) return;
 
@@ -205,9 +223,15 @@ export async function syncBillingProfileFromStripeForUser(userId: string) {
       null;
   }
 
+  const owner = await getOrganizationBillingProfileByStripeCustomerId(
+    stripeCustomerId,
+  );
+  const ownerUserId = owner?.ownerUserId ?? "unknown";
+
   if (!subscription) {
-    await upsertUserBillingSubscriptionState({
-      userId,
+    await upsertOrganizationBillingSubscriptionState({
+      organizationId: orgId,
+      ownerUserId,
       stripeCustomerId,
       stripeSubscriptionId: null,
       planTier: "free",
@@ -218,8 +242,9 @@ export async function syncBillingProfileFromStripeForUser(userId: string) {
     return;
   }
 
-  await syncSubscriptionStateForUser({
-    userId,
+  await syncSubscriptionStateForOrganization({
+    orgId,
+    ownerUserId,
     stripeCustomerId,
     subscription,
   });

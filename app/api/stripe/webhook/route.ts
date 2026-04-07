@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import {
-  getUserBillingProfileByStripeCustomerId,
-  upsertStripeCustomerForUser,
-  upsertUserBillingSubscriptionState,
+  getOrganizationBillingProfileByStripeCustomerId,
+  upsertOrganizationBillingSubscriptionState,
+  upsertStripeCustomerForOrganization,
 } from "@/lib/billing/repository";
 import {
   getStripeClient,
@@ -16,7 +16,7 @@ import {
   markStripeWebhookEventProcessed,
 } from "@/lib/billing/webhook-events-repository";
 import { resolvePlanMonthlyCredits, TOPUP_CREDITS } from "@/lib/billing/plans";
-import { grantUserCreditsFromBillingEvent } from "@/lib/credits/repository";
+import { grantOrganizationCreditsFromBillingEvent } from "@/lib/credits/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,9 +79,22 @@ const parseStripeCustomerId = (value: string | Stripe.Customer | Stripe.DeletedC
   return value.id;
 };
 
-const resolveUserIdForCustomer = async (stripeCustomerId: string) => {
-  const existing = await getUserBillingProfileByStripeCustomerId(stripeCustomerId);
-  if (existing) return existing.userId;
+type OrganizationCustomerContext = {
+  organizationId: string;
+  ownerUserId: string;
+};
+
+const resolveOrganizationForCustomer = async (
+  stripeCustomerId: string,
+): Promise<OrganizationCustomerContext | null> => {
+  const existing =
+    await getOrganizationBillingProfileByStripeCustomerId(stripeCustomerId);
+  if (existing) {
+    return {
+      organizationId: existing.organizationId,
+      ownerUserId: existing.ownerUserId,
+    };
+  }
 
   const stripe = getStripeClient();
   const customer = await stripe.customers.retrieve(stripeCustomerId);
@@ -89,24 +102,35 @@ const resolveUserIdForCustomer = async (stripeCustomerId: string) => {
     return null;
   }
 
-  const metadataUserId = customer.metadata?.user_id?.trim();
-  if (!metadataUserId) return null;
+  const metadataOrgId = customer.metadata?.org_id?.trim();
+  if (!metadataOrgId) {
+    return null;
+  }
 
-  await upsertStripeCustomerForUser({
-    userId: metadataUserId,
+  const ownerUserId = customer.metadata?.user_id?.trim() || "unknown";
+
+  await upsertStripeCustomerForOrganization({
+    organizationId: metadataOrgId,
+    ownerUserId,
     stripeCustomerId,
   });
-  return metadataUserId;
+
+  return {
+    organizationId: metadataOrgId,
+    ownerUserId,
+  };
 };
 
 const syncSubscriptionState = async (input: {
-  userId: string;
+  organizationId: string;
+  ownerUserId: string;
   stripeCustomerId: string;
   subscription: Stripe.Subscription;
 }) => {
   const effective = await resolveEffectiveSubscriptionState(input.subscription);
-  await upsertUserBillingSubscriptionState({
-    userId: input.userId,
+  await upsertOrganizationBillingSubscriptionState({
+    organizationId: input.organizationId,
+    ownerUserId: input.ownerUserId,
     stripeCustomerId: input.stripeCustomerId,
     stripeSubscriptionId: input.subscription.id,
     planTier: effective.planTier,
@@ -127,9 +151,12 @@ const handleCheckoutSessionCompleted = async (event: Stripe.Event) => {
     session.client_reference_id?.trim() ||
     session.metadata?.user_id?.trim() ||
     null;
-  if (sessionUserId) {
-    await upsertStripeCustomerForUser({
-      userId: sessionUserId,
+  const sessionOrgId = session.metadata?.org_id?.trim() || null;
+
+  if (sessionOrgId) {
+    await upsertStripeCustomerForOrganization({
+      organizationId: sessionOrgId,
+      ownerUserId: sessionUserId || "unknown",
       stripeCustomerId,
     });
   }
@@ -142,11 +169,16 @@ const handleCheckoutSessionCompleted = async (event: Stripe.Event) => {
       return;
     }
 
-    const userId = sessionUserId ?? (await resolveUserIdForCustomer(stripeCustomerId));
-    if (!userId) return;
+    const orgContext = sessionOrgId
+      ? {
+          organizationId: sessionOrgId,
+          ownerUserId: sessionUserId || "unknown",
+        }
+      : await resolveOrganizationForCustomer(stripeCustomerId);
+    if (!orgContext) return;
 
-    await grantUserCreditsFromBillingEvent({
-      userId,
+    await grantOrganizationCreditsFromBillingEvent({
+      organizationId: orgContext.organizationId,
       amount: TOPUP_CREDITS,
       reason: "topup_purchase_grant",
       idempotencyKey: `topup:${session.id}`,
@@ -154,6 +186,8 @@ const handleCheckoutSessionCompleted = async (event: Stripe.Event) => {
         stripeEventId: event.id,
         checkoutSessionId: session.id,
         customerId: stripeCustomerId,
+        orgId: orgContext.organizationId,
+        userId: sessionUserId,
       },
     });
     return;
@@ -165,11 +199,18 @@ const handleCheckoutSessionCompleted = async (event: Stripe.Event) => {
 
   const stripe = getStripeClient();
   const subscription = await stripe.subscriptions.retrieve(session.subscription);
-  const userId = sessionUserId ?? (await resolveUserIdForCustomer(stripeCustomerId));
-  if (!userId) return;
+
+  const orgContext = sessionOrgId
+    ? {
+        organizationId: sessionOrgId,
+        ownerUserId: sessionUserId || "unknown",
+      }
+    : await resolveOrganizationForCustomer(stripeCustomerId);
+  if (!orgContext) return;
 
   const synced = await syncSubscriptionState({
-    userId,
+    organizationId: orgContext.organizationId,
+    ownerUserId: orgContext.ownerUserId,
     stripeCustomerId,
     subscription,
   });
@@ -199,21 +240,22 @@ const handleInvoicePaid = async (event: Stripe.Event) => {
   const stripeCustomerId = parseStripeCustomerId(invoice.customer);
   if (!stripeCustomerId) return;
 
-  const userId = await resolveUserIdForCustomer(stripeCustomerId);
-  if (!userId) return;
+  const orgContext = await resolveOrganizationForCustomer(stripeCustomerId);
+  if (!orgContext) return;
 
   const stripe = getStripeClient();
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const synced = await syncSubscriptionState({
-    userId,
+    organizationId: orgContext.organizationId,
+    ownerUserId: orgContext.ownerUserId,
     stripeCustomerId,
     subscription,
   });
 
   if (synced.planTier === "free") return;
 
-  await grantUserCreditsFromBillingEvent({
-    userId,
+  await grantOrganizationCreditsFromBillingEvent({
+    organizationId: orgContext.organizationId,
     amount: resolvePlanMonthlyCredits(synced.planTier),
     reason: "subscription_cycle_grant",
     idempotencyKey: `invoice:${invoice.id}`,
@@ -222,6 +264,8 @@ const handleInvoicePaid = async (event: Stripe.Event) => {
       invoiceId: invoice.id,
       subscriptionId: subscription.id,
       planTier: synced.planTier,
+      orgId: orgContext.organizationId,
+      ownerUserId: orgContext.ownerUserId,
     },
   });
 };
@@ -231,11 +275,12 @@ const handleSubscriptionUpdated = async (event: Stripe.Event) => {
   const stripeCustomerId = parseStripeCustomerId(subscription.customer);
   if (!stripeCustomerId) return;
 
-  const userId = await resolveUserIdForCustomer(stripeCustomerId);
-  if (!userId) return;
+  const orgContext = await resolveOrganizationForCustomer(stripeCustomerId);
+  if (!orgContext) return;
 
   await syncSubscriptionState({
-    userId,
+    organizationId: orgContext.organizationId,
+    ownerUserId: orgContext.ownerUserId,
     stripeCustomerId,
     subscription,
   });

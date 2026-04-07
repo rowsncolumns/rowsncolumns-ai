@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { createDocumentId } from "@/lib/documents/create-document-id";
 import {
   createDocumentImportJob,
@@ -114,6 +115,16 @@ export async function POST(request: Request) {
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
     }
 
     if (!getR2Config()) {
@@ -279,7 +290,7 @@ export async function POST(request: Request) {
     const documentId = createDocumentId();
     const jobId = crypto.randomUUID();
 
-    await ensureDocumentOwnership({ docId: documentId, userId });
+    await ensureDocumentOwnership({ docId: documentId, userId, orgId });
     await ensureDocumentMetadata({ docId: documentId });
 
     const importTitle = getDocumentTitleFromFilename(fileName);
@@ -288,6 +299,7 @@ export async function POST(request: Request) {
         await updateDocumentTitle({
           docId: documentId,
           userId,
+          orgId,
           title: importTitle,
         });
       } catch (titleError) {

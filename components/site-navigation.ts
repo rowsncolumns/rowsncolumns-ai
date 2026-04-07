@@ -16,8 +16,6 @@ export const authenticatedSiteNavigation: NavigationItem[] = [
   { label: "My Sheets", href: "/sheets" },
   { label: "Templates", href: "/templates" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Settings", href: "/account/settings" },
-  { label: "Billing", href: "/account/billing" },
   { label: "Contact", href: "/contact" },
 ];
 

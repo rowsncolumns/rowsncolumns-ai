@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import {
   deleteOwnedDocument,
   isOwnedGlobalTemplateDocument,
@@ -32,6 +33,16 @@ export async function DELETE(_request: Request, context: RouteContext) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const { documentId: rawDocumentId } = await context.params;
     const parsed = documentIdSchema.safeParse(rawDocumentId);
@@ -43,6 +54,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
     const isGlobalTemplate = await isOwnedGlobalTemplateDocument({
       docId: parsed.data,
       userId,
+      orgId,
     });
     if (isGlobalTemplate) {
       return NextResponse.json(
@@ -54,6 +66,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
     const deleted = await deleteOwnedDocument({
       docId: parsed.data,
       userId,
+      orgId,
     });
 
     if (!deleted) {
@@ -78,6 +91,16 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const { documentId: rawDocumentId } = await context.params;
     const parsedDocumentId = documentIdSchema.safeParse(rawDocumentId);
@@ -97,6 +120,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     const updated = await setDocumentFavorite({
       docId: parsedDocumentId.data,
       userId,
+      orgId,
       favorite: parsedBody.data.favorite,
     });
 

@@ -54,6 +54,10 @@ BETTER_AUTH_URL=https://your-app-domain
 BETTER_AUTH_SECRET=your-long-random-secret
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+# Optional. Defaults to "common" for multi-tenant Microsoft sign-in.
+MICROSOFT_TENANT_ID=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 ```

@@ -78,9 +78,11 @@ export function useBillingActions() {
   const startSubscriptionCheckout = React.useCallback(async (input: {
     tier: PaidTier;
     currentPlan?: BillingPlanTier;
+    organizationId?: string;
   }) => {
     const tier = input.tier;
     const currentPlan = input.currentPlan ?? "free";
+    const organizationId = input.organizationId?.trim() || null;
     const isExistingPaidPlan = currentPlan === "pro" || currentPlan === "max";
     const isPlanChange = isExistingPaidPlan && currentPlan !== tier;
 
@@ -102,6 +104,7 @@ export function useBillingActions() {
         body: JSON.stringify({
           kind: "subscription",
           tier,
+          ...(organizationId ? { organizationId } : {}),
         }),
       });
 
@@ -135,7 +138,10 @@ export function useBillingActions() {
     }
   }, [requestPlanChangeConfirmation, router]);
 
-  const startTopupCheckout = React.useCallback(async () => {
+  const startTopupCheckout = React.useCallback(async (input?: {
+    organizationId?: string;
+  }) => {
+    const organizationId = input?.organizationId?.trim() || null;
     setIsSubmittingTopup(true);
     try {
       const response = await fetch("/api/billing/checkout", {
@@ -143,6 +149,7 @@ export function useBillingActions() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind: "topup",
+          ...(organizationId ? { organizationId } : {}),
         }),
       });
 
@@ -162,11 +169,18 @@ export function useBillingActions() {
     }
   }, []);
 
-  const openBillingPortal = React.useCallback(async () => {
+  const openBillingPortal = React.useCallback(async (input?: {
+    organizationId?: string;
+  }) => {
+    const organizationId = input?.organizationId?.trim() || null;
     setIsOpeningPortal(true);
     try {
       const response = await fetch("/api/billing/portal", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(organizationId ? { organizationId } : {}),
+        }),
       });
       const payload = (await response
         .json()

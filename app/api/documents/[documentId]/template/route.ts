@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { isAdminUser } from "@/lib/auth/admin";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { auth } from "@/lib/auth/server";
 import {
   documentExists,
@@ -54,8 +55,25 @@ const requireOwnerSession = async (documentId: string) => {
       user: null as null,
     };
   }
+  const orgId = await resolveActiveOrganizationIdForSession(session);
+  if (!orgId) {
+    return {
+      error: NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      ),
+      user: null as null,
+    };
+  }
 
-  const isOwner = await isDocumentOwner({ docId: documentId, userId: user.id });
+  const isOwner = await isDocumentOwner({
+    docId: documentId,
+    userId: user.id,
+    orgId,
+  });
   if (!isOwner) {
     return {
       error: NextResponse.json({ error: "Forbidden." }, { status: 403 }),

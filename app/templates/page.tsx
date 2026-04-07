@@ -8,6 +8,7 @@ import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shel
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { Button, getButtonClassName } from "@/components/ui/button";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import {
   listOwnedDocumentIds,
   listTemplateDocuments,
@@ -62,6 +63,13 @@ const buildTemplatesHref = ({
   return serialized ? `/templates?${serialized}` : "/templates";
 };
 
+const appendOrgIdQuery = (href: string, orgId: string | null): string => {
+  if (!orgId) {
+    return href;
+  }
+  return `${href}?orgId=${encodeURIComponent(orgId)}`;
+};
+
 const fallbackTemplateDescription =
   "Ready-to-use RowsnColumns spreadsheet template.";
 
@@ -97,8 +105,11 @@ export default async function TemplatesPage({
   const selectedCategory = normalizeCategory(parseSingleValue(params.category));
 
   const session = await getServerSessionSafe();
+  const activeOrganizationId = session?.user
+    ? await resolveActiveOrganizationIdForSession(session)
+    : null;
   const ownerDocumentIds = session?.user?.id
-    ? await listOwnedDocumentIds(session.user.id)
+    ? await listOwnedDocumentIds(session.user.id, activeOrganizationId)
     : [];
   const ownerDocumentIdSet = new Set(ownerDocumentIds);
   const [templates, categorySource] = await Promise.all([
@@ -254,6 +265,11 @@ export default async function TemplatesPage({
                       template.tagline.trim() ||
                       getSummaryFromMarkdown(template.descriptionMarkdown);
                     const detailsHref = `/templates/${encodeURIComponent(template.docId)}`;
+                    const viewHref = `/templates/${encodeURIComponent(template.docId)}/view`;
+                    const forkHref = appendOrgIdQuery(
+                      `/templates/open/${encodeURIComponent(template.docId)}`,
+                      activeOrganizationId,
+                    );
 
                     return (
                       <article
@@ -325,7 +341,7 @@ export default async function TemplatesPage({
                                 />
                               ) : null}
                               <a
-                                href={`/sheets/${encodeURIComponent(template.docId)}`}
+                                href={viewHref}
                                 className={getButtonClassName({
                                   variant: "secondary",
                                   size: "sm",
@@ -336,7 +352,7 @@ export default async function TemplatesPage({
                                 View
                               </a>
                               <a
-                                href={`/templates/open/${encodeURIComponent(template.docId)}`}
+                                href={forkHref}
                                 className={getButtonClassName({
                                   size: "sm",
                                   className:

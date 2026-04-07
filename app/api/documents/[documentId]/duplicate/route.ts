@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { createDocumentId } from "@/lib/documents/create-document-id";
 import {
   documentExists,
@@ -29,6 +30,16 @@ export async function POST(_request: Request, context: RouteContext) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const { documentId: rawDocumentId } = await context.params;
     const parsedDocumentId = documentIdSchema.safeParse(rawDocumentId);
@@ -47,6 +58,7 @@ export async function POST(_request: Request, context: RouteContext) {
     const access = await ensureDocumentAccess({
       docId: sourceDocId,
       userId,
+      orgId,
     });
     if (!access.canAccess) {
       return NextResponse.json({ error: "Document not found." }, { status: 404 });
@@ -57,6 +69,7 @@ export async function POST(_request: Request, context: RouteContext) {
       sourceDocId,
       duplicatedDocId,
       userId,
+      orgId,
     });
 
     if (!duplicated) {

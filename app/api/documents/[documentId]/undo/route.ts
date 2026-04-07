@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import {
   documentExists,
   ensureDocumentAccess,
@@ -70,9 +71,20 @@ export async function POST(request: Request, context: RouteContext) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
     const auditAccess = await resolveAuditHistoryAccess({
       userId,
       email: session.user?.email,
+      orgId,
     });
     if (!auditAccess.allowed) {
       return NextResponse.json(
@@ -108,6 +120,7 @@ export async function POST(request: Request, context: RouteContext) {
     const access = await ensureDocumentAccess({
       docId: documentId,
       userId,
+      orgId,
     });
     if (!access.canAccess) {
       return NextResponse.json(
@@ -290,9 +303,20 @@ export async function GET(request: Request, context: RouteContext) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
     const auditAccess = await resolveAuditHistoryAccess({
       userId,
       email: session.user?.email,
+      orgId,
     });
     if (!auditAccess.allowed) {
       return NextResponse.json(
@@ -324,6 +348,7 @@ export async function GET(request: Request, context: RouteContext) {
     const access = await ensureDocumentAccess({
       docId: documentId,
       userId,
+      orgId,
     });
     if (!access.canAccess) {
       return NextResponse.json(

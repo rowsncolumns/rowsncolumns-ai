@@ -16,6 +16,7 @@ import {
 } from "@/lib/billing/plans";
 
 type BillingPanelProps = {
+  organizationId?: string;
   currentPlan: BillingPlanTier;
   subscriptionStatus: string | null;
   currentPeriodEnd: string | null;
@@ -74,6 +75,7 @@ const PLAN_CARDS: Array<{
 ];
 
 export function AccountBillingPanel({
+  organizationId,
   currentPlan,
   subscriptionStatus,
   currentPeriodEnd,
@@ -107,8 +109,9 @@ export function AccountBillingPanel({
     await startSubscriptionCheckout({
       tier,
       currentPlan,
+      organizationId,
     });
-  }, [currentPlan, startSubscriptionCheckout]);
+  }, [currentPlan, organizationId, startSubscriptionCheckout]);
 
   return (
     <div className="space-y-6">
@@ -148,7 +151,7 @@ export function AccountBillingPanel({
           <Button
             type="button"
             variant="secondary"
-            onClick={openBillingPortal}
+            onClick={() => openBillingPortal({ organizationId })}
             disabled={isOpeningPortal}
           >
             {isOpeningPortal
@@ -210,7 +213,7 @@ export function AccountBillingPanel({
         </p>
         <Button
           type="button"
-          onClick={startTopupCheckout}
+          onClick={() => startTopupCheckout({ organizationId })}
           disabled={isSubmittingTopup}
           className="mt-4"
         >

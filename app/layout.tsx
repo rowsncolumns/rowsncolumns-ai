@@ -13,6 +13,7 @@ import {
 } from "@/lib/theme-preference";
 import { PostHogProvider } from "@/lib/analytics/posthog-client";
 import { SonnerToaster } from "@/components/sonner-toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "sonner/dist/styles.css";
 import "./globals.css";
 
@@ -151,7 +152,7 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
         <PostHogProvider>
-          {children}
+          <TooltipProvider>{children}</TooltipProvider>
           <SonnerToaster />
         </PostHogProvider>
       </body>

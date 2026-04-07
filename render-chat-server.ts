@@ -37,6 +37,7 @@ import {
   deleteAssistantSession,
   upsertAssistantSession,
 } from "@/lib/chat/sessions-repository";
+import { db } from "@/lib/db/postgres";
 
 type AuthIdentity = {
   userId: string;
@@ -87,6 +88,20 @@ const parsePositiveInt = (value: string | undefined, fallback: number) => {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const resolveActiveOrganizationIdForUser = async (
+  userId: string,
+): Promise<string | null> => {
+  const rows = await db<{ organization_id: string }[]>`
+    SELECT m."organizationId" AS organization_id
+    FROM public.member AS m
+    WHERE m."userId" = ${userId}
+    ORDER BY m."createdAt" ASC
+    LIMIT 1
+  `;
+
+  return rows[0]?.organization_id ?? null;
 };
 
 const CHAT_SSE_HEARTBEAT_INTERVAL_MS = Math.max(
@@ -622,9 +637,20 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
   const chatRequest = resolved.value;
 
   const isAdmin = isAdminUser({ id: identity.userId, email: identity.email });
+  const organizationId = await resolveActiveOrganizationIdForUser(
+    identity.userId,
+  );
+  if (!organizationId) {
+    sendJson(req, res, 409, {
+      error: "No active organization. Create an organization first.",
+      onboardingUrl: "/onboarding/organization",
+    });
+    return;
+  }
   const creditCheck = await ensureChatRunCredits({
     isAdmin,
     userId: identity.userId,
+    organizationId,
     threadId: chatRequest.threadId,
     message: chatRequest.message,
   });
@@ -672,6 +698,7 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
     await executeChatRunStream({
       request: runRequest,
       userId: identity.userId,
+      organizationId,
       isAdmin,
       shareDbWsHeaders: buildShareDbWsHeaders(req.headers),
       persistEvents: true,

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
+import {
+  buildOrganizationSheetPath,
+  resolveActiveOrganizationIdForSession,
+} from "@/lib/auth/organization";
+import { getOrganizationRoleForUser } from "@/lib/auth/organization-membership";
 import { createDocumentId } from "@/lib/documents/create-document-id";
 import { duplicateTemplateDocument } from "@/lib/documents/repository";
 
@@ -20,6 +25,9 @@ const documentIdSchema = z
 
 export async function GET(request: Request, context: RouteContext) {
   const { documentId: rawDocumentId } = await context.params;
+  const requestUrl = new URL(request.url);
+  const requestedOrgId =
+    requestUrl.searchParams.get("orgId")?.trim() || null;
   const parsedDocumentId = documentIdSchema.safeParse(rawDocumentId);
   if (!parsedDocumentId.success) {
     return NextResponse.redirect(new URL("/templates", request.url));
@@ -31,11 +39,34 @@ export async function GET(request: Request, context: RouteContext) {
 
   if (!userId) {
     const signInUrl = new URL("/auth/sign-in", request.url);
-    signInUrl.searchParams.set(
-      "callbackURL",
-      `/templates/open/${encodeURIComponent(sourceDocId)}`,
-    );
+    const callbackPath = requestedOrgId
+      ? `/templates/open/${encodeURIComponent(sourceDocId)}?orgId=${encodeURIComponent(requestedOrgId)}`
+      : `/templates/open/${encodeURIComponent(sourceDocId)}`;
+    signInUrl.searchParams.set("callbackURL", callbackPath);
     return NextResponse.redirect(signInUrl);
+  }
+
+  let orgId: string | null = null;
+  if (requestedOrgId) {
+    const requestedRole = await getOrganizationRoleForUser({
+      userId,
+      organizationId: requestedOrgId,
+    });
+    if (requestedRole) {
+      orgId = requestedOrgId;
+    }
+  }
+  if (!orgId) {
+    orgId = await resolveActiveOrganizationIdForSession(session);
+  }
+
+  if (!orgId) {
+    const onboardingUrl = new URL("/onboarding/organization", request.url);
+    const callbackPath = requestedOrgId
+      ? `/templates/open/${encodeURIComponent(sourceDocId)}?orgId=${encodeURIComponent(requestedOrgId)}`
+      : `/templates/open/${encodeURIComponent(sourceDocId)}`;
+    onboardingUrl.searchParams.set("callbackURL", callbackPath);
+    return NextResponse.redirect(onboardingUrl);
   }
 
   try {
@@ -43,6 +74,7 @@ export async function GET(request: Request, context: RouteContext) {
       sourceDocId,
       duplicatedDocId: createDocumentId(),
       userId,
+      orgId,
     });
 
     if (!duplicated) {
@@ -50,7 +82,13 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     return NextResponse.redirect(
-      new URL(`/sheets/${encodeURIComponent(duplicated.docId)}`, request.url),
+      new URL(
+        buildOrganizationSheetPath({
+          organizationId: orgId,
+          documentId: duplicated.docId,
+        }),
+        request.url,
+      ),
     );
   } catch {
     return NextResponse.redirect(new URL("/templates", request.url));

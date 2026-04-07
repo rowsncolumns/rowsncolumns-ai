@@ -4916,7 +4916,19 @@ function AssistantComposer({
                 size="sm"
                 variant="primary"
                 onClick={() => {
-                  window.location.assign("/account/billing");
+                  const orgMatch = window.location.pathname.match(
+                    /^\/org\/([^/]+)(?:\/|$)/,
+                  );
+                  if (orgMatch?.[1]) {
+                    window.location.assign(
+                      `/org/${encodeURIComponent(orgMatch[1])}/billing`,
+                    );
+                    return;
+                  }
+                  const callback = `${window.location.pathname}${window.location.search}`;
+                  window.location.assign(
+                    `/onboarding/organization?callbackURL=${encodeURIComponent(callback)}`,
+                  );
                 }}
               >
                 Open Billing

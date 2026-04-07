@@ -5,12 +5,12 @@ import * as React from "react";
 import { INITIAL_CREDITS } from "@/lib/credits/pricing";
 
 type AdminCreditRefillCardProps = {
-  currentUserId: string;
+  currentOrganizationId: string;
 };
 
 type RefillResponse = {
   refill?: {
-    userId: string;
+    organizationId: string;
     previousBalance: number;
     nextBalance: number;
     delta: number;
@@ -20,8 +20,12 @@ type RefillResponse = {
   error?: string;
 };
 
-export function AdminCreditRefillCard({ currentUserId }: AdminCreditRefillCardProps) {
-  const [targetUserId, setTargetUserId] = React.useState(currentUserId);
+export function AdminCreditRefillCard({
+  currentOrganizationId,
+}: AdminCreditRefillCardProps) {
+  const [targetOrganizationId, setTargetOrganizationId] = React.useState(
+    currentOrganizationId,
+  );
   const [amount, setAmount] = React.useState(String(INITIAL_CREDITS));
   const [mode, setMode] = React.useState<"set" | "add">("set");
   const [note, setNote] = React.useState("");
@@ -41,9 +45,9 @@ export function AdminCreditRefillCard({ currentUserId }: AdminCreditRefillCardPr
         return;
       }
 
-      const trimmedTargetUserId = targetUserId.trim();
-      if (!trimmedTargetUserId) {
-        setError("User ID is required.");
+      const trimmedTargetOrganizationId = targetOrganizationId.trim();
+      if (!trimmedTargetOrganizationId) {
+        setError("Organization ID is required.");
         return;
       }
 
@@ -55,7 +59,7 @@ export function AdminCreditRefillCard({ currentUserId }: AdminCreditRefillCardPr
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            userId: trimmedTargetUserId,
+            organizationId: trimmedTargetOrganizationId,
             mode,
             amount: parsedAmount,
             note: note.trim() || undefined,
@@ -69,7 +73,7 @@ export function AdminCreditRefillCard({ currentUserId }: AdminCreditRefillCardPr
         }
 
         setSuccess(
-          `Updated ${payload.refill.userId}: ${payload.refill.previousBalance} -> ${payload.refill.nextBalance}`,
+          `Updated ${payload.refill.organizationId}: ${payload.refill.previousBalance} -> ${payload.refill.nextBalance}`,
         );
       } catch {
         setError("Failed to refill credits.");
@@ -77,7 +81,7 @@ export function AdminCreditRefillCard({ currentUserId }: AdminCreditRefillCardPr
         setIsSubmitting(false);
       }
     },
-    [amount, mode, note, targetUserId],
+    [amount, mode, note, targetOrganizationId],
   );
 
   return (
@@ -91,16 +95,16 @@ export function AdminCreditRefillCard({ currentUserId }: AdminCreditRefillCardPr
 
       <form onSubmit={handleSubmit} className="mt-3 space-y-3">
         <div className="space-y-1">
-          <label htmlFor="refill-user-id" className="text-xs font-medium text-foreground">
-            User ID
+          <label htmlFor="refill-organization-id" className="text-xs font-medium text-foreground">
+            Organization ID
           </label>
           <input
-            id="refill-user-id"
+            id="refill-organization-id"
             type="text"
-            value={targetUserId}
-            onChange={(event) => setTargetUserId(event.target.value)}
+            value={targetOrganizationId}
+            onChange={(event) => setTargetOrganizationId(event.target.value)}
             className="h-10 w-full rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none focus:border-black/30"
-            placeholder="Target user ID"
+            placeholder="Target organization ID"
             required
           />
         </div>
@@ -166,4 +170,3 @@ export function AdminCreditRefillCard({ currentUserId }: AdminCreditRefillCardPr
     </div>
   );
 }
-

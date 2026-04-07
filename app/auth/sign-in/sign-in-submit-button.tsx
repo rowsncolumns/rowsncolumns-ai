@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { Github, Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
 
-type Provider = "google" | "github";
+type Provider = "google" | "github" | "microsoft";
 
 function GoogleBadge() {
   return (
@@ -29,6 +29,42 @@ function GoogleBadge() {
   );
 }
 
+function MicrosoftBadge() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#F25022" d="M1 1h10v10H1z" />
+      <path fill="#7FBA00" d="M13 1h10v10H13z" />
+      <path fill="#00A4EF" d="M1 13h10v10H1z" />
+      <path fill="#FFB900" d="M13 13h10v10H13z" />
+    </svg>
+  );
+}
+
+const providerConfig: Record<
+  Provider,
+  {
+    label: string;
+    cta: string;
+    icon: ReactNode;
+  }
+> = {
+  google: {
+    label: "Google",
+    cta: "Continue with Google",
+    icon: <GoogleBadge />,
+  },
+  github: {
+    label: "GitHub",
+    cta: "Continue with GitHub",
+    icon: <Github className="h-5 w-5" />,
+  },
+  microsoft: {
+    label: "Microsoft",
+    cta: "Continue with Microsoft",
+    icon: <MicrosoftBadge />,
+  },
+};
+
 function callbackURLFromPath(path: string): string {
   return `/auth/callback?redirectTo=${encodeURIComponent(path)}`;
 }
@@ -41,8 +77,7 @@ export function SignInSubmitButton({
   callbackPath: string;
 }) {
   const [pending, setPending] = useState(false);
-  const isGoogle = provider === "google";
-  const providerLabel = isGoogle ? "Google" : "GitHub";
+  const { label: providerLabel, cta, icon } = providerConfig[provider];
 
   const handleClick = useCallback(async () => {
     try {
@@ -88,8 +123,8 @@ export function SignInSubmitButton({
         </>
       ) : (
         <>
-          {isGoogle ? <GoogleBadge /> : <Github className="h-5 w-5" />}
-          {isGoogle ? "Continue with Google" : "Continue with GitHub"}
+          {icon}
+          {cta}
         </>
       )}
     </button>

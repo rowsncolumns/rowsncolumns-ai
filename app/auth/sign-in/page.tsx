@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Sign In",
   description:
-    "Sign in to RowsnColumns AI with Google or GitHub to access your spreadsheet workspace.",
+    "Sign in to RowsnColumns AI with Google, Microsoft, or GitHub to access your spreadsheet workspace.",
   robots: {
     index: false,
     follow: false,
@@ -111,9 +111,9 @@ export default async function SignInPage({
                     Sign in to continue your spreadsheet workflow.
                   </h1>
                   <p className="max-w-2xl text-base text-(--muted-foreground) sm:text-lg">
-                    Use Google or GitHub to continue to your spreadsheet
-                    workspace, open templates, and run AI actions with your
-                    existing context.
+                    Use Google, Microsoft, or GitHub to continue to your
+                    spreadsheet workspace, open templates, and run AI actions
+                    with your existing context.
                   </p>
                 </div>
 
@@ -163,6 +163,10 @@ export default async function SignInPage({
                   <div className="mt-7 space-y-3">
                     <SignInSubmitButton
                       provider="google"
+                      callbackPath={callbackURL}
+                    />
+                    <SignInSubmitButton
+                      provider="microsoft"
                       callbackPath={callbackURL}
                     />
                     <SignInSubmitButton

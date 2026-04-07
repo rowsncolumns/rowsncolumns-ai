@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import {
   ensureDocumentAccess,
   getPublicDocumentAccessByShareToken,
@@ -56,28 +57,50 @@ export async function GET(request: Request) {
     let tokenName: string | null = null;
 
     if (user) {
-      const [access, isTemplateDocument] = await Promise.all([
-        ensureDocumentAccess({
+      const [orgId, publicAccess, isPublicTemplate] = await Promise.all([
+        resolveActiveOrganizationIdForSession(session),
+        getPublicDocumentAccessByShareToken({
           docId,
-          userId: user.id,
           shareToken,
         }),
         isTemplateDocumentPubliclyViewable({
           docId,
         }),
       ]);
-      if (!access.canAccess) {
+
+      if (orgId) {
+        const access = await ensureDocumentAccess({
+          docId,
+          userId: user.id,
+          orgId,
+          shareToken,
+        });
+        if (!access.canAccess) {
+          return NextResponse.json(
+            { error: "Forbidden." },
+            { status: 403, headers: NO_STORE_HEADERS },
+          );
+        }
+
+        const isReadOnlyTemplateView = isPublicTemplate && !access.isOwner;
+        tokenUserId = user.id;
+        tokenPermission = isReadOnlyTemplateView ? "view" : access.permission;
+        tokenEmail = user.email ?? null;
+        tokenName = user.name ?? null;
+      } else if (publicAccess.canAccess || isPublicTemplate) {
+        tokenUserId = user.id;
+        tokenPermission = "view";
+        tokenEmail = user.email ?? null;
+        tokenName = user.name ?? null;
+      } else {
         return NextResponse.json(
-          { error: "Forbidden." },
-          { status: 403, headers: NO_STORE_HEADERS },
+          {
+            error: "No active organization. Create an organization first.",
+            onboardingUrl: "/onboarding/organization",
+          },
+          { status: 409, headers: NO_STORE_HEADERS },
         );
       }
-
-      const isReadOnlyTemplateView = isTemplateDocument && !access.isOwner;
-      tokenUserId = user.id;
-      tokenPermission = isReadOnlyTemplateView ? "view" : access.permission;
-      tokenEmail = user.email ?? null;
-      tokenName = user.name ?? null;
     } else {
       const [publicAccess, isPublicTemplate] = await Promise.all([
         getPublicDocumentAccessByShareToken({

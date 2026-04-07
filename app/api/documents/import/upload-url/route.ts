@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { auth } from "@/lib/auth/server";
 import { SUPPORTED_IMPORT_EXTENSIONS } from "@/lib/documents/import/parsers";
 import {
@@ -79,6 +80,16 @@ export async function POST(request: Request) {
     const userId = session?.user?.id;
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
     }
 
     if (!getR2Config()) {

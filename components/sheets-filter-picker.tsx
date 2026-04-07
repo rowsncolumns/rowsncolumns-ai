@@ -29,9 +29,11 @@ const FILTER_OPTIONS: Array<{ value: SheetsFilterValue; label: string }> = [
 ];
 
 const buildSheetsHref = ({
+  basePath,
   filter,
   query,
 }: {
+  basePath: string;
   filter: SheetsFilterValue;
   query?: string | null;
 }) => {
@@ -44,16 +46,18 @@ const buildSheetsHref = ({
     searchParams.set("q", normalizedQuery);
   }
   const serialized = searchParams.toString();
-  return serialized ? `/sheets?${serialized}` : "/sheets";
+  return serialized ? `${basePath}?${serialized}` : basePath;
 };
 
 export function SheetsFilterPicker({
   value,
   query,
+  basePath = "/sheets",
   buttonClassName = "",
 }: {
   value: SheetsFilterValue;
   query?: string | null;
+  basePath?: string;
   buttonClassName?: string;
 }) {
   const router = useRouter();
@@ -70,6 +74,7 @@ export function SheetsFilterPicker({
     }
     router.push(
       buildSheetsHref({
+        basePath,
         filter: next,
         query,
       }),

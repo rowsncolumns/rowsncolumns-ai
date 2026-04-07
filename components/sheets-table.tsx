@@ -40,6 +40,7 @@ type SheetsTableProps = {
   totalCount: number;
   filter: DocumentListFilter;
   query?: string | null;
+  basePath?: string;
 };
 
 type DeleteDocumentResponse = {
@@ -57,10 +58,12 @@ type DuplicateDocumentResponse = {
 };
 
 const buildPageHref = ({
+  basePath,
   page,
   filter,
   query,
 }: {
+  basePath: string;
   page: number;
   filter: DocumentListFilter;
   query?: string | null;
@@ -77,7 +80,7 @@ const buildPageHref = ({
     searchParams.set("q", normalizedQuery);
   }
   const serialized = searchParams.toString();
-  return serialized ? `/sheets?${serialized}` : "/sheets";
+  return serialized ? `${basePath}?${serialized}` : basePath;
 };
 
 const formatDate = (value: string, formatter: Intl.DateTimeFormat): string => {
@@ -104,6 +107,7 @@ export function SheetsTable({
   totalCount,
   filter,
   query,
+  basePath = "/sheets",
 }: SheetsTableProps) {
   const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<SheetListItem | null>(null);
@@ -170,6 +174,7 @@ export function SheetsTable({
       if (shouldGoPreviousPage) {
         router.push(
           buildPageHref({
+            basePath,
             page: page - 1,
             filter,
             query,
@@ -253,7 +258,7 @@ export function SheetsTable({
       }
 
       toast.success("Sheet duplicated.");
-      router.push(`/sheets/${payload.documentId}`);
+      router.push(`${basePath}/${encodeURIComponent(payload.documentId)}`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to duplicate sheet.";
@@ -286,11 +291,11 @@ export function SheetsTable({
                   favoritingDocId !== null ||
                   duplicatingDocId !== null;
 
-	                return (
-	                  <li key={document.docId} className="space-y-3 px-4 py-4">
+                return (
+                  <li key={document.docId} className="space-y-3 px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <Link
-                        href={`/sheets/${document.docId}`}
+                        href={`${basePath}/${encodeURIComponent(document.docId)}`}
                         className="inline-flex items-start gap-1 line-clamp-2 text-sm font-semibold text-foreground hover:text-orange-500"
                       >
                         {document.isFavorite ? (
@@ -298,23 +303,23 @@ export function SheetsTable({
                         ) : null}
                         {document.title}
                       </Link>
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          {document.isTemplate ? (
-                            <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">
-                              {isGlobalTemplate ? "Global template" : "Template"}
-                            </span>
-                          ) : null}
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              document.isShared
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-(--assistant-chip-bg) text-(--muted-foreground)"
-                            }`}
-                          >
-                            {document.isShared ? "Shared" : "Private"}
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {document.isTemplate ? (
+                          <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">
+                            {isGlobalTemplate ? "Global template" : "Template"}
                           </span>
-                        </div>
-	                    </div>
+                        ) : null}
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            document.isShared
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-(--assistant-chip-bg) text-(--muted-foreground)"
+                          }`}
+                        >
+                          {document.isShared ? "Shared" : "Private"}
+                        </span>
+                      </div>
+                    </div>
 
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
                       <div className="space-y-0.5">
@@ -340,7 +345,7 @@ export function SheetsTable({
                     </dl>
 
                     <div className="flex flex-wrap items-center justify-start gap-1">
-	                      <Button
+                      <Button
                         type="button"
                         size="sm"
                         variant="ghost"
@@ -408,19 +413,19 @@ export function SheetsTable({
                         size="sm"
                         variant="ghost"
                         className="h-9 rounded-lg px-3 text-red-500 hover:bg-red-50 hover:text-red-600"
-	                        disabled={isDeleteDisabled}
-	                        onClick={() => {
-	                          setDeleteTarget(document);
-	                        }}
-	                        aria-label={`Delete ${document.title}`}
-                          title={
-                            document.isTemplate
-                              ? isGlobalTemplate
-                                ? "Global template sheets cannot be deleted"
-                                : "Delete"
+                        disabled={isDeleteDisabled}
+                        onClick={() => {
+                          setDeleteTarget(document);
+                        }}
+                        aria-label={`Delete ${document.title}`}
+                        title={
+                          document.isTemplate
+                            ? isGlobalTemplate
+                              ? "Global template sheets cannot be deleted"
                               : "Delete"
-                          }
-	                      >
+                            : "Delete"
+                        }
+                      >
                         {isRowDeleting ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
@@ -481,29 +486,31 @@ export function SheetsTable({
                     favoritingDocId !== null ||
                     duplicatingDocId !== null;
 
-	                  return (
+                  return (
                     <tr
                       key={document.docId}
                       className="hover:bg-(--assistant-chip-bg)"
                     >
                       <td className="px-4 py-3">
-	                        <div className="flex flex-col gap-1">
-	                          <Link
-	                            href={`/sheets/${document.docId}`}
-	                            className="inline-flex items-center gap-1 text-sm font-semibold text-foreground hover:text-orange-500"
-	                          >
+                        <div className="flex flex-col gap-1">
+                          <Link
+                            href={`${basePath}/${encodeURIComponent(document.docId)}`}
+                            className="inline-flex items-center gap-1 text-sm font-semibold text-foreground hover:text-orange-500"
+                          >
                             {document.isFavorite ? (
                               <Star className="h-3.5 w-3.5 shrink-0 fill-amber-500 text-amber-500" />
                             ) : null}
-	                            {document.title}
-	                          </Link>
-                            {document.isTemplate ? (
-                              <span className="inline-flex w-fit items-center rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
-                                {isGlobalTemplate ? "Global template" : "Template"}
-                              </span>
-                            ) : null}
-	                        </div>
-	                      </td>
+                            {document.title}
+                          </Link>
+                          {document.isTemplate ? (
+                            <span className="inline-flex w-fit items-center rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                              {isGlobalTemplate
+                                ? "Global template"
+                                : "Template"}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-sm text-foreground">
                         {hasMounted
                           ? formatDate(document.createdAt, dateFormatter)
@@ -584,19 +591,19 @@ export function SheetsTable({
                               <Copy className="h-4 w-4" />
                             )}
                           </IconButton>
-	                          <IconButton
-	                            tooltip={
-                                document.isTemplate
-                                  ? isGlobalTemplate
-                                    ? "Global template sheets cannot be deleted"
-                                    : "Delete"
+                          <IconButton
+                            tooltip={
+                              document.isTemplate
+                                ? isGlobalTemplate
+                                  ? "Global template sheets cannot be deleted"
                                   : "Delete"
-                              }
-	                            className="text-red-500 hover:bg-red-50 hover:text-red-600"
-	                            disabled={isDeleteDisabled}
-	                            onClick={() => {
-	                              setDeleteTarget(document);
-	                            }}
+                                : "Delete"
+                            }
+                            className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                            disabled={isDeleteDisabled}
+                            onClick={() => {
+                              setDeleteTarget(document);
+                            }}
                             aria-label={`Delete ${document.title}`}
                           >
                             {isRowDeleting ? (
@@ -629,6 +636,7 @@ export function SheetsTable({
                 if (hasPreviousPage) {
                   router.push(
                     buildPageHref({
+                      basePath,
                       page: page - 1,
                       filter,
                       query,
@@ -652,6 +660,7 @@ export function SheetsTable({
                 if (hasNextPage) {
                   router.push(
                     buildPageHref({
+                      basePath,
                       page: page + 1,
                       filter,
                       query,

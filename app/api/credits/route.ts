@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { isAdminUser } from "@/lib/auth/admin";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { auth } from "@/lib/auth/server";
 import { INITIAL_CREDITS } from "@/lib/credits/pricing";
-import { getUserCredits } from "@/lib/credits/repository";
-import { getUserBillingEntitlement } from "@/lib/billing/repository";
+import { getOrganizationCredits } from "@/lib/credits/repository";
+import { getOrganizationBillingEntitlement } from "@/lib/billing/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +27,18 @@ export async function GET() {
     }
 
     const isAdmin = isAdminUser({ id: user.id, email: user.email });
-    const credits = await getUserCredits(userId);
-    const billing = await getUserBillingEntitlement(userId);
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
+    const credits = await getOrganizationCredits(orgId);
+    const billing = await getOrganizationBillingEntitlement(orgId);
     const available = isAdmin ? null : credits.availableCredits;
 
     return NextResponse.json({

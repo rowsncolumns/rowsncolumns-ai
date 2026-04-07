@@ -11,7 +11,7 @@ export function SiteFooter({ fullWidth = false, className }: SiteFooterProps) {
     <footer
       className={cn(
         "px-5 pb-10 pt-4 sm:px-8 lg:px-12",
-        fullWidth && "px-4",
+        fullWidth && "sm:px-4 lg:px-4",
         className,
       )}
     >

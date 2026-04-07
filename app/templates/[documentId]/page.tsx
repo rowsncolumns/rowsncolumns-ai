@@ -11,6 +11,7 @@ import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shel
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { getButtonClassName } from "@/components/ui/button";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import {
   getTemplateDocumentById,
   listOwnedDocumentIds,
@@ -38,6 +39,13 @@ const buildCategoryHref = (category: string) => {
   const params = new URLSearchParams();
   params.set("category", category);
   return `/templates?${params.toString()}`;
+};
+
+const appendOrgIdQuery = (href: string, orgId: string | null): string => {
+  if (!orgId) {
+    return href;
+  }
+  return `${href}?orgId=${encodeURIComponent(orgId)}`;
 };
 
 const resolveTemplateTagline = ({
@@ -99,8 +107,13 @@ export default async function TemplateDetailsPage({
     notFound();
   }
 
+  const activeOrganizationId = session?.user
+    ? await resolveActiveOrganizationIdForSession(session)
+    : null;
   const ownerDocumentIdSet = new Set(
-    session?.user?.id ? await listOwnedDocumentIds(session.user.id) : [],
+    session?.user?.id
+      ? await listOwnedDocumentIds(session.user.id, activeOrganizationId)
+      : [],
   );
   const canEditTemplate = ownerDocumentIdSet.has(template.docId);
 
@@ -118,6 +131,11 @@ export default async function TemplateDetailsPage({
     descriptionMarkdown: template.descriptionMarkdown || fallbackDescription,
   });
   const categoryHref = buildCategoryHref(template.category);
+  const viewHref = `/templates/${encodeURIComponent(template.docId)}/view`;
+  const forkHref = appendOrgIdQuery(
+    `/templates/open/${encodeURIComponent(template.docId)}`,
+    activeOrganizationId,
+  );
 
   return (
     <SiteFixedWidthPageShell
@@ -159,7 +177,7 @@ export default async function TemplateDetailsPage({
 
             <div className="flex flex-wrap items-center gap-3">
               <a
-                href={`/sheets/${encodeURIComponent(template.docId)}`}
+                href={viewHref}
                 className={getButtonClassName({
                   variant: "secondary",
                   size: "lg",
@@ -169,7 +187,7 @@ export default async function TemplateDetailsPage({
                 View
               </a>
               <a
-                href={`/templates/open/${encodeURIComponent(template.docId)}`}
+                href={forkHref}
                 className={getButtonClassName({
                   size: "lg",
                   className: "h-11 rounded-xl px-5",
@@ -234,7 +252,7 @@ export default async function TemplateDetailsPage({
                 Free spreadsheet template
               </p>
               <a
-                href={`/sheets/${encodeURIComponent(template.docId)}`}
+                href={viewHref}
                 className={getButtonClassName({
                   variant: "secondary",
                   className: "mt-4 h-10 w-full rounded-lg text-sm",
@@ -243,7 +261,7 @@ export default async function TemplateDetailsPage({
                 View
               </a>
               <a
-                href={`/templates/open/${encodeURIComponent(template.docId)}`}
+                href={forkHref}
                 className={getButtonClassName({
                   className: "mt-2 h-10 w-full rounded-lg text-sm",
                 })}

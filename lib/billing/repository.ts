@@ -29,8 +29,36 @@ export type UserBillingProfileRecord = {
   updatedAt: string;
 };
 
+export type OrganizationBillingProfileRecord = {
+  organizationId: string;
+  ownerUserId: string;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  planTier: BillingPlanTier;
+  subscriptionStatus: BillingSubscriptionStatus | null;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  trialGrantIssued: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type BillingProfileRow = {
   user_id: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  plan_tier: string;
+  subscription_status: string | null;
+  trial_ends_at: Date | string | null;
+  current_period_end: Date | string | null;
+  trial_grant_issued: boolean;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+type OrganizationBillingProfileRow = {
+  organization_id: string;
+  owner_user_id: string;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   plan_tier: string;
@@ -67,6 +95,29 @@ const ensureBillingSchemaReady = async () => {
           CHECK (plan_tier IN ('free', 'pro', 'max'))
       )
     `;
+
+    await db`
+      CREATE TABLE IF NOT EXISTS public.organization_billing_profile (
+        organization_id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        stripe_customer_id TEXT UNIQUE,
+        stripe_subscription_id TEXT UNIQUE,
+        plan_tier TEXT NOT NULL DEFAULT 'free',
+        subscription_status TEXT,
+        trial_ends_at TIMESTAMPTZ,
+        current_period_end TIMESTAMPTZ,
+        trial_grant_issued BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT organization_billing_profile_plan_tier_check
+          CHECK (plan_tier IN ('free', 'pro', 'max'))
+      )
+    `;
+
+    await db`
+      CREATE INDEX IF NOT EXISTS organization_billing_profile_owner_user_idx
+        ON public.organization_billing_profile (owner_user_id, updated_at DESC)
+    `;
   })();
 
   try {
@@ -86,6 +137,22 @@ const mapBillingProfileRow = (
   row: BillingProfileRow,
 ): UserBillingProfileRecord => ({
   userId: row.user_id,
+  stripeCustomerId: row.stripe_customer_id,
+  stripeSubscriptionId: row.stripe_subscription_id,
+  planTier: normalizeBillingPlanTier(row.plan_tier),
+  subscriptionStatus: row.subscription_status,
+  trialEndsAt: toIsoOrNull(row.trial_ends_at),
+  currentPeriodEnd: toIsoOrNull(row.current_period_end),
+  trialGrantIssued: row.trial_grant_issued,
+  createdAt: new Date(row.created_at).toISOString(),
+  updatedAt: new Date(row.updated_at).toISOString(),
+});
+
+const mapOrganizationBillingProfileRow = (
+  row: OrganizationBillingProfileRow,
+): OrganizationBillingProfileRecord => ({
+  organizationId: row.organization_id,
+  ownerUserId: row.owner_user_id,
   stripeCustomerId: row.stripe_customer_id,
   stripeSubscriptionId: row.stripe_subscription_id,
   planTier: normalizeBillingPlanTier(row.plan_tier),
@@ -126,6 +193,32 @@ export async function getUserBillingProfile(
   return row ? mapBillingProfileRow(row) : null;
 }
 
+export async function getOrganizationBillingProfile(
+  organizationId: string,
+): Promise<OrganizationBillingProfileRecord | null> {
+  await ensureBillingSchemaReady();
+  const rows = await db<OrganizationBillingProfileRow[]>`
+    SELECT
+      organization_id,
+      owner_user_id,
+      stripe_customer_id,
+      stripe_subscription_id,
+      plan_tier,
+      subscription_status,
+      trial_ends_at,
+      current_period_end,
+      trial_grant_issued,
+      created_at,
+      updated_at
+    FROM public.organization_billing_profile
+    WHERE organization_id = ${organizationId}
+    LIMIT 1
+  `;
+
+  const row = rows[0];
+  return row ? mapOrganizationBillingProfileRow(row) : null;
+}
+
 export async function getUserBillingProfileByStripeCustomerId(
   stripeCustomerId: string,
 ): Promise<UserBillingProfileRecord | null> {
@@ -149,6 +242,32 @@ export async function getUserBillingProfileByStripeCustomerId(
 
   const row = rows[0];
   return row ? mapBillingProfileRow(row) : null;
+}
+
+export async function getOrganizationBillingProfileByStripeCustomerId(
+  stripeCustomerId: string,
+): Promise<OrganizationBillingProfileRecord | null> {
+  await ensureBillingSchemaReady();
+  const rows = await db<OrganizationBillingProfileRow[]>`
+    SELECT
+      organization_id,
+      owner_user_id,
+      stripe_customer_id,
+      stripe_subscription_id,
+      plan_tier,
+      subscription_status,
+      trial_ends_at,
+      current_period_end,
+      trial_grant_issued,
+      created_at,
+      updated_at
+    FROM public.organization_billing_profile
+    WHERE stripe_customer_id = ${stripeCustomerId}
+    LIMIT 1
+  `;
+
+  const row = rows[0];
+  return row ? mapOrganizationBillingProfileRow(row) : null;
 }
 
 export async function upsertStripeCustomerForUser(input: {
@@ -183,6 +302,45 @@ export async function upsertStripeCustomerForUser(input: {
   `;
 
   return mapBillingProfileRow(rows[0]);
+}
+
+export async function upsertStripeCustomerForOrganization(input: {
+  organizationId: string;
+  ownerUserId: string;
+  stripeCustomerId: string;
+}) {
+  await ensureBillingSchemaReady();
+  const rows = await db<OrganizationBillingProfileRow[]>`
+    INSERT INTO public.organization_billing_profile (
+      organization_id,
+      owner_user_id,
+      stripe_customer_id
+    )
+    VALUES (
+      ${input.organizationId},
+      ${input.ownerUserId},
+      ${input.stripeCustomerId}
+    )
+    ON CONFLICT (organization_id) DO UPDATE
+      SET
+        owner_user_id = EXCLUDED.owner_user_id,
+        stripe_customer_id = EXCLUDED.stripe_customer_id,
+        updated_at = NOW()
+    RETURNING
+      organization_id,
+      owner_user_id,
+      stripe_customer_id,
+      stripe_subscription_id,
+      plan_tier,
+      subscription_status,
+      trial_ends_at,
+      current_period_end,
+      trial_grant_issued,
+      created_at,
+      updated_at
+  `;
+
+  return mapOrganizationBillingProfileRow(rows[0]);
 }
 
 export async function upsertUserBillingSubscriptionState(input: {
@@ -249,6 +407,75 @@ export async function upsertUserBillingSubscriptionState(input: {
   return mapBillingProfileRow(rows[0]);
 }
 
+export async function upsertOrganizationBillingSubscriptionState(input: {
+  organizationId: string;
+  ownerUserId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string | null;
+  planTier: BillingPlanTier;
+  subscriptionStatus: string | null;
+  trialEndsAt?: string | null;
+  currentPeriodEnd?: string | null;
+}) {
+  await ensureBillingSchemaReady();
+  const status = input.subscriptionStatus?.trim().toLowerCase() ?? null;
+  const normalizedPlan = normalizeBillingPlanTier(input.planTier);
+  const entitled = isPaidSubscriptionStatus(status);
+  const resolvedPlan: BillingPlanTier = entitled ? normalizedPlan : "free";
+
+  const rows = await db<OrganizationBillingProfileRow[]>`
+    INSERT INTO public.organization_billing_profile (
+      organization_id,
+      owner_user_id,
+      stripe_customer_id,
+      stripe_subscription_id,
+      plan_tier,
+      subscription_status,
+      trial_ends_at,
+      current_period_end
+    )
+    VALUES (
+      ${input.organizationId},
+      ${input.ownerUserId},
+      ${input.stripeCustomerId},
+      ${input.stripeSubscriptionId},
+      ${resolvedPlan},
+      ${status},
+      ${input.trialEndsAt ?? null},
+      ${input.currentPeriodEnd ?? null}
+    )
+    ON CONFLICT (organization_id) DO UPDATE
+      SET
+        owner_user_id = EXCLUDED.owner_user_id,
+        stripe_customer_id = EXCLUDED.stripe_customer_id,
+        stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+        plan_tier = EXCLUDED.plan_tier,
+        subscription_status = EXCLUDED.subscription_status,
+        trial_ends_at = EXCLUDED.trial_ends_at,
+        current_period_end = EXCLUDED.current_period_end,
+        updated_at = NOW(),
+        trial_grant_issued = CASE
+          WHEN public.organization_billing_profile.stripe_subscription_id IS DISTINCT FROM EXCLUDED.stripe_subscription_id
+            THEN FALSE
+          ELSE public.organization_billing_profile.trial_grant_issued
+        END
+    RETURNING
+      organization_id,
+      owner_user_id,
+      stripe_customer_id,
+      stripe_subscription_id,
+      plan_tier,
+      subscription_status,
+      trial_ends_at,
+      current_period_end,
+      trial_grant_issued,
+      created_at,
+      updated_at
+  `;
+
+  return mapOrganizationBillingProfileRow(rows[0]);
+}
+
 export async function markTrialGrantIssued(input: {
   userId: string;
   issued: boolean;
@@ -263,8 +490,15 @@ export async function markTrialGrantIssued(input: {
   `;
 }
 
-export async function getUserBillingEntitlement(userId: string) {
-  const profile = await getUserBillingProfile(userId);
+const normalizeEntitlementFromProfile = (profile: {
+  planTier: BillingPlanTier;
+  subscriptionStatus: BillingSubscriptionStatus | null;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  trialGrantIssued: boolean;
+} | null) => {
   const rawSubscriptionStatus = profile?.subscriptionStatus ?? null;
   const isLegacyTrial = rawSubscriptionStatus === "trialing";
   const subscriptionStatus =
@@ -281,4 +515,14 @@ export async function getUserBillingEntitlement(userId: string) {
     stripeSubscriptionId: profile?.stripeSubscriptionId ?? null,
     trialGrantIssued: profile?.trialGrantIssued ?? false,
   } as const;
+};
+
+export async function getUserBillingEntitlement(userId: string) {
+  const profile = await getUserBillingProfile(userId);
+  return normalizeEntitlementFromProfile(profile);
+}
+
+export async function getOrganizationBillingEntitlement(organizationId: string) {
+  const profile = await getOrganizationBillingProfile(organizationId);
+  return normalizeEntitlementFromProfile(profile);
 }

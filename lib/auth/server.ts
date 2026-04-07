@@ -1,6 +1,9 @@
 import { headers as nextHeaders } from "next/headers";
 import { betterAuth } from "better-auth";
+import { organization } from "better-auth/plugins";
 import { Pool } from "pg";
+
+import { sendResendEmail } from "@/lib/email/resend";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -16,6 +19,15 @@ if (!baseURL) {
   );
 }
 
+let baseUrlHostname: string | null = null;
+try {
+  baseUrlHostname = new URL(baseURL).hostname.toLowerCase();
+} catch {
+  throw new Error(
+    "Invalid BETTER_AUTH_URL. Set a valid absolute URL in .env.local.",
+  );
+}
+
 const authSecret = process.env.BETTER_AUTH_SECRET?.trim();
 if (!authSecret) {
   throw new Error(
@@ -23,16 +35,39 @@ if (!authSecret) {
   );
 }
 
+const resendApiKey = process.env.RESEND_API_KEY?.trim();
+const resendFromName =
+  process.env.RESEND_FROM_NAME?.trim() || "RowsnColumns AI";
+const resendFromEmail =
+  process.env.RESEND_FROM_EMAIL?.trim() ||
+  process.env.EMAIL_FROM?.trim() ||
+  "noreply@rowsncolumns.ai";
+const resendFrom = resendFromEmail.includes("<")
+  ? resendFromEmail
+  : `${resendFromName} <${resendFromEmail}>`;
+
+const escapeHtml = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
 const githubClientId = process.env.GITHUB_CLIENT_ID?.trim();
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim();
+const microsoftClientId = process.env.MICROSOFT_CLIENT_ID?.trim();
+const microsoftClientSecret = process.env.MICROSOFT_CLIENT_SECRET?.trim();
+const microsoftTenantId = process.env.MICROSOFT_TENANT_ID?.trim();
 
 const socialProviders: Record<
   string,
   {
     clientId: string;
     clientSecret: string;
+    tenantId?: string;
   }
 > = {};
 
@@ -47,6 +82,14 @@ if (githubClientId && githubClientSecret) {
   socialProviders.github = {
     clientId: githubClientId,
     clientSecret: githubClientSecret,
+  };
+}
+
+if (microsoftClientId && microsoftClientSecret) {
+  socialProviders.microsoft = {
+    clientId: microsoftClientId,
+    clientSecret: microsoftClientSecret,
+    ...(microsoftTenantId ? { tenantId: microsoftTenantId } : {}),
   };
 }
 
@@ -76,12 +119,79 @@ const authInstance = betterAuth({
   baseURL,
   secret: authSecret,
   database: authPool,
-  advanced: {
-    crossSubDomainCookies: {
-      enabled: true,
-      domain: ".rowsncolumns.ai",
+  plugins: [
+    organization({
+      sendInvitationEmail: async (data) => {
+        if (!resendApiKey) {
+          console.warn(
+            "RESEND_API_KEY is not configured; skipping organization invitation email.",
+          );
+          return;
+        }
+
+        try {
+          const invitationUrl = new URL(
+            `/organization/accept-invitation?id=${encodeURIComponent(data.id)}`,
+            baseURL,
+          ).toString();
+          const organizationName =
+            data.organization?.name?.trim() || "your organization";
+          const organizationNameHtml = escapeHtml(organizationName);
+          const inviterName =
+            data.inviter?.user?.name?.trim() ||
+            data.inviter?.user?.email?.trim() ||
+            "A team admin";
+          const roleLabel = data.role === "admin" ? "Admin" : "Member";
+
+          const subject = `${inviterName} invited you to join ${organizationName}`;
+          const text = [
+            `You were invited to join ${organizationName} as ${roleLabel}.`,
+            "",
+            `Accept invitation: ${invitationUrl}`,
+            "",
+            "If you did not expect this invitation, you can ignore this email.",
+          ].join("\n");
+          const html = [
+            '<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">',
+            `<p>You were invited to join <strong>${organizationNameHtml}</strong> as <strong>${roleLabel}</strong>.</p>`,
+            `<p><a href="${invitationUrl}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#ff6d34;color:#ffffff;text-decoration:none;font-weight:600">Accept invitation</a></p>`,
+            `<p style="word-break:break-all">If the button doesn't work, use this link:<br/><a href="${invitationUrl}">${invitationUrl}</a></p>`,
+            "<p>If you did not expect this invitation, you can ignore this email.</p>",
+            "</div>",
+          ].join("");
+
+          await sendResendEmail({
+            apiKey: resendApiKey,
+            from: resendFrom,
+            to: data.email,
+            subject,
+            html,
+            text,
+          });
+        } catch (error) {
+          console.error(
+            "Failed to send organization invitation email via Resend.",
+            error,
+          );
+        }
+      },
+    }),
+  ],
+  account: {
+    accountLinking: {
+      trustedProviders: ["google", "github", "microsoft"],
     },
   },
+  advanced:
+    baseUrlHostname === "rowsncolumns.ai" ||
+    baseUrlHostname.endsWith(".rowsncolumns.ai")
+      ? {
+          crossSubDomainCookies: {
+            enabled: true,
+            domain: ".rowsncolumns.ai",
+          },
+        }
+      : undefined,
   ...(Object.keys(socialProviders).length > 0 ? { socialProviders } : {}),
 });
 

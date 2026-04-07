@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
 import { isAdminUser } from "@/lib/auth/admin";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { normalizeAssistantErrorMessage } from "@/lib/chat/errors";
 import { encodeChatStreamEvent } from "@/lib/chat/protocol";
 import {
@@ -82,6 +83,16 @@ export async function POST(request: Request) {
       );
     }
     const isAdmin = isAdminUser({ id: user.id, email: user.email });
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const body = (await request.json()) as ChatRequestBody;
 
@@ -120,6 +131,7 @@ export async function POST(request: Request) {
     const creditCheck = await ensureChatRunCredits({
       isAdmin,
       userId,
+      organizationId: orgId,
       threadId: chatRequest.threadId,
       message: chatRequest.message,
     });
@@ -187,6 +199,7 @@ export async function POST(request: Request) {
           await executeChatRunStream({
             request: runRequest,
             userId,
+            organizationId: orgId,
             isAdmin,
             shareDbWsHeaders: buildShareDbWsHeaders(request),
             persistEvents: true,

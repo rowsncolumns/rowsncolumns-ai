@@ -4,14 +4,14 @@ import { z } from "zod";
 import { isAdminUser } from "@/lib/auth/admin";
 import { auth } from "@/lib/auth/server";
 import { INITIAL_CREDITS } from "@/lib/credits/pricing";
-import { adminRefillUserCredits } from "@/lib/credits/repository";
+import { adminRefillOrganizationCredits } from "@/lib/credits/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const refillRequestSchema = z
   .object({
-    userId: z.string().trim().min(1, "userId is required."),
+    organizationId: z.string().trim().min(1, "organizationId is required."),
     mode: z.enum(["set", "add"]).default("set"),
     amount: z
       .number()
@@ -47,8 +47,8 @@ export async function POST(request: Request) {
       return formatValidationError(parsed.error);
     }
 
-    const refill = await adminRefillUserCredits({
-      targetUserId: parsed.data.userId,
+    const refill = await adminRefillOrganizationCredits({
+      targetOrganizationId: parsed.data.organizationId,
       adminUserId: user.id,
       mode: parsed.data.mode,
       amount: parsed.data.amount ?? INITIAL_CREDITS,
@@ -58,7 +58,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ refill });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Failed to refill user credits.";
+      error instanceof Error
+        ? error.message
+        : "Failed to refill organization credits.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

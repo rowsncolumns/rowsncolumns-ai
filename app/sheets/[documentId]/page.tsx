@@ -1,254 +1,158 @@
-import { cookies, headers } from "next/headers";
-import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
-import { getServerSessionSafe } from "@/lib/auth/session-safe";
-import { isAdminUser } from "@/lib/auth/admin";
-import { getUserBillingEntitlement } from "@/lib/billing/repository";
+import {
+  buildOrganizationSheetPath,
+  listOrganizationsForSession,
+  resolveActiveOrganizationIdForSession,
+} from "@/lib/auth/organization";
 import {
   documentExists,
+  ensureDocumentAccess,
+  getDocumentOwnerOrganizationId,
   getPublicDocumentAccessByShareToken,
   isTemplateDocumentPubliclyViewable,
-  ensureDocumentAccess,
-  ensureDocumentMetadata,
 } from "@/lib/documents/repository";
-import { resolveLocaleAndCurrency } from "@/lib/locale-preference";
-import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme-preference";
-import {
-  ASSISTANT_COLLAPSED_COOKIE,
-  DEFAULT_PANEL_LAYOUT,
-  PANEL_LAYOUT_COOKIE,
-  parseAssistantCollapsedCookie,
-  parsePanelLayoutCookie,
-} from "@/app/doc/panel-layout";
-import { NewBodyClass } from "@/app/doc/body-class";
-import { NewWorkspace } from "@/app/doc/workspace";
+import { getServerSessionSafe } from "@/lib/auth/session-safe";
 
-type PageProps = {
-  params: Promise<{ documentId: string }>;
-  searchParams: Promise<{ share?: string | string[] }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type RouteParams = Promise<{ documentId: string }>;
+
+const buildQueryString = (
+  params: Record<string, string | string[] | undefined>,
+  options?: { includeShare?: boolean },
+): string => {
+  const query = new URLSearchParams();
+  const includeShare = options?.includeShare === true;
+
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "share" && !includeShare) {
+      continue;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim();
+      if (normalized) {
+        query.append(key, normalized);
+      }
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const normalized = item?.trim();
+        if (normalized) {
+          query.append(key, normalized);
+        }
+      }
+    }
+  }
+
+  const serialized = query.toString();
+  return serialized ? `?${serialized}` : "";
 };
 
-const MOBILE_USER_AGENT_REGEX =
-  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+export const dynamic = "force-dynamic";
 
-const toShortDocumentId = (documentId: string): string =>
-  documentId.slice(0, 8);
-
-const resolveShareToken = (
-  shareTokenValue: string | string[] | undefined,
-): string | undefined =>
-  Array.isArray(shareTokenValue) ? shareTokenValue[0] : shareTokenValue;
-
-const getRequestCountryCode = (headerStore: Headers): string | null =>
-  headerStore.get("x-vercel-ip-country") ??
-  headerStore.get("cf-ipcountry") ??
-  headerStore.get("x-country-code") ??
-  headerStore.get("x-appengine-country");
-
-const createPublicViewerIdentity = (documentId: string) => {
-  const sessionId = crypto.randomUUID();
-  const shortId = sessionId.slice(0, 6).toUpperCase();
-  return {
-    id: `public:${documentId}:${sessionId}`,
-    name: `User ${shortId}`,
-    email: null,
-    image: null,
-  };
-};
-
-export async function generateMetadata({
+export default async function LegacySheetRedirectPage({
   params,
   searchParams,
-}: Pick<PageProps, "params" | "searchParams">): Promise<Metadata> {
+}: {
+  params: RouteParams;
+  searchParams: SearchParams;
+}) {
   const { documentId } = await params;
-  const shortId = toShortDocumentId(documentId);
-  const fallbackMetadata: Metadata = {
-    title: `Sheet ${shortId}`,
-    description: `Spreadsheet workspace for sheet ${shortId}.`,
-  };
-
-  if (!(await documentExists(documentId))) {
-    return fallbackMetadata;
+  const safeDocumentId = documentId.trim();
+  if (!safeDocumentId) {
+    redirect("/sheets");
   }
 
-  const resolvedSearchParams = await searchParams;
-  const shareToken = resolveShareToken(resolvedSearchParams.share);
-  const session = await getServerSessionSafe();
-
-  if (!session?.user) {
-    const [publicAccess, isPublicTemplate] = await Promise.all([
-      getPublicDocumentAccessByShareToken({
-        docId: documentId,
-        shareToken,
-      }),
-      isTemplateDocumentPubliclyViewable({
-        docId: documentId,
-      }),
-    ]);
-
-    if (!publicAccess.canAccess && !isPublicTemplate) {
-      return fallbackMetadata;
-    }
-
-    const metadata = await ensureDocumentMetadata({ docId: documentId });
-    return {
-      title: metadata.title,
-      description: `Spreadsheet workspace for ${metadata.title}.`,
-    };
-  }
-
-  const access = await ensureDocumentAccess({
-    docId: documentId,
-    userId: session.user.id,
-    shareToken,
+  const parsedSearchParams = await searchParams;
+  const redirectQueryString = buildQueryString(parsedSearchParams, {
+    includeShare: true,
   });
+  const shareTokenRaw = parsedSearchParams.share;
+  const shareToken =
+    typeof shareTokenRaw === "string"
+      ? shareTokenRaw
+      : Array.isArray(shareTokenRaw)
+        ? shareTokenRaw[0]
+        : undefined;
+  const callbackPath = safeDocumentId
+    ? `/sheets/${encodeURIComponent(safeDocumentId)}${redirectQueryString}`
+    : "/sheets";
 
-  if (!access.canAccess) {
-    return fallbackMetadata;
-  }
-
-  const metadata = await ensureDocumentMetadata({ docId: documentId });
-
-  return {
-    title: metadata.title,
-    description: `Spreadsheet workspace for ${metadata.title}.`,
-  };
-}
-
-export default async function SheetPage({ params, searchParams }: PageProps) {
-  const { documentId } = await params;
-  const resolvedSearchParams = await searchParams;
-  const shareToken = resolveShareToken(resolvedSearchParams.share);
-
-  const callbackPath = shareToken
-    ? `/sheets/${documentId}?share=${encodeURIComponent(shareToken)}`
-    : `/sheets/${documentId}`;
-
-  const session = await getServerSessionSafe();
-
-  if (!(await documentExists(documentId))) {
+  if (!(await documentExists(safeDocumentId))) {
     notFound();
   }
 
-  const cookieStore = await cookies();
-  const headerStore = await headers();
-  const defaultLayout =
-    parsePanelLayoutCookie(cookieStore.get(PANEL_LAYOUT_COOKIE)?.value) ??
-    DEFAULT_PANEL_LAYOUT;
-  const initialThemeMode = parseThemeCookie(
-    cookieStore.get(THEME_COOKIE)?.value,
-  );
-  const initialAssistantCollapsed = parseAssistantCollapsedCookie(
-    cookieStore.get(ASSISTANT_COLLAPSED_COOKIE)?.value,
-  );
-  const secChUaMobile = headerStore.get("sec-ch-ua-mobile");
-  const userAgent = headerStore.get("user-agent") ?? "";
-  const { locale, currency } = resolveLocaleAndCurrency({
-    acceptLanguage: headerStore.get("accept-language"),
-    countryCode: getRequestCountryCode(headerStore),
-  });
-  const initialIsMobileLayout =
-    secChUaMobile === "?1" ||
-    (secChUaMobile === null && MOBILE_USER_AGENT_REGEX.test(userAgent));
-
+  const session = await getServerSessionSafe();
   if (!session?.user) {
-    const [publicAccess, isPublicTemplate] = await Promise.all([
+    const [publicAccess, isPublicTemplate, documentOrgId] = await Promise.all([
       getPublicDocumentAccessByShareToken({
-        docId: documentId,
+        docId: safeDocumentId,
         shareToken,
       }),
       isTemplateDocumentPubliclyViewable({
-        docId: documentId,
+        docId: safeDocumentId,
       }),
+      getDocumentOwnerOrganizationId(safeDocumentId),
     ]);
 
-    if (!publicAccess.canAccess && !isPublicTemplate) {
-      if (!shareToken?.trim()) {
-        redirect(
-          `/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`,
-        );
-      }
-      notFound();
+    if ((publicAccess.canAccess || isPublicTemplate) && documentOrgId) {
+      redirect(
+        `${buildOrganizationSheetPath({
+          organizationId: documentOrgId,
+          documentId: safeDocumentId,
+        })}${redirectQueryString}`,
+      );
     }
 
-    const documentMetadata = await ensureDocumentMetadata({
-      docId: documentId,
-    });
+    redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
+  }
 
-    return (
-      <>
-        <NewBodyClass />
-        <NewWorkspace
-          defaultLayout={defaultLayout}
-          documentId={documentId}
-          initialDocumentTitle={documentMetadata.title}
-          canManageShare={false}
-          canEdit={false}
-          canUseAuditHistory={false}
-          initialThemeMode={initialThemeMode}
-          initialAssistantCollapsed={initialAssistantCollapsed}
-          initialIsMobileLayout={initialIsMobileLayout}
-          isTemplateDocument={isPublicTemplate}
-          isReadOnlyTemplateView={isPublicTemplate}
-          isAdmin={false}
-          locale={locale}
-          currency={currency}
-          currentUser={createPublicViewerIdentity(documentId)}
-        />
-      </>
+  const organizations = await listOrganizationsForSession();
+  if (organizations.length === 0) {
+    redirect(
+      `/onboarding/organization?callbackURL=${encodeURIComponent(callbackPath)}`,
     );
   }
 
-  const access = await ensureDocumentAccess({
-    docId: documentId,
-    userId: session.user.id,
-    shareToken,
-  });
-
-  if (!access.canAccess) {
-    notFound();
+  const activeOrganizationId =
+    await resolveActiveOrganizationIdForSession(session);
+  const availableOrganizationIds = new Set(
+    organizations.map((organization) => organization.id),
+  );
+  const orderedOrganizationIds: string[] = [];
+  const preferredOrganizationId =
+    activeOrganizationId && availableOrganizationIds.has(activeOrganizationId)
+      ? activeOrganizationId
+      : null;
+  if (preferredOrganizationId) {
+    orderedOrganizationIds.push(preferredOrganizationId);
+  }
+  for (const organization of organizations) {
+    if (organization.id === preferredOrganizationId) {
+      continue;
+    }
+    orderedOrganizationIds.push(organization.id);
   }
 
-  const isAdmin = isAdminUser({
-    id: session.user.id,
-    email: session.user.email,
-  });
-  const [documentMetadata, isTemplateDocument, billing] = await Promise.all([
-    ensureDocumentMetadata({ docId: documentId }),
-    isTemplateDocumentPubliclyViewable({
-      docId: documentId,
-    }),
-    getUserBillingEntitlement(session.user.id),
-  ]);
-  const isReadOnlyTemplateView = isTemplateDocument && !access.isOwner;
-  const canUseAuditHistory = isAdmin || billing.plan === "max";
+  for (const organizationId of orderedOrganizationIds) {
+    const access = await ensureDocumentAccess({
+      docId: safeDocumentId,
+      userId: session.user.id,
+      orgId: organizationId,
+      shareToken,
+    });
+    if (!access.canAccess) {
+      continue;
+    }
 
-  return (
-    <>
-      <NewBodyClass />
-      <NewWorkspace
-        defaultLayout={defaultLayout}
-        documentId={documentId}
-        initialDocumentTitle={documentMetadata.title}
-        canManageShare={access.isOwner}
-        canEdit={access.permission === "edit" && !isReadOnlyTemplateView}
-        initialThemeMode={initialThemeMode}
-        initialAssistantCollapsed={initialAssistantCollapsed}
-        initialIsMobileLayout={initialIsMobileLayout}
-        isTemplateDocument={isTemplateDocument}
-        isReadOnlyTemplateView={isReadOnlyTemplateView}
-        isAdmin={isAdmin}
-        canUseAuditHistory={canUseAuditHistory}
-        locale={locale}
-        currency={currency}
-        currentUser={{
-          id: session.user.id,
-          name: session.user.name,
-          email: session.user.email,
-          image: session.user.image,
-        }}
-      />
-    </>
-  );
+    redirect(
+      `${buildOrganizationSheetPath({
+        organizationId,
+        documentId: safeDocumentId,
+      })}${redirectQueryString}`,
+    );
+  }
+
+  notFound();
 }

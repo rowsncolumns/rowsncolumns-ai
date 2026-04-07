@@ -4,12 +4,18 @@ import { redirect } from "next/navigation";
 import { Search, X } from "lucide-react";
 
 import { NewSheetButton } from "@/components/new-sheet-button";
+import { ActiveOrganizationSync } from "@/components/active-organization-sync";
 import { PageTitleBlock } from "@/components/page-title-block";
 import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeaderFrame } from "@/components/site-header-frame";
 import { SheetsTable } from "@/components/sheets-table";
 import { Button, getButtonClassName } from "@/components/ui/button";
+import {
+  getActiveOrganizationIdFromSession,
+  listOrganizationsForSession,
+  resolveActiveOrganizationIdForSession,
+} from "@/lib/auth/organization";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 import {
   listOwnedDocuments,
@@ -17,6 +23,7 @@ import {
 } from "@/lib/documents/repository";
 
 const PAGE_SIZE = 20;
+const SHEETS_BASE_PATH = "/sheets";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -68,10 +75,12 @@ const parseSearchQuery = (raw: string | null): string | null => {
 };
 
 const buildSheetsHref = ({
+  basePath,
   page,
   filter,
   query,
 }: {
+  basePath: string;
   page: number;
   filter: DocumentListFilter;
   query?: string | null;
@@ -89,7 +98,7 @@ const buildSheetsHref = ({
   }
 
   const serialized = searchParams.toString();
-  return serialized ? `/sheets?${serialized}` : "/sheets";
+  return serialized ? `${basePath}?${serialized}` : basePath;
 };
 
 export const dynamic = "force-dynamic";
@@ -107,19 +116,38 @@ export default async function SheetsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const params = await searchParams;
-  const page = parsePageNumber(parseSingleValue(params.page));
-  const filter = parseFilter(parseSingleValue(params.filter));
-  const query = parseSearchQuery(parseSingleValue(params.q));
-  const callbackPath = buildSheetsHref({ page, filter, query });
+  const queryParams = await searchParams;
+  const page = parsePageNumber(parseSingleValue(queryParams.page));
+  const filter = parseFilter(parseSingleValue(queryParams.filter));
+  const query = parseSearchQuery(parseSingleValue(queryParams.q));
+  const callbackPath = buildSheetsHref({
+    basePath: SHEETS_BASE_PATH,
+    page,
+    filter,
+    query,
+  });
 
   const session = await getServerSessionSafe();
   if (!session?.user) {
     redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
   }
 
+  const activeOrganizationId =
+    await resolveActiveOrganizationIdForSession(session);
+  const organizations = await listOrganizationsForSession();
+  const organization =
+    organizations.find((item) => item.id === activeOrganizationId) ??
+    organizations[0] ??
+    null;
+  if (!organization) {
+    redirect(
+      `/onboarding/organization?callbackURL=${encodeURIComponent(callbackPath)}`,
+    );
+  }
+
   const result = await listOwnedDocuments({
     userId: session.user.id,
+    orgId: organization.id,
     page,
     pageSize: PAGE_SIZE,
     filter,
@@ -134,6 +162,10 @@ export default async function SheetsPage({
 
   return (
     <main className="flex min-h-dvh w-full flex-col overflow-x-hidden">
+      <ActiveOrganizationSync
+        organizationId={organization.id}
+        sessionActiveOrganizationId={getActiveOrganizationIdFromSession(session)}
+      />
       <div className="px-4 py-4 sm:px-5 sm:py-5">
         <div className="mb-4">
           <SiteHeaderFrame
@@ -156,12 +188,15 @@ export default async function SheetsPage({
                   tagline={descriptionByFilter[result.filter]}
                 />
               </div>
-              <NewSheetButton className="h-9 shrink-0 rounded-lg px-4" />
+              <NewSheetButton
+                basePath={SHEETS_BASE_PATH}
+                className="h-9 shrink-0 rounded-lg px-4"
+              />
             </div>
 
             <div className="flex w-full items-center gap-2">
               <form
-                action="/sheets"
+                action={SHEETS_BASE_PATH}
                 method="get"
                 className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"
               >
@@ -181,6 +216,7 @@ export default async function SheetsPage({
                   <SheetsFilterPicker
                     value={result.filter}
                     query={query}
+                    basePath={SHEETS_BASE_PATH}
                     buttonClassName="w-auto"
                   />
                 </div>
@@ -197,6 +233,7 @@ export default async function SheetsPage({
                 {query ? (
                   <Link
                     href={buildSheetsHref({
+                      basePath: SHEETS_BASE_PATH,
                       page: 1,
                       filter: result.filter,
                       query: null,
@@ -217,6 +254,7 @@ export default async function SheetsPage({
           </div>
 
           <SheetsTable
+            basePath={SHEETS_BASE_PATH}
             documents={result.items}
             page={result.page}
             totalPages={result.totalPages}

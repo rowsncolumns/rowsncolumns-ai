@@ -16,8 +16,8 @@ import {
 } from "@/lib/chat/instructions";
 import { listAssistantSkills } from "@/lib/skills/repository";
 import {
-  chargeUserCreditsForRun,
-  getUserCredits,
+  chargeOrganizationCreditsForRun,
+  getOrganizationCredits,
 } from "@/lib/credits/repository";
 import {
   calculateChatRunCredits,
@@ -30,7 +30,7 @@ import {
   appendChatRunEvent,
   isChatRunCancelled,
 } from "@/lib/chat/runs-repository";
-import { getUserBillingEntitlement } from "@/lib/billing/repository";
+import { getOrganizationBillingEntitlement } from "@/lib/billing/repository";
 import { withOperationHistoryRuntimeContext } from "@/lib/operation-history/runtime-context";
 import { withShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
 import { issueMcpShareDbAccessToken } from "@/lib/sharedb/mcp-token";
@@ -522,6 +522,7 @@ export const resolveRunSystemInstructions = async (input: {
 export const ensureChatRunCredits = async (input: {
   isAdmin: boolean;
   userId: string;
+  organizationId: string;
   threadId: string;
   message: string;
 }): Promise<{ ok: true } | { ok: false; error: ChatErrorResponse }> => {
@@ -529,7 +530,7 @@ export const ensureChatRunCredits = async (input: {
     return { ok: true };
   }
 
-  const credits = await getUserCredits(input.userId);
+  const credits = await getOrganizationCredits(input.organizationId);
   if (credits.availableCredits >= MIN_CREDITS_PER_RUN) {
     return { ok: true };
   }
@@ -565,6 +566,7 @@ export type ChatRunResult = {
 export const executeChatRunStream = async (input: {
   request: ResolvedChatRequest;
   userId: string;
+  organizationId: string;
   isAdmin: boolean;
   shareDbWsHeaders?: Record<string, string>;
   abortSignal?: AbortSignal;
@@ -721,7 +723,7 @@ export const executeChatRunStream = async (input: {
   try {
     const billingEntitlement = input.isAdmin
       ? null
-      : await getUserBillingEntitlement(input.userId);
+      : await getOrganizationBillingEntitlement(input.organizationId);
     const trackingAllowed = input.isAdmin || billingEntitlement?.plan === "max";
 
     await withShareDbRuntimeContext(
@@ -820,11 +822,12 @@ export const executeChatRunStream = async (input: {
       });
 
       try {
-        await chargeUserCreditsForRun({
-          userId: input.userId,
+        await chargeOrganizationCreditsForRun({
+          organizationId: input.organizationId,
           runId,
           requestedCredits: pricing.credits,
           metadata: {
+            userId: input.userId,
             threadId: input.request.threadId,
             docId: input.request.docId,
             model: input.request.model,
@@ -835,7 +838,8 @@ export const executeChatRunStream = async (input: {
           },
         });
       } catch (chargeError) {
-        console.error("[credits] Failed to charge user credits", {
+        console.error("[credits] Failed to charge organization credits", {
+          organizationId: input.organizationId,
           userId: input.userId,
           runId,
           error:

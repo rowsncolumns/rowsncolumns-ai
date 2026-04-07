@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth/server";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { createDocumentId } from "@/lib/documents/create-document-id";
 import {
   ensureDocumentMetadata,
@@ -42,6 +43,16 @@ export async function GET(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const url = new URL(request.url);
     const pageSize = parseLimit(url.searchParams.get("limit"));
@@ -49,6 +60,7 @@ export async function GET(request: Request) {
     const query = url.searchParams.get("q");
     const results = await listOwnedDocuments({
       userId,
+      orgId,
       page: 1,
       pageSize,
       filter,
@@ -78,11 +90,21 @@ export async function POST() {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    const orgId = await resolveActiveOrganizationIdForSession(session);
+    if (!orgId) {
+      return NextResponse.json(
+        {
+          error: "No active organization. Create an organization first.",
+          onboardingUrl: "/onboarding/organization",
+        },
+        { status: 409 },
+      );
+    }
 
     const documentId = createDocumentId();
 
     // Ownership must be created first (metadata has FK to owners)
-    await ensureDocumentOwnership({ docId: documentId, userId });
+    await ensureDocumentOwnership({ docId: documentId, userId, orgId });
     await ensureDocumentMetadata({ docId: documentId });
 
     return NextResponse.json({ documentId });
