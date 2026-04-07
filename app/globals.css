@@ -172,6 +172,27 @@ body.rnc-dark {
     linear-gradient(180deg, #121822 0%, #0b1118 100%);
 }
 
+@keyframes flash {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-flash {
+  animation-name: flash;
+  animation-duration: 1s;
+}
+
+.repeat-1 {
+  animation-iteration-count: 1;
+}
+
 body.body-new-workspace {
   min-height: 100svh;
 }
