@@ -4,12 +4,16 @@ import { Pool } from "pg";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
-  throw new Error("Missing required config: DATABASE_URL. Set it in .env.local.");
+  throw new Error(
+    "Missing required config: DATABASE_URL. Set it in .env.local.",
+  );
 }
 
 const baseURL = process.env.BETTER_AUTH_URL?.trim();
 if (!baseURL) {
-  throw new Error("Missing required config: BETTER_AUTH_URL. Set it in .env.local.");
+  throw new Error(
+    "Missing required config: BETTER_AUTH_URL. Set it in .env.local.",
+  );
 }
 
 const authSecret = process.env.BETTER_AUTH_SECRET?.trim();
@@ -72,10 +76,18 @@ const authInstance = betterAuth({
   baseURL,
   secret: authSecret,
   database: authPool,
+  advanced: {
+    crossSubDomainCookies: {
+      enabled: true,
+      domain: "rowsncolumns.ai",
+    },
+  },
   ...(Object.keys(socialProviders).length > 0 ? { socialProviders } : {}),
 });
 
-type AuthSessionPayload = Awaited<ReturnType<typeof authInstance.api.getSession>>;
+type AuthSessionPayload = Awaited<
+  ReturnType<typeof authInstance.api.getSession>
+>;
 
 export const auth = Object.assign(authInstance, {
   async getSession(): Promise<{ data: AuthSessionPayload }> {
