@@ -79,7 +79,7 @@ const authInstance = betterAuth({
   advanced: {
     crossSubDomainCookies: {
       enabled: true,
-      domain: "rowsncolumns.ai",
+      domain: ".rowsncolumns.ai",
     },
   },
   ...(Object.keys(socialProviders).length > 0 ? { socialProviders } : {}),
