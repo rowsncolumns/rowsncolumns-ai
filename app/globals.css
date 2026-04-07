@@ -8,6 +8,7 @@
   --accent: #ff6d34;
   --accent-strong: #f4571b;
   --accent-foreground: #2b140b;
+  --focus-border: #4f6fdb;
   --button-primary-bg: #8E2F6A;
   --button-primary-bg-hover: #622049;
   --button-primary-foreground: #ffffff;
@@ -63,6 +64,7 @@ body.rnc-dark {
   --accent: #ff8d5e;
   --accent-strong: #ff6d34;
   --accent-foreground: #2b140b;
+  --focus-border: #8aa2ff;
   --button-primary-bg: #8E2F6A;
   --button-primary-bg-hover: #622049;
   --button-primary-foreground: #ffffff;

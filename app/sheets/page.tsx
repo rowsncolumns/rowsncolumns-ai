@@ -6,6 +6,8 @@ import { Search, X } from "lucide-react";
 import { NewSheetButton } from "@/components/new-sheet-button";
 import { ActiveOrganizationSync } from "@/components/active-organization-sync";
 import { PageTitleBlock } from "@/components/page-title-block";
+import { SheetsBulkActions } from "@/components/sheets-bulk-actions";
+import { SheetsSelectionProvider } from "@/components/sheets-selection";
 import { SheetsFilterPicker } from "@/components/sheets-filter-picker";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeaderFrame } from "@/components/site-header-frame";
@@ -179,89 +181,94 @@ export default async function SheetsPage({
         </div>
 
         <section className="rounded-2xl border border-(--card-border) bg-(--card-bg) p-4 shadow-[0_12px_32px_var(--card-shadow)] sm:p-5">
-          <div className="mb-4 space-y-2.5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <PageTitleBlock
-                  className="pb-0"
-                  title="My Sheets"
-                  tagline={descriptionByFilter[result.filter]}
-                />
-              </div>
-              <NewSheetButton
-                basePath={SHEETS_BASE_PATH}
-                className="h-9 shrink-0 rounded-lg px-4"
-              />
-            </div>
-
-            <div className="flex w-full items-center gap-2">
-              <form
-                action={SHEETS_BASE_PATH}
-                method="get"
-                className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"
-              >
-                {result.filter !== "owned" ? (
-                  <input type="hidden" name="filter" value={result.filter} />
-                ) : null}
-
-                <input
-                  type="search"
-                  name="q"
-                  defaultValue={query ?? ""}
-                  placeholder="Search by sheet title"
-                  aria-label="Search by sheet title"
-                  className="h-9 min-w-0 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent)"
-                />
-                <div className="min-w-0 shrink-0">
-                  <SheetsFilterPicker
-                    value={result.filter}
-                    query={query}
-                    basePath={SHEETS_BASE_PATH}
-                    buttonClassName="w-auto"
+          <SheetsSelectionProvider initialItems={result.items}>
+            <div className="mb-4 space-y-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <PageTitleBlock
+                    className="pb-0"
+                    title="My Sheets"
+                    tagline={descriptionByFilter[result.filter]}
                   />
                 </div>
-                <Button
-                  type="submit"
-                  size="sm"
-                  variant="secondary"
-                  className="h-9 w-9 rounded-lg p-0"
-                  aria-label="Search sheets"
-                >
-                  <Search className="h-4 w-4" />
-                  <span className="sr-only">Search</span>
-                </Button>
-                {query ? (
-                  <Link
-                    href={buildSheetsHref({
-                      basePath: SHEETS_BASE_PATH,
-                      page: 1,
-                      filter: result.filter,
-                      query: null,
-                    })}
-                    className={getButtonClassName({
-                      variant: "secondary",
-                      size: "sm",
-                      className: "h-9 w-9 rounded-lg p-0",
-                    })}
-                    aria-label="Clear search"
-                  >
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">Clear search</span>
-                  </Link>
-                ) : null}
-              </form>
-            </div>
-          </div>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <SheetsBulkActions className="hidden sm:flex" />
+                  <NewSheetButton
+                    basePath={SHEETS_BASE_PATH}
+                    className="h-9 shrink-0 rounded-lg px-4"
+                  />
+                </div>
+              </div>
 
-          <SheetsTable
-            basePath={SHEETS_BASE_PATH}
-            documents={result.items}
-            page={result.page}
-            totalPages={result.totalPages}
-            totalCount={result.totalCount}
-            filter={result.filter}
-            query={query}
-          />
+              <div className="flex w-full items-center gap-2">
+                <form
+                  action={SHEETS_BASE_PATH}
+                  method="get"
+                  className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"
+                >
+                  {result.filter !== "owned" ? (
+                    <input type="hidden" name="filter" value={result.filter} />
+                  ) : null}
+
+                  <input
+                    type="search"
+                    name="q"
+                    defaultValue={query ?? ""}
+                    placeholder="Search by sheet title"
+                    aria-label="Search by sheet title"
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--focus-border)"
+                  />
+                  <div className="min-w-0 shrink-0">
+                    <SheetsFilterPicker
+                      value={result.filter}
+                      query={query}
+                      basePath={SHEETS_BASE_PATH}
+                      buttonClassName="w-auto"
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="secondary"
+                    className="h-9 w-9 rounded-lg p-0"
+                    aria-label="Search sheets"
+                  >
+                    <Search className="h-4 w-4" />
+                    <span className="sr-only">Search</span>
+                  </Button>
+                  {query ? (
+                    <Link
+                      href={buildSheetsHref({
+                        basePath: SHEETS_BASE_PATH,
+                        page: 1,
+                        filter: result.filter,
+                        query: null,
+                      })}
+                      className={getButtonClassName({
+                        variant: "secondary",
+                        size: "sm",
+                        className: "h-9 w-9 rounded-lg p-0",
+                      })}
+                      aria-label="Clear search"
+                    >
+                      <X className="h-4 w-4" />
+                      <span className="sr-only">Clear search</span>
+                    </Link>
+                  ) : null}
+                </form>
+              </div>
+            </div>
+
+            <SheetsTable
+              basePath={SHEETS_BASE_PATH}
+              documents={result.items}
+              page={result.page}
+              totalPages={result.totalPages}
+              totalCount={result.totalCount}
+              filter={result.filter}
+              query={query}
+            />
+          </SheetsSelectionProvider>
         </section>
       </div>
 

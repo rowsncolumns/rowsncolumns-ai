@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { Copy, Loader2, Star, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Loader2, MoreHorizontal, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -16,6 +16,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  isSheetsItemBatchDeletable,
+  useSheetsSelection,
+} from "@/components/sheets-selection";
 import { TemplateSettingsTrigger } from "@/components/template-settings-trigger";
 import { Button } from "@/components/ui/button";
 import type { DocumentListFilter } from "@/lib/documents/repository";
@@ -122,6 +133,7 @@ export function SheetsTable({
   basePath = "/sheets",
 }: SheetsTableProps) {
   const router = useRouter();
+  const selection = useSheetsSelection();
   const [deleteTarget, setDeleteTarget] = useState<SheetListItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
@@ -149,6 +161,25 @@ export function SheetsTable({
     : filter === "templates"
       ? "No template sheets found."
       : "No sheets yet. Create your first sheet to get started.";
+  const isAnyActionRunning =
+    isDeleting || favoritingDocId !== null || duplicatingDocId !== null;
+  const selectableDocuments = useMemo(
+    () => documents.filter((document) => isSheetsItemBatchDeletable(document)),
+    [documents],
+  );
+  const allSelectableChecked =
+    selectableDocuments.length > 0 &&
+    selectableDocuments.every((document) => selection.isSelected(document.docId));
+  const someSelectableChecked =
+    selectableDocuments.some((document) => selection.isSelected(document.docId)) &&
+    !allSelectableChecked;
+  const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = someSelectableChecked;
+    }
+  }, [someSelectableChecked]);
 
   const handleDelete = async () => {
     if (!deleteTarget || isDeleting) {
@@ -180,6 +211,7 @@ export function SheetsTable({
       }
 
       const shouldGoPreviousPage = documents.length === 1 && page > 1;
+      selection.toggleItem(deleteTarget, false);
       setDeleteTarget(null);
       toast.success("Sheet deleted.");
 
@@ -330,6 +362,89 @@ export function SheetsTable({
                         >
                           {document.isShared ? "Shared" : "Private"}
                         </span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 rounded-md p-0 text-(--muted-foreground) hover:bg-(--assistant-chip-bg) hover:text-foreground"
+                              disabled={isAnyActionRunning}
+                              aria-label={`Actions for ${document.title}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52">
+                            <DropdownMenuItem
+                              disabled={isAnyActionRunning}
+                              onSelect={() => {
+                                void handleToggleFavorite(document);
+                              }}
+                            >
+                              {isRowFavoriting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Star
+                                  className={`h-4 w-4 ${
+                                    document.isFavorite
+                                      ? "fill-amber-500 text-amber-500"
+                                      : "text-amber-600"
+                                  }`}
+                                />
+                              )}
+                              {document.isFavorite ? "Unfavorite" : "Favorite"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={isAnyActionRunning}
+                              onSelect={() => {
+                                void handleDuplicate(document);
+                              }}
+                            >
+                              {isRowDuplicating ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Copy className="h-4 w-4 text-sky-600" />
+                              )}
+                              Duplicate
+                            </DropdownMenuItem>
+                            {canEditTemplate ? (
+                              <>
+                                <DropdownMenuSeparator />
+                                <TemplateSettingsTrigger
+                                  template={document}
+                                  triggerMode="button"
+                                  triggerLabel="Template settings"
+                                  triggerClassName="h-auto w-full justify-start gap-2 rounded-sm border-0 bg-transparent px-2 py-1.5 text-sm font-normal text-violet-600 shadow-none hover:bg-black/5 hover:text-violet-700"
+                                  disabled={isAnyActionRunning}
+                                  refreshOnSave
+                                />
+                              </>
+                            ) : null}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              disabled={isDeleteDisabled}
+                              onSelect={() => {
+                                setDeleteTarget(document);
+                              }}
+                              className="text-red-600 data-[highlighted]:bg-red-50 data-[highlighted]:text-red-700"
+                              title={
+                                document.isTemplate
+                                  ? isGlobalTemplate
+                                    ? "Global template sheets cannot be deleted"
+                                    : "Delete"
+                                  : "Delete"
+                              }
+                            >
+                              {isRowDeleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
 
@@ -356,96 +471,6 @@ export function SheetsTable({
                       </div>
                     </dl>
 
-                    <div className="flex flex-wrap items-center justify-start gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-9 rounded-lg px-3 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
-                        disabled={
-                          isDeleting ||
-                          favoritingDocId !== null ||
-                          duplicatingDocId !== null
-                        }
-                        onClick={() => {
-                          void handleToggleFavorite(document);
-                        }}
-                        aria-label={`${document.isFavorite ? "Remove favorite for" : "Favorite"} ${document.title}`}
-                      >
-                        {isRowFavoriting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Star
-                            className={`h-4 w-4 ${
-                              document.isFavorite
-                                ? "fill-amber-500 text-amber-500"
-                                : ""
-                            }`}
-                          />
-                        )}
-                        {document.isFavorite ? "Favorited" : "Favorite"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-9 rounded-lg px-3 text-sky-600 hover:bg-sky-50 hover:text-sky-700"
-                        disabled={
-                          isDeleting ||
-                          favoritingDocId !== null ||
-                          duplicatingDocId !== null
-                        }
-                        onClick={() => {
-                          void handleDuplicate(document);
-                        }}
-                        aria-label={`Duplicate ${document.title}`}
-                      >
-                        {isRowDuplicating ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                        Duplicate
-                      </Button>
-                      {canEditTemplate ? (
-                        <TemplateSettingsTrigger
-                          template={document}
-                          triggerMode="button"
-                          triggerLabel="Template"
-                          triggerClassName="h-9 rounded-lg px-3 text-violet-600 hover:bg-violet-50 hover:text-violet-700"
-                          disabled={
-                            isDeleting ||
-                            favoritingDocId !== null ||
-                            duplicatingDocId !== null
-                          }
-                        />
-                      ) : null}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-9 rounded-lg px-3 text-red-500 hover:bg-red-50 hover:text-red-600"
-                        disabled={isDeleteDisabled}
-                        onClick={() => {
-                          setDeleteTarget(document);
-                        }}
-                        aria-label={`Delete ${document.title}`}
-                        title={
-                          document.isTemplate
-                            ? isGlobalTemplate
-                              ? "Global template sheets cannot be deleted"
-                              : "Delete"
-                            : "Delete"
-                        }
-                      >
-                        {isRowDeleting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                        Delete
-                      </Button>
-                    </div>
                   </li>
                 );
               })}
@@ -457,6 +482,20 @@ export function SheetsTable({
           <table className="min-w-full divide-y divide-(--card-border)">
             <thead>
               <tr className="bg-(--assistant-chip-bg)">
+                <th className="w-10 px-2 py-3 text-center">
+                  <input
+                    ref={selectAllCheckboxRef}
+                    type="checkbox"
+                    className="h-4 w-4 rounded border border-(--panel-border)"
+                    style={{ accentColor: "var(--focus-border)" }}
+                    checked={allSelectableChecked}
+                    disabled={selectableDocuments.length === 0 || isAnyActionRunning}
+                    onChange={(event) => {
+                      selection.toggleAll(event.target.checked);
+                    }}
+                    aria-label="Select all sheets on this page"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-(--muted-foreground)">
                   Title
                 </th>
@@ -478,7 +517,7 @@ export function SheetsTable({
               {documents.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-4 py-10 text-center text-sm text-(--muted-foreground)"
                   >
                     {emptyStateMessage}
@@ -492,6 +531,8 @@ export function SheetsTable({
                   const isRowDuplicating = duplicatingDocId === document.docId;
                   const canEditTemplate = document.accessType === "owned";
                   const isGlobalTemplate = document.templateScope === "global";
+                  const isRowSelectable = isSheetsItemBatchDeletable(document);
+                  const isRowSelected = selection.isSelected(document.docId);
                   const isDeleteDisabled =
                     isGlobalTemplate ||
                     isDeleting ||
@@ -503,6 +544,24 @@ export function SheetsTable({
                       key={document.docId}
                       className="hover:bg-(--assistant-chip-bg)"
                     >
+                      <td className="px-2 py-3 text-center align-top">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 rounded border border-(--panel-border)"
+                          style={{ accentColor: "var(--focus-border)" }}
+                          checked={isRowSelected}
+                          disabled={!isRowSelectable || isAnyActionRunning}
+                          onChange={(event) => {
+                            selection.toggleItem(document, event.target.checked);
+                          }}
+                          aria-label={`Select ${document.title}`}
+                          title={
+                            isRowSelectable
+                              ? "Select sheet"
+                              : "Only owned non-global sheets can be batch deleted"
+                          }
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
                           <Link

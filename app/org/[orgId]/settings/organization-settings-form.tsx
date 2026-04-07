@@ -102,7 +102,7 @@ export function OrganizationSettingsForm({
           maxLength={MAX_NAME_LENGTH}
           required
           disabled={isSubmitting}
-          className="h-11 w-full rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent) disabled:cursor-not-allowed disabled:opacity-70"
+          className="h-11 w-full rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--focus-border) disabled:cursor-not-allowed disabled:opacity-70"
         />
       </div>
 
@@ -122,7 +122,7 @@ export function OrganizationSettingsForm({
           maxLength={MAX_SLUG_LENGTH}
           required
           disabled={isSubmitting}
-          className="h-11 w-full rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent) disabled:cursor-not-allowed disabled:opacity-70"
+          className="h-11 w-full rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-3 text-sm text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--focus-border) disabled:cursor-not-allowed disabled:opacity-70"
         />
         <p className="text-xs text-(--muted-foreground)">
           URL-safe identifier. Lowercase letters, numbers, and dashes only.

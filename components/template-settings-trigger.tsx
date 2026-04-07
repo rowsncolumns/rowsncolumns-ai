@@ -471,7 +471,7 @@ export function TemplateSettingsTrigger({
                 }}
                 disabled={saving || uploading}
                 placeholder="Template name shown in listing"
-                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--focus-border)"
               />
             </label>
 
@@ -490,7 +490,7 @@ export function TemplateSettingsTrigger({
                 }}
                 disabled={saving || uploading}
                 placeholder="Short one-line summary shown in cards and details"
-                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--focus-border)"
               />
             </label>
 
@@ -509,7 +509,7 @@ export function TemplateSettingsTrigger({
                 }}
                 disabled={saving || uploading}
                 placeholder="Finance, Operations, Reporting..."
-                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--focus-border)"
               />
             </label>
 
@@ -528,7 +528,7 @@ export function TemplateSettingsTrigger({
                 }}
                 disabled={saving || uploading}
                 placeholder="budget, forecast, invoice"
-                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--focus-border)"
               />
               <p className="text-xs text-(--muted-foreground)">
                 Comma separated.
@@ -634,7 +634,7 @@ export function TemplateSettingsTrigger({
                 readOnly
                 disabled={saving || uploading}
                 placeholder="Upload an image to generate URL"
-                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                className="h-10 w-full rounded-lg border border-(--panel-border) bg-(--card-bg-solid) px-3 text-sm text-foreground outline-none placeholder:text-(--muted-foreground) focus:border-(--focus-border)"
               />
             </label>
 

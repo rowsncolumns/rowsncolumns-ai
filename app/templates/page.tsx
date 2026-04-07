@@ -183,7 +183,7 @@ export default async function TemplatesPage({
                 defaultValue={query ?? ""}
                 placeholder="Search templates..."
                 aria-label="Search templates"
-                className="h-9 min-w-0 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--accent)"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-(--panel-border) bg-(--assistant-chip-bg) px-2.5 text-xs text-foreground outline-none transition placeholder:text-(--muted-foreground) focus:border-(--focus-border)"
               />
               <Button
                 type="submit"
