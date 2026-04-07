@@ -1,9 +1,9 @@
 "use client";
 
-import { Menu, X } from "lucide-react";
+import { Menu, Moon, Sun, X } from "lucide-react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AccountDropdown } from "@/components/account-dropdown";
 import { AuthModalTrigger } from "@/components/auth-modal-trigger";
@@ -15,6 +15,10 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { authClient } from "@/lib/auth/client";
+import {
+  getThemeModeFromBodyClass,
+  toggleThemeMode,
+} from "@/lib/theme-preference";
 import {
   authenticatedSiteNavigation,
   siteNavigation,
@@ -54,6 +58,44 @@ const isNavigationItemActive = (pathname: string, href: string): boolean => {
   }
   return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`);
 };
+
+function ThemeToggleButton() {
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const syncIsDarkMode = () => {
+      setIsDarkMode(getThemeModeFromBodyClass() === "dark");
+    };
+
+    syncIsDarkMode();
+
+    if (typeof MutationObserver === "undefined") return;
+
+    const observer = new MutationObserver(syncIsDarkMode);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <button
+      type="button"
+      className="rnc-theme-toggle"
+      onClick={() => {
+        setIsDarkMode(toggleThemeMode() === "dark");
+      }}
+      aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
+  );
+}
 
 export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
   const { data: sessionData } = authClient.useSession();
@@ -109,6 +151,7 @@ export function SiteHeader({ homeHref = "/", initialUser }: SiteHeaderProps) {
               })}
             </nav>
 
+            {!user ? <ThemeToggleButton /> : null}
             <button
               type="button"
               className="rnc-menu-toggle lg:hidden"
