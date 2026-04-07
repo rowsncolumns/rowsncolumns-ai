@@ -25,7 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { IconButton } from "@rowsncolumns/ui";
 
-type TemplateScope = "none" | "personal" | "global";
+type TemplateScope = "none" | "personal" | "organization" | "global";
 
 type TemplateMetadataResponse = {
   templateScope?: TemplateScope;
@@ -143,6 +143,7 @@ export function TemplateSettingsTrigger({
       setCanPublishGlobal(canPublish);
       const resolvedTemplateScope =
         payload?.templateScope === "global" ||
+        payload?.templateScope === "organization" ||
         payload?.templateScope === "personal" ||
         payload?.templateScope === "none"
           ? payload.templateScope
@@ -212,6 +213,8 @@ export function TemplateSettingsTrigger({
       toast.success(
         form.templateScope === "global"
           ? "Global template settings saved."
+          : form.templateScope === "organization"
+            ? "Organization template settings saved."
           : form.templateScope === "personal"
             ? "Personal template settings saved."
             : "Template disabled for this sheet.",
@@ -369,8 +372,8 @@ export function TemplateSettingsTrigger({
                 </p>
                 <p className="mt-0.5 text-xs text-(--muted-foreground)">
                   {canPublishGlobal
-                    ? "Personal templates are private to your workspace. Global templates are visible on `/templates`."
-                    : "Personal templates are private to your workspace."}
+                    ? "Personal templates are private to your workspace. Organization templates are visible to your organization. Global templates are visible on `/templates`."
+                    : "Personal templates are private to your workspace. Organization templates are visible to your organization."}
                 </p>
                 <div className="mt-3 space-y-2">
                   <div className="flex items-center justify-between rounded-md border border-(--panel-border) px-3 py-2.5">
@@ -399,6 +402,34 @@ export function TemplateSettingsTrigger({
                     />
                   </div>
 
+                  {form.templateScope !== "none" ? (
+                    <div className="flex items-center justify-between rounded-md border border-(--panel-border) px-3 py-2.5">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Visible to organization
+                        </p>
+                        <p className="text-xs text-(--muted-foreground)">
+                          Let members in your organization discover and use this template.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={form.templateScope === "organization"}
+                        disabled={saving || uploading}
+                        onCheckedChange={(checked) => {
+                          setForm((current) => ({
+                            ...current,
+                            templateScope: checked
+                              ? "organization"
+                              : current.templateScope === "organization"
+                                ? "personal"
+                                : current.templateScope,
+                          }));
+                        }}
+                        aria-label="Visible to organization"
+                      />
+                    </div>
+                  ) : null}
+
                   {form.templateScope !== "none" && canPublishGlobal ? (
                     <div className="flex items-center justify-between rounded-md border border-(--panel-border) px-3 py-2.5">
                       <div>
@@ -415,7 +446,7 @@ export function TemplateSettingsTrigger({
                         onCheckedChange={(checked) => {
                           setForm((current) => ({
                             ...current,
-                            templateScope: checked ? "global" : "personal",
+                            templateScope: checked ? "global" : "organization",
                           }));
                         }}
                         aria-label="Publish globally"

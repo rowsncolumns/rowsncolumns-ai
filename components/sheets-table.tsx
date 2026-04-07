@@ -28,7 +28,7 @@ type SheetListItem = {
   lastModifiedAt: string;
   isShared: boolean;
   isTemplate: boolean;
-  templateScope?: "none" | "personal" | "global";
+  templateScope?: "none" | "personal" | "organization" | "global";
   isFavorite: boolean;
   accessType: "owned" | "shared";
 };
@@ -98,6 +98,18 @@ const formatUtcFallbackDate = (value: string): string => {
   }
 
   return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+};
+
+const getTemplateBadgeLabel = (
+  templateScope: SheetListItem["templateScope"],
+): string => {
+  if (templateScope === "global") {
+    return "Global template";
+  }
+  if (templateScope === "organization") {
+    return "Organization template";
+  }
+  return "Template";
 };
 
 export function SheetsTable({
@@ -306,7 +318,7 @@ export function SheetsTable({
                       <div className="flex shrink-0 items-center gap-1.5">
                         {document.isTemplate ? (
                           <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">
-                            {isGlobalTemplate ? "Global template" : "Template"}
+                            {getTemplateBadgeLabel(document.templateScope)}
                           </span>
                         ) : null}
                         <span
@@ -504,9 +516,7 @@ export function SheetsTable({
                           </Link>
                           {document.isTemplate ? (
                             <span className="inline-flex w-fit items-center rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
-                              {isGlobalTemplate
-                                ? "Global template"
-                                : "Template"}
+                              {getTemplateBadgeLabel(document.templateScope)}
                             </span>
                           ) : null}
                         </div>

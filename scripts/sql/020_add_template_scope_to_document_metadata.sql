@@ -11,7 +11,7 @@ WHERE template_scope IS NULL
 
 UPDATE public.document_metadata
 SET template_scope = CASE
-  WHEN LOWER(BTRIM(template_scope)) IN ('none', 'personal', 'global')
+  WHEN LOWER(BTRIM(template_scope)) IN ('none', 'personal', 'organization', 'global')
     THEN LOWER(BTRIM(template_scope))
   WHEN is_template = TRUE THEN 'global'
   ELSE 'none'
@@ -23,19 +23,12 @@ ALTER TABLE public.document_metadata
 ALTER TABLE public.document_metadata
   ALTER COLUMN template_scope SET NOT NULL;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'document_metadata_template_scope_check'
-      AND conrelid = 'public.document_metadata'::regclass
-  ) THEN
-    ALTER TABLE public.document_metadata
-      ADD CONSTRAINT document_metadata_template_scope_check
-      CHECK (template_scope IN ('none', 'personal', 'global'));
-  END IF;
-END $$;
+ALTER TABLE public.document_metadata
+  DROP CONSTRAINT IF EXISTS document_metadata_template_scope_check;
+
+ALTER TABLE public.document_metadata
+  ADD CONSTRAINT document_metadata_template_scope_check
+  CHECK (template_scope IN ('none', 'personal', 'organization', 'global'));
 
 CREATE INDEX IF NOT EXISTS document_metadata_template_scope_updated_idx
   ON public.document_metadata (template_scope, updated_at DESC);

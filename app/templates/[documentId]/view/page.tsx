@@ -11,6 +11,7 @@ import {
 } from "@/app/doc/panel-layout";
 import { NewWorkspace } from "@/app/doc/workspace";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import {
   ensureDocumentMetadata,
   getTemplateDocumentById,
@@ -70,12 +71,17 @@ export default async function TemplateWorkbookViewPage({
     redirect(`/templates/${encodeURIComponent(documentId)}/view`);
   }
 
-  const template = await getTemplateDocumentById({ docId: documentId });
+  const session = await getServerSessionSafe();
+  const activeOrganizationId = session?.user
+    ? await resolveActiveOrganizationIdForSession(session)
+    : null;
+  const template = await getTemplateDocumentById({
+    docId: documentId,
+    orgId: activeOrganizationId,
+  });
   if (!template) {
     notFound();
   }
-
-  const session = await getServerSessionSafe();
   const cookieStore = await cookies();
   const headerStore = await headers();
 

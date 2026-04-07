@@ -1243,7 +1243,7 @@ function SpreadsheetPane({
       if (!props.title || !props.range) {
         return null;
       }
-      const isCollaborator = props.type === "collaborator";
+      const isCitation = props.type === "citation";
 
       const viewport = getViewPort?.();
       if (!viewport) {
@@ -1298,8 +1298,8 @@ function SpreadsheetPane({
         <div
           className="absolute left-0 top-0 pointer-events-auto"
           style={{
-            top: isCollaborator ? props.y : props.y + props.height,
-            left: isCollaborator ? props.x + props.width : props.x,
+            top: !isCitation ? props.y : props.y + props.height,
+            left: !isCitation ? props.x + props.width : props.x,
             transform: `translateZ(0)`,
           }}
           onMouseMove={(e) => e.stopPropagation()}
@@ -1307,21 +1307,21 @@ function SpreadsheetPane({
           <Popover open>
             <PopoverTrigger asChild>
               <StyledFakeTriggerButton
-                className={isCollaborator ? "left-0 top-0" : "left-0 bottom-0"}
+                className={!isCitation ? "left-0 top-0" : "left-0 bottom-0"}
               />
             </PopoverTrigger>
             <PopoverContent
               className={cn(
                 "selection-title-popover border-(--card-border) p-2 rounded-lg border bg-(--feature-card-bg) max-w-52 wrap-break-word text-xs shadow-2xl",
-                isCollaborator && "px-2 py-0.5 w-auto rounded-2xl",
+                !isCitation && "px-2 py-0.5 w-auto rounded-2xl text-white",
               )}
               style={
-                isCollaborator && props.stroke
+                !isCitation && props.stroke
                   ? { backgroundColor: props.stroke }
                   : undefined
               }
               align={"start"}
-              side={isCollaborator ? "top" : "bottom"}
+              side={!isCitation ? "top" : "bottom"}
               sideOffset={0}
               updatePositionStrategy="always"
               sticky="always"
@@ -2765,7 +2765,9 @@ export function NewWorkspace({
           canEdit={canManageShare}
           canManageShare={canManageShare}
           breadcrumbHref={
-            isTemplateDocument ? "/templates" : (breadcrumbHref ?? sheetsBasePath)
+            isTemplateDocument
+              ? "/templates"
+              : (breadcrumbHref ?? sheetsBasePath)
           }
           breadcrumbLabel={
             isTemplateDocument ? "Templates" : (breadcrumbLabel ?? "My Sheets")

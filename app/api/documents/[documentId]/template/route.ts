@@ -25,7 +25,7 @@ const documentIdSchema = z
   .max(200, "documentId is too long.");
 
 const updateTemplateSchema = z.object({
-  templateScope: z.enum(["none", "personal", "global"]),
+  templateScope: z.enum(["none", "personal", "organization", "global"]),
   templateTitle: z
     .string()
     .max(300, "templateTitle is too long.")

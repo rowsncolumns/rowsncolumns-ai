@@ -116,9 +116,11 @@ export default async function TemplatesPage({
     listTemplateDocuments({
       query,
       category: selectedCategory,
+      orgId: activeOrganizationId,
     }),
     listTemplateDocuments({
       query,
+      orgId: activeOrganizationId,
       limit: 500,
     }),
   ]);

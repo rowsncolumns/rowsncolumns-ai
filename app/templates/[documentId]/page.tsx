@@ -62,7 +62,14 @@ export async function generateMetadata({
   params: RouteParams;
 }): Promise<Metadata> {
   const { documentId } = await params;
-  const template = await getTemplateDocumentById({ docId: documentId });
+  const session = await getServerSessionSafe();
+  const activeOrganizationId = session?.user
+    ? await resolveActiveOrganizationIdForSession(session)
+    : null;
+  const template = await getTemplateDocumentById({
+    docId: documentId,
+    orgId: activeOrganizationId,
+  });
 
   if (!template) {
     return {
@@ -98,18 +105,18 @@ export default async function TemplateDetailsPage({
 }) {
   const { documentId } = await params;
 
-  const [session, template] = await Promise.all([
-    getServerSessionSafe(),
-    getTemplateDocumentById({ docId: documentId }),
-  ]);
-
-  if (!template) {
-    notFound();
-  }
+  const session = await getServerSessionSafe();
 
   const activeOrganizationId = session?.user
     ? await resolveActiveOrganizationIdForSession(session)
     : null;
+  const template = await getTemplateDocumentById({
+    docId: documentId,
+    orgId: activeOrganizationId,
+  });
+  if (!template) {
+    notFound();
+  }
   const ownerDocumentIdSet = new Set(
     session?.user?.id
       ? await listOwnedDocumentIds(session.user.id, activeOrganizationId)
@@ -120,6 +127,7 @@ export default async function TemplateDetailsPage({
   const relatedTemplates = (
     await listTemplateDocuments({
       category: template.category,
+      orgId: activeOrganizationId,
       limit: 9,
     })
   )

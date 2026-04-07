@@ -132,7 +132,7 @@ export type TemplateSitemapItem = {
   updatedAt: string;
 };
 
-export type TemplateScope = "none" | "personal" | "global";
+export type TemplateScope = "none" | "personal" | "organization" | "global";
 
 export type UpdateDocumentTemplateInput = {
   docId: string;
@@ -242,6 +242,7 @@ const MAX_TEMPLATE_TAG_COUNT = 20;
 const MAX_TEMPLATE_PREVIEW_URL_LENGTH = 2048;
 const UNCATEGORIZED_TEMPLATE_LABEL = "Uncategorized";
 let ensureDocumentOwnersOrgSchemaPromise: Promise<void> | null = null;
+let ensureTemplateScopeConstraintPromise: Promise<void> | null = null;
 
 const ensureDocumentOwnersOrgSchemaReady = async () => {
   if (ensureDocumentOwnersOrgSchemaPromise) {
@@ -370,6 +371,9 @@ const normalizeTemplateScope = (
   if (value === "global") {
     return "global";
   }
+  if (value === "organization") {
+    return "organization";
+  }
   if (value === "personal") {
     return "personal";
   }
@@ -439,6 +443,78 @@ const isMissingColumnError = (error: unknown): boolean =>
   error !== null &&
   "code" in error &&
   (error as { code?: unknown }).code === "42703";
+
+const isTemplateScopeConstraintViolation = (error: unknown): boolean => {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("code" in error) ||
+    (error as { code?: unknown }).code !== "23514"
+  ) {
+    return false;
+  }
+
+  const constraint =
+    "constraint" in error
+      ? (error as { constraint?: unknown }).constraint
+      : undefined;
+  if (constraint === "document_metadata_template_scope_check") {
+    return true;
+  }
+
+  const message =
+    "message" in error
+      ? String((error as { message?: unknown }).message ?? "")
+      : "";
+  return message.includes("document_metadata_template_scope_check");
+};
+
+const ensureTemplateScopeConstraintReady = async () => {
+  if (ensureTemplateScopeConstraintPromise) {
+    await ensureTemplateScopeConstraintPromise;
+    return;
+  }
+
+  ensureTemplateScopeConstraintPromise = (async () => {
+    await db`
+      UPDATE public.document_metadata
+      SET template_scope = CASE
+        WHEN LOWER(BTRIM(template_scope)) IN ('none', 'personal', 'organization', 'global')
+          THEN LOWER(BTRIM(template_scope))
+        WHEN is_template = TRUE THEN 'global'
+        ELSE 'none'
+      END
+      WHERE template_scope IS NULL
+        OR BTRIM(template_scope) = ''
+        OR LOWER(BTRIM(template_scope)) NOT IN ('none', 'personal', 'organization', 'global')
+    `;
+
+    await db`
+      ALTER TABLE public.document_metadata
+        ALTER COLUMN template_scope SET DEFAULT 'none'
+    `;
+    await db`
+      ALTER TABLE public.document_metadata
+        ALTER COLUMN template_scope SET NOT NULL
+    `;
+    await db`
+      ALTER TABLE public.document_metadata
+        DROP CONSTRAINT IF EXISTS document_metadata_template_scope_check
+    `;
+    await db`
+      ALTER TABLE public.document_metadata
+        ADD CONSTRAINT document_metadata_template_scope_check
+        CHECK (template_scope IN ('none', 'personal', 'organization', 'global'))
+    `;
+  })();
+
+  try {
+    await ensureTemplateScopeConstraintPromise;
+  } catch (error) {
+    ensureTemplateScopeConstraintPromise = null;
+    throw error;
+  }
+};
 
 const createFallbackMetadata = (
   docId: string,
@@ -1198,9 +1274,8 @@ export async function upsertDocumentTemplateMetadata(
     input.previewImageUrl,
   );
   const normalizedTags = normalizeTemplateTags(input.tags ?? []);
-
-  try {
-    const rows = await db<DocumentTemplateMetadataRow[]>`
+  const runUpsert = async () =>
+    db<DocumentTemplateMetadataRow[]>`
       INSERT INTO public.document_metadata (
         doc_id,
         title,
@@ -1247,6 +1322,9 @@ export async function upsertDocumentTemplateMetadata(
         updated_at
     `;
 
+  try {
+    const rows = await runUpsert();
+
     const row = rows[0];
     if (!row) {
       throw new Error("Failed to update template metadata.");
@@ -1259,6 +1337,15 @@ export async function upsertDocumentTemplateMetadata(
         "Template metadata storage is not initialized. Run the document templates migration.",
       );
     }
+    if (isTemplateScopeConstraintViolation(error)) {
+      await ensureTemplateScopeConstraintReady();
+      const rows = await runUpsert();
+      const row = rows[0];
+      if (!row) {
+        throw new Error("Failed to update template metadata.");
+      }
+      return mapDocumentTemplateRow(row);
+    }
     throw error;
   }
 }
@@ -1266,15 +1353,18 @@ export async function upsertDocumentTemplateMetadata(
 export async function listTemplateDocuments({
   query,
   category,
+  orgId,
   limit = 200,
 }: {
   query?: string | null;
   category?: string | null;
+  orgId?: string | null;
   limit?: number;
 } = {}): Promise<TemplateCatalogItem[]> {
   const normalizedQuery = query?.trim().replace(/\s+/g, " ") || null;
   const queryPattern = normalizedQuery ? `%${normalizedQuery}%` : null;
   const normalizedCategory = normalizeTemplateCategory(category);
+  const normalizedOrgId = orgId?.trim() || null;
   const safeLimit = Number.isFinite(limit)
     ? Math.max(1, Math.min(500, Math.floor(limit)))
     : 200;
@@ -1294,7 +1384,14 @@ export async function listTemplateDocuments({
       FROM public.document_metadata AS metadata
       INNER JOIN public.document_owners AS owners
         ON owners.doc_id = metadata.doc_id
-      WHERE metadata.template_scope = 'global'
+      WHERE (
+        metadata.template_scope = 'global'
+        OR (
+          metadata.template_scope = 'organization'
+          AND ${normalizedOrgId}::text IS NOT NULL
+          AND owners.org_id = ${normalizedOrgId}::text
+        )
+      )
         AND (
           ${normalizedCategory}::text IS NULL
           OR LOWER(COALESCE(NULLIF(BTRIM(metadata.template_category), ''), ${UNCATEGORIZED_TEMPLATE_LABEL})) = LOWER(${normalizedCategory ?? null}::text)
@@ -1352,9 +1449,12 @@ export async function listTemplateSitemapEntries(): Promise<
 
 export async function getTemplateDocumentById({
   docId,
+  orgId,
 }: {
   docId: string;
+  orgId?: string | null;
 }): Promise<TemplateCatalogItem | null> {
+  const normalizedOrgId = orgId?.trim() || null;
   try {
     const rows = await db<TemplateCatalogRow[]>`
       SELECT
@@ -1368,8 +1468,17 @@ export async function getTemplateDocumentById({
         metadata.template_preview_image_url,
         metadata.updated_at
       FROM public.document_metadata AS metadata
+      INNER JOIN public.document_owners AS owners
+        ON owners.doc_id = metadata.doc_id
       WHERE metadata.doc_id = ${docId}
-        AND metadata.template_scope = 'global'
+        AND (
+          metadata.template_scope = 'global'
+          OR (
+            metadata.template_scope = 'organization'
+            AND ${normalizedOrgId}::text IS NOT NULL
+            AND owners.org_id = ${normalizedOrgId}::text
+          )
+        )
       LIMIT 1
     `;
 
@@ -1495,11 +1604,20 @@ export async function duplicateTemplateDocument({
           metadata.doc_id,
           COALESCE(NULLIF(BTRIM(metadata.template_title), ''), metadata.title) AS source_title
         FROM public.document_metadata AS metadata
+        INNER JOIN public.document_owners AS owners
+          ON owners.doc_id = metadata.doc_id
         WHERE metadata.doc_id = $1
-          AND metadata.template_scope = 'global'
+          AND (
+            metadata.template_scope = 'global'
+            OR (
+              metadata.template_scope = 'organization'
+              AND $2::text IS NOT NULL
+              AND owners.org_id = $2::text
+            )
+          )
         LIMIT 1
       `,
-      [sourceDocId],
+      [sourceDocId, normalizedOrgId],
     );
 
     const sourceRow = sourceRows[0];
@@ -2024,6 +2142,21 @@ export async function ensureDocumentAccess({
     };
   }
 
+  const isOrganizationTemplate = normalizedOrgId
+    ? await isTemplateDocumentOrganizationVisible({
+        docId,
+        orgId: normalizedOrgId,
+      })
+    : false;
+  if (isOrganizationTemplate) {
+    return {
+      ...ownershipResult,
+      canAccess: true,
+      accessSource: "template",
+      permission: "view",
+    };
+  }
+
   const isPublicTemplate = await isTemplateDocumentPubliclyViewable({ docId });
   if (isPublicTemplate) {
     return {
@@ -2040,6 +2173,38 @@ export async function ensureDocumentAccess({
     accessSource: "none",
     permission: "view",
   };
+}
+
+export async function isTemplateDocumentOrganizationVisible({
+  docId,
+  orgId,
+}: {
+  docId: string;
+  orgId: string;
+}): Promise<boolean> {
+  const normalizedOrgId = orgId.trim();
+  if (!normalizedOrgId) {
+    return false;
+  }
+
+  try {
+    const rows = await db<{ doc_id: string }[]>`
+      SELECT metadata.doc_id
+      FROM public.document_metadata AS metadata
+      INNER JOIN public.document_owners AS owners
+        ON owners.doc_id = metadata.doc_id
+      WHERE metadata.doc_id = ${docId}
+        AND COALESCE(NULLIF(BTRIM(metadata.template_scope), ''), 'none') = 'organization'
+        AND owners.org_id = ${normalizedOrgId}
+      LIMIT 1
+    `;
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingColumnError(error) || isMissingRelationError(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function isTemplateDocumentPubliclyViewable({

@@ -49,7 +49,7 @@ const target = postgres(sanitizeDatabaseUrl(targetDatabaseUrl), {
   ssl: "require",
 });
 
-type TemplateScope = "none" | "personal" | "global";
+type TemplateScope = "none" | "personal" | "organization" | "global";
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
@@ -60,6 +60,7 @@ const toTemplateScope = (
   if (typeof templateScope === "string") {
     const normalized = templateScope.trim().toLowerCase();
     if (normalized === "global") return "global";
+    if (normalized === "organization") return "organization";
     if (normalized === "personal") return "personal";
     if (normalized === "none") return "none";
   }

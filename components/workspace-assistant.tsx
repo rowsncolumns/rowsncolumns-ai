@@ -3757,7 +3757,7 @@ type DocumentsApiResponse = {
   items?: Array<{
     docId?: string;
     title?: string;
-    templateScope?: "none" | "personal" | "global";
+    templateScope?: "none" | "personal" | "organization" | "global";
     isTemplate?: boolean;
   }>;
 };
@@ -3932,6 +3932,7 @@ function AssistantComposer({
             const nextDocId = item.docId?.trim();
             const isTemplate =
               item.templateScope === "personal" ||
+              item.templateScope === "organization" ||
               item.templateScope === "global" ||
               item.isTemplate === true;
             if (!nextDocId || isTemplate) {
@@ -4007,6 +4008,7 @@ function AssistantComposer({
             const nextDocId = item.docId?.trim();
             const isTemplate =
               item.templateScope === "personal" ||
+              item.templateScope === "organization" ||
               item.templateScope === "global" ||
               item.isTemplate === true;
             if (!nextDocId || !isTemplate) {
