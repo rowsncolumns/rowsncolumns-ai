@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Building2,
   Check,
@@ -8,10 +8,10 @@ import {
   CreditCard,
   Loader2,
   LogOut,
+  Moon,
   PlusSquareIcon,
   Settings,
-  Settings2,
-  Sparkles,
+  Sun,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { authClient } from "@/lib/auth/client";
+import {
+  applyThemeMode,
+  getThemeModeFromBodyClass,
+  type ThemeMode,
+} from "@/lib/theme-preference";
 
 type AccountDropdownProps = {
   name: string;
@@ -47,6 +52,7 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
   const initials = initialsFromName(name);
   const signOutFormRef = useRef<HTMLFormElement>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [switchingOrganizationId, setSwitchingOrganizationId] = useState<
     string | null
   >(null);
@@ -75,6 +81,26 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
   const organizationPeopleHref = organizationBasePath
     ? `${organizationBasePath}/people`
     : null;
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const syncThemeMode = () => {
+      setThemeMode(getThemeModeFromBodyClass());
+    };
+
+    syncThemeMode();
+
+    if (typeof MutationObserver === "undefined") return;
+
+    const observer = new MutationObserver(syncThemeMode);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   const handleSignOut = async () => {
     if (isSigningOut) {
@@ -116,6 +142,11 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
     } finally {
       setSwitchingOrganizationId(null);
     }
+  };
+
+  const handleSetThemeMode = (nextMode: ThemeMode) => {
+    applyThemeMode(nextMode);
+    setThemeMode(nextMode);
   };
 
   return (
@@ -200,14 +231,6 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
             )}
             <DropdownMenuSeparator />
 
-            {organizationSettingsHref ? (
-              <DropdownMenuItem asChild>
-                <a href={organizationSettingsHref} className="cursor-pointer">
-                  <Settings className="h-4 w-4" />
-                  Organization settings
-                </a>
-              </DropdownMenuItem>
-            ) : null}
             <DropdownMenuItem asChild>
               <a href="/onboarding/organization" className="cursor-pointer">
                 <PlusSquareIcon className="h-4 w-4" />
@@ -224,6 +247,51 @@ export function AccountDropdown({ name, email, image }: AccountDropdownProps) {
             Account settings
           </a>
         </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            {themeMode === "dark" ? (
+              <Moon className="h-4 w-4" />
+            ) : (
+              <Sun className="h-4 w-4" />
+            )}
+            Theme: {themeMode === "dark" ? "Dark" : "Light"}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-44">
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                handleSetThemeMode("light");
+              }}
+            >
+              <Sun className="h-4 w-4" />
+              Light
+              {themeMode === "light" ? (
+                <Check className="ml-auto h-4 w-4" />
+              ) : null}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                handleSetThemeMode("dark");
+              }}
+            >
+              <Moon className="h-4 w-4" />
+              Dark
+              {themeMode === "dark" ? (
+                <Check className="ml-auto h-4 w-4" />
+              ) : null}
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        {organizationSettingsHref ? (
+          <DropdownMenuItem asChild>
+            <a href={organizationSettingsHref} className="cursor-pointer">
+              <Settings className="h-4 w-4" />
+              Organization profile
+            </a>
+          </DropdownMenuItem>
+        ) : null}
 
         {organizationPeopleHref ? (
           <DropdownMenuItem asChild>
