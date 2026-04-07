@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth/server";
-import {
-  buildOrganizationSheetPath,
-  resolveActiveOrganizationIdForSession,
-} from "@/lib/auth/organization";
+import { resolveActiveOrganizationIdForSession } from "@/lib/auth/organization";
 import { getOrganizationRoleForUser } from "@/lib/auth/organization-membership";
 import { createDocumentId } from "@/lib/documents/create-document-id";
 import { duplicateTemplateDocument } from "@/lib/documents/repository";
@@ -83,10 +80,7 @@ export async function GET(request: Request, context: RouteContext) {
 
     return NextResponse.redirect(
       new URL(
-        buildOrganizationSheetPath({
-          organizationId: orgId,
-          documentId: duplicated.docId,
-        }),
+        `/sheets/${encodeURIComponent(duplicated.docId)}`,
         request.url,
       ),
     );

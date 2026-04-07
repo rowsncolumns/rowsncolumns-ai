@@ -1,158 +1,364 @@
+import { cookies, headers } from "next/headers";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
+import { getServerSessionSafe } from "@/lib/auth/session-safe";
+import { isAdminUser } from "@/lib/auth/admin";
 import {
-  buildOrganizationSheetPath,
+  getActiveOrganizationIdFromSession,
   listOrganizationsForSession,
   resolveActiveOrganizationIdForSession,
+  type OrganizationSummary,
 } from "@/lib/auth/organization";
+import { getOrganizationBillingEntitlement } from "@/lib/billing/repository";
 import {
   documentExists,
   ensureDocumentAccess,
+  ensureDocumentMetadata,
   getDocumentOwnerOrganizationId,
   getPublicDocumentAccessByShareToken,
   isTemplateDocumentPubliclyViewable,
+  type EnsureDocumentAccessResult,
 } from "@/lib/documents/repository";
-import { getServerSessionSafe } from "@/lib/auth/session-safe";
+import { resolveLocaleAndCurrency } from "@/lib/locale-preference";
+import { parseThemeCookie, THEME_COOKIE } from "@/lib/theme-preference";
+import {
+  ASSISTANT_COLLAPSED_COOKIE,
+  DEFAULT_PANEL_LAYOUT,
+  PANEL_LAYOUT_COOKIE,
+  parseAssistantCollapsedCookie,
+  parsePanelLayoutCookie,
+} from "@/app/doc/panel-layout";
+import { NewBodyClass } from "@/app/doc/body-class";
+import { NewWorkspace } from "@/app/doc/workspace";
+import { ActiveOrganizationSync } from "@/components/active-organization-sync";
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-type RouteParams = Promise<{ documentId: string }>;
-
-const buildQueryString = (
-  params: Record<string, string | string[] | undefined>,
-  options?: { includeShare?: boolean },
-): string => {
-  const query = new URLSearchParams();
-  const includeShare = options?.includeShare === true;
-
-  for (const [key, value] of Object.entries(params)) {
-    if (key === "share" && !includeShare) {
-      continue;
-    }
-    if (typeof value === "string") {
-      const normalized = value.trim();
-      if (normalized) {
-        query.append(key, normalized);
-      }
-      continue;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const normalized = item?.trim();
-        if (normalized) {
-          query.append(key, normalized);
-        }
-      }
-    }
-  }
-
-  const serialized = query.toString();
-  return serialized ? `?${serialized}` : "";
+type PageProps = {
+  params: Promise<{ documentId: string }>;
+  searchParams: Promise<{ share?: string | string[] }>;
 };
 
-export const dynamic = "force-dynamic";
+type AccessibleOrganizationResult = {
+  organization: OrganizationSummary;
+  access: EnsureDocumentAccessResult;
+};
 
-export default async function LegacySheetRedirectPage({
-  params,
-  searchParams,
+const MOBILE_USER_AGENT_REGEX =
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+
+const toShortDocumentId = (documentId: string): string =>
+  documentId.slice(0, 8);
+
+const resolveShareToken = (
+  shareTokenValue: string | string[] | undefined,
+): string | undefined =>
+  Array.isArray(shareTokenValue) ? shareTokenValue[0] : shareTokenValue;
+
+const getRequestCountryCode = (headerStore: Headers): string | null =>
+  headerStore.get("x-vercel-ip-country") ??
+  headerStore.get("cf-ipcountry") ??
+  headerStore.get("x-country-code") ??
+  headerStore.get("x-appengine-country");
+
+const createPublicViewerIdentity = (documentId: string) => {
+  const sessionId = crypto.randomUUID();
+  const shortId = sessionId.slice(0, 6).toUpperCase();
+  return {
+    id: `public:${documentId}:${sessionId}`,
+    name: `User ${shortId}`,
+    email: null,
+    image: null,
+  };
+};
+
+const buildSheetCallbackPath = ({
+  documentId,
+  shareToken,
 }: {
-  params: RouteParams;
-  searchParams: SearchParams;
-}) {
-  const { documentId } = await params;
-  const safeDocumentId = documentId.trim();
-  if (!safeDocumentId) {
-    redirect("/sheets");
+  documentId: string;
+  shareToken?: string;
+}) => {
+  const basePath = `/sheets/${encodeURIComponent(documentId)}`;
+  const normalizedShareToken = shareToken?.trim();
+  if (!normalizedShareToken) {
+    return basePath;
   }
+  return `${basePath}?share=${encodeURIComponent(normalizedShareToken)}`;
+};
 
-  const parsedSearchParams = await searchParams;
-  const redirectQueryString = buildQueryString(parsedSearchParams, {
-    includeShare: true,
-  });
-  const shareTokenRaw = parsedSearchParams.share;
-  const shareToken =
-    typeof shareTokenRaw === "string"
-      ? shareTokenRaw
-      : Array.isArray(shareTokenRaw)
-        ? shareTokenRaw[0]
-        : undefined;
-  const callbackPath = safeDocumentId
-    ? `/sheets/${encodeURIComponent(safeDocumentId)}${redirectQueryString}`
-    : "/sheets";
-
-  if (!(await documentExists(safeDocumentId))) {
-    notFound();
-  }
-
-  const session = await getServerSessionSafe();
-  if (!session?.user) {
-    const [publicAccess, isPublicTemplate, documentOrgId] = await Promise.all([
-      getPublicDocumentAccessByShareToken({
-        docId: safeDocumentId,
-        shareToken,
-      }),
-      isTemplateDocumentPubliclyViewable({
-        docId: safeDocumentId,
-      }),
-      getDocumentOwnerOrganizationId(safeDocumentId),
-    ]);
-
-    if ((publicAccess.canAccess || isPublicTemplate) && documentOrgId) {
-      redirect(
-        `${buildOrganizationSheetPath({
-          organizationId: documentOrgId,
-          documentId: safeDocumentId,
-        })}${redirectQueryString}`,
-      );
-    }
-
-    redirect(`/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`);
-  }
-
+const resolveAccessibleOrganizationForUser = async (input: {
+  docId: string;
+  userId: string;
+  shareToken?: string;
+  preferredOrganizationId?: string | null;
+}): Promise<AccessibleOrganizationResult | null> => {
   const organizations = await listOrganizationsForSession();
   if (organizations.length === 0) {
-    redirect(
-      `/onboarding/organization?callbackURL=${encodeURIComponent(callbackPath)}`,
-    );
+    return null;
   }
 
-  const activeOrganizationId =
-    await resolveActiveOrganizationIdForSession(session);
-  const availableOrganizationIds = new Set(
-    organizations.map((organization) => organization.id),
+  const normalizedPreferredOrganizationId =
+    input.preferredOrganizationId?.trim() || null;
+  const ownerOrganizationId = await getDocumentOwnerOrganizationId(input.docId);
+  const organizationById = new Map(
+    organizations.map((organization) => [organization.id, organization]),
   );
   const orderedOrganizationIds: string[] = [];
-  const preferredOrganizationId =
-    activeOrganizationId && availableOrganizationIds.has(activeOrganizationId)
-      ? activeOrganizationId
-      : null;
-  if (preferredOrganizationId) {
-    orderedOrganizationIds.push(preferredOrganizationId);
-  }
-  for (const organization of organizations) {
-    if (organization.id === preferredOrganizationId) {
-      continue;
+  const pushOrganizationId = (organizationId: string | null) => {
+    if (!organizationId) {
+      return;
     }
-    orderedOrganizationIds.push(organization.id);
+    if (!organizationById.has(organizationId)) {
+      return;
+    }
+    if (!orderedOrganizationIds.includes(organizationId)) {
+      orderedOrganizationIds.push(organizationId);
+    }
+  };
+
+  pushOrganizationId(normalizedPreferredOrganizationId);
+  pushOrganizationId(ownerOrganizationId);
+  for (const organization of organizations) {
+    pushOrganizationId(organization.id);
   }
 
   for (const organizationId of orderedOrganizationIds) {
     const access = await ensureDocumentAccess({
-      docId: safeDocumentId,
-      userId: session.user.id,
+      docId: input.docId,
+      userId: input.userId,
       orgId: organizationId,
-      shareToken,
+      shareToken: input.shareToken,
     });
     if (!access.canAccess) {
       continue;
     }
 
-    redirect(
-      `${buildOrganizationSheetPath({
-        organizationId,
-        documentId: safeDocumentId,
-      })}${redirectQueryString}`,
+    const organization = organizationById.get(organizationId);
+    if (!organization) {
+      continue;
+    }
+
+    return {
+      organization,
+      access,
+    };
+  }
+
+  return null;
+};
+
+export async function generateMetadata({
+  params,
+  searchParams,
+}: Pick<PageProps, "params" | "searchParams">): Promise<Metadata> {
+  const { documentId } = await params;
+  const shortId = toShortDocumentId(documentId);
+  const fallbackMetadata: Metadata = {
+    title: `Sheet ${shortId}`,
+    description: `Spreadsheet workspace for sheet ${shortId}.`,
+  };
+
+  if (!(await documentExists(documentId))) {
+    return fallbackMetadata;
+  }
+
+  const resolvedSearchParams = await searchParams;
+  const shareToken = resolveShareToken(resolvedSearchParams.share);
+  const session = await getServerSessionSafe();
+
+  if (!session?.user) {
+    const [publicAccess, isPublicTemplate] = await Promise.all([
+      getPublicDocumentAccessByShareToken({
+        docId: documentId,
+        shareToken,
+      }),
+      isTemplateDocumentPubliclyViewable({
+        docId: documentId,
+      }),
+    ]);
+
+    if (!publicAccess.canAccess && !isPublicTemplate) {
+      return fallbackMetadata;
+    }
+
+    const metadata = await ensureDocumentMetadata({ docId: documentId });
+    return {
+      title: metadata.title,
+      description: `Spreadsheet workspace for ${metadata.title}.`,
+    };
+  }
+
+  const accessibleOrganization = await resolveAccessibleOrganizationForUser({
+    docId: documentId,
+    userId: session.user.id,
+    shareToken,
+    preferredOrganizationId: getActiveOrganizationIdFromSession(session),
+  });
+
+  if (!accessibleOrganization) {
+    return fallbackMetadata;
+  }
+
+  const metadata = await ensureDocumentMetadata({ docId: documentId });
+
+  return {
+    title: metadata.title,
+    description: `Spreadsheet workspace for ${metadata.title}.`,
+  };
+}
+
+export default async function SheetPage({ params, searchParams }: PageProps) {
+  const { documentId } = await params;
+  const callbackPath = buildSheetCallbackPath({
+    documentId,
+    shareToken: resolveShareToken((await searchParams).share),
+  });
+
+  if (!(await documentExists(documentId))) {
+    notFound();
+  }
+
+  const resolvedSearchParams = await searchParams;
+  const shareToken = resolveShareToken(resolvedSearchParams.share);
+  const cookieStore = await cookies();
+  const headerStore = await headers();
+  const defaultLayout =
+    parsePanelLayoutCookie(cookieStore.get(PANEL_LAYOUT_COOKIE)?.value) ??
+    DEFAULT_PANEL_LAYOUT;
+  const initialThemeMode = parseThemeCookie(
+    cookieStore.get(THEME_COOKIE)?.value,
+  );
+  const initialAssistantCollapsed = parseAssistantCollapsedCookie(
+    cookieStore.get(ASSISTANT_COLLAPSED_COOKIE)?.value,
+  );
+  const secChUaMobile = headerStore.get("sec-ch-ua-mobile");
+  const userAgent = headerStore.get("user-agent") ?? "";
+  const { locale, currency } = resolveLocaleAndCurrency({
+    acceptLanguage: headerStore.get("accept-language"),
+    countryCode: getRequestCountryCode(headerStore),
+  });
+  const initialIsMobileLayout =
+    secChUaMobile === "?1" ||
+    (secChUaMobile === null && MOBILE_USER_AGENT_REGEX.test(userAgent));
+
+  const session = await getServerSessionSafe();
+  if (!session?.user) {
+    const [publicAccess, isPublicTemplate] = await Promise.all([
+      getPublicDocumentAccessByShareToken({
+        docId: documentId,
+        shareToken,
+      }),
+      isTemplateDocumentPubliclyViewable({
+        docId: documentId,
+      }),
+    ]);
+
+    if (!publicAccess.canAccess && !isPublicTemplate) {
+      if (!shareToken?.trim()) {
+        redirect(
+          `/auth/sign-in?callbackURL=${encodeURIComponent(callbackPath)}`,
+        );
+      }
+      notFound();
+    }
+
+    const documentMetadata = await ensureDocumentMetadata({
+      docId: documentId,
+    });
+
+    return (
+      <>
+        <NewBodyClass />
+        <NewWorkspace
+          defaultLayout={defaultLayout}
+          documentId={documentId}
+          initialDocumentTitle={documentMetadata.title}
+          sheetsBasePath="/sheets"
+          canManageShare={false}
+          canEdit={false}
+          canUseAuditHistory={false}
+          initialThemeMode={initialThemeMode}
+          initialAssistantCollapsed={initialAssistantCollapsed}
+          initialIsMobileLayout={initialIsMobileLayout}
+          isTemplateDocument={isPublicTemplate}
+          isReadOnlyTemplateView={isPublicTemplate}
+          isAdmin={false}
+          locale={locale}
+          currency={currency}
+          currentUser={createPublicViewerIdentity(documentId)}
+        />
+      </>
     );
   }
 
-  notFound();
+  const preferredOrganizationId =
+    (await resolveActiveOrganizationIdForSession(session)) ??
+    getActiveOrganizationIdFromSession(session);
+  const accessibleOrganization = await resolveAccessibleOrganizationForUser({
+    docId: documentId,
+    userId: session.user.id,
+    shareToken,
+    preferredOrganizationId,
+  });
+
+  if (!accessibleOrganization) {
+    const organizations = await listOrganizationsForSession();
+    if (organizations.length === 0) {
+      redirect(
+        `/onboarding/organization?callbackURL=${encodeURIComponent(callbackPath)}`,
+      );
+    }
+    notFound();
+  }
+
+  const isAdmin = isAdminUser({
+    id: session.user.id,
+    email: session.user.email,
+  });
+  const [documentMetadata, isTemplateDocument, billing] = await Promise.all([
+    ensureDocumentMetadata({ docId: documentId }),
+    isTemplateDocumentPubliclyViewable({
+      docId: documentId,
+    }),
+    getOrganizationBillingEntitlement(accessibleOrganization.organization.id),
+  ]);
+  const isReadOnlyTemplateView =
+    isTemplateDocument && !accessibleOrganization.access.isOwner;
+  const canUseAuditHistory = isAdmin || billing.plan === "max";
+
+  return (
+    <>
+      <NewBodyClass />
+      <ActiveOrganizationSync
+        organizationId={accessibleOrganization.organization.id}
+        sessionActiveOrganizationId={getActiveOrganizationIdFromSession(session)}
+      />
+      <NewWorkspace
+        defaultLayout={defaultLayout}
+        documentId={documentId}
+        initialDocumentTitle={documentMetadata.title}
+        sheetsBasePath="/sheets"
+        canManageShare={accessibleOrganization.access.isOwner}
+        canEdit={
+          accessibleOrganization.access.permission === "edit" &&
+          !isReadOnlyTemplateView
+        }
+        initialThemeMode={initialThemeMode}
+        initialAssistantCollapsed={initialAssistantCollapsed}
+        initialIsMobileLayout={initialIsMobileLayout}
+        isTemplateDocument={isTemplateDocument}
+        isReadOnlyTemplateView={isReadOnlyTemplateView}
+        isAdmin={isAdmin}
+        canUseAuditHistory={canUseAuditHistory}
+        locale={locale}
+        currency={currency}
+        currentUser={{
+          id: session.user.id,
+          name: session.user.name,
+          email: session.user.email,
+          image: session.user.image,
+        }}
+      />
+    </>
+  );
 }
