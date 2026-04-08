@@ -12,6 +12,7 @@ const WebSocketJSONStream = require("websocket-json-stream") as new (
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const createShareDBRedisPubSub = require("sharedb-redis-pubsub") as (options: {
   client: ReturnType<typeof createClient>;
+  observer?: ReturnType<typeof createClient>;
   prefix?: string;
 }) => unknown;
 import { getFlags, isTrackingEnabledForSource } from "./lib/feature-flags";
@@ -134,6 +135,11 @@ const SHAREDB_AUTH_DEBUG = process.env.SHAREDB_AUTH_DEBUG === "true";
 const SHAREDB_REDIS_URL = process.env.SHAREDB_REDIS_URL?.trim() || null;
 const SHAREDB_REDIS_PREFIX =
   process.env.SHAREDB_REDIS_PREFIX?.trim() || "rnc:sharedb";
+const SHAREDB_INSTANCE_ID =
+  process.env.SHAREDB_INSTANCE_ID?.trim() ||
+  process.env.RAILWAY_REPLICA_ID?.trim() ||
+  process.env.HOSTNAME?.trim() ||
+  "sharedb-instance";
 const AUDIT_ACCESS_CACHE_TTL_MS = 5 * 60_000;
 const DOC_ACCESS_CACHE_TTL_MS = parsePositiveInt(
   process.env.SHAREDB_DOC_ACCESS_CACHE_TTL_MS,
@@ -347,6 +353,39 @@ const redactDatabaseUrl = (value: string) => {
   } catch {
     return value;
   }
+};
+
+const redactRedisUrl = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    if (parsed.username) parsed.username = "***";
+    if (parsed.password) parsed.password = "***";
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+};
+
+const registerRedisLifecycleLogging = (
+  client: ReturnType<typeof createClient>,
+  role: "pub" | "sub",
+) => {
+  const prefix = `[sharedb-redis][${SHAREDB_INSTANCE_ID}][${role}]`;
+  client.on("connect", () => {
+    console.log(`${prefix} connect`);
+  });
+  client.on("ready", () => {
+    console.log(`${prefix} ready`);
+  });
+  client.on("reconnecting", () => {
+    console.warn(`${prefix} reconnecting`);
+  });
+  client.on("end", () => {
+    console.warn(`${prefix} end`);
+  });
+  client.on("error", (error) => {
+    console.error(`${prefix} error`, error);
+  });
 };
 
 const getStringValue = (value: unknown): string | null => {
@@ -1281,20 +1320,25 @@ async function startServer() {
       return undefined;
     }
 
-    const redisClient = createClient({
+    const redisPublisherClient = createClient({
+      url: SHAREDB_REDIS_URL,
+    });
+    const redisObserverClient = createClient({
       url: SHAREDB_REDIS_URL,
     });
 
-    redisClient.on("error", (error) => {
-      console.error("[sharedb-redis] client error:", error);
-    });
+    registerRedisLifecycleLogging(redisPublisherClient, "pub");
+    registerRedisLifecycleLogging(redisObserverClient, "sub");
 
     console.log("ShareDB Redis pubsub: enabled", {
+      instanceId: SHAREDB_INSTANCE_ID,
       prefix: SHAREDB_REDIS_PREFIX,
+      url: redactRedisUrl(SHAREDB_REDIS_URL),
     });
 
     return createShareDBRedisPubSub({
-      client: redisClient,
+      client: redisPublisherClient,
+      observer: redisObserverClient,
       prefix: SHAREDB_REDIS_PREFIX,
     }) as ShareDB.PubSub;
   })();
