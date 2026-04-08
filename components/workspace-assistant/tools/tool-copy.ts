@@ -107,6 +107,11 @@ const TOOL_UI_COPY: Record<string, ToolCopy> = {
     success: "Captured your plan decision",
     failed: "Failed to capture your plan decision",
   },
+  assistant_getSkill: {
+    running: "Looking up skill details",
+    success: "Retrieved skill details",
+    failed: "Could not find skill",
+  },
 };
 
 const formatToolNameFallback = (toolName: string) =>

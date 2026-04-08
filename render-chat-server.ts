@@ -690,6 +690,7 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
   const systemInstructions = await resolveRunSystemInstructions({
     userId: identity.userId,
+    organizationId,
     request: chatRequest,
     defaultSystemInstructions: CHAT_SYSTEM_INSTRUCTIONS,
   });

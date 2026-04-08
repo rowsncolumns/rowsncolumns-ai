@@ -728,6 +728,7 @@ export async function listOwnedDocuments({
   pageSize = 20,
   filter = "owned",
   query,
+  excludeTemplates = false,
 }: {
   userId: string;
   orgId?: string | null;
@@ -735,6 +736,7 @@ export async function listOwnedDocuments({
   pageSize?: number;
   filter?: DocumentListFilter;
   query?: string | null;
+  excludeTemplates?: boolean;
 }): Promise<ListOwnedDocumentsResult> {
   await ensureDocumentOwnersOrgSchemaReady();
   const normalizedOrgId = orgId?.trim() || null;
@@ -849,6 +851,10 @@ export async function listOwnedDocuments({
         AND template_scope <> 'none'
       )
     )
+      AND (
+        ${excludeTemplates} = FALSE
+        OR template_scope = 'none'
+      )
       AND (
         ${titleSearchPattern}::text IS NULL
         OR COALESCE(NULLIF(BTRIM(metadata_title), ''), 'Document ' || LEFT(doc_id, 8)) ILIKE ${titleSearchPattern}::text
@@ -972,6 +978,10 @@ export async function listOwnedDocuments({
         AND template_scope <> 'none'
       )
     )
+      AND (
+        ${excludeTemplates} = FALSE
+        OR template_scope = 'none'
+      )
       AND (
         ${titleSearchPattern}::text IS NULL
         OR COALESCE(NULLIF(BTRIM(metadata_title), ''), 'Document ' || LEFT(doc_id, 8)) ILIKE ${titleSearchPattern}::text

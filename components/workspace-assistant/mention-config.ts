@@ -1,5 +1,10 @@
-export type MentionCategory = "sheet" | "document" | "template" | "tool";
-export type MentionKind = "sheet" | "tool";
+export type MentionCategory =
+  | "sheet"
+  | "document"
+  | "template"
+  | "skill"
+  | "tool";
+export type MentionKind = "sheet" | "tool" | "skill";
 
 type MentionVisualConfig = {
   label: string;
@@ -7,12 +12,13 @@ type MentionVisualConfig = {
 
 export type ParsedMentionUri =
   | { kind: "tool"; name: string; raw: string }
+  | { kind: "skill"; id: string; raw: string }
   | { kind: "sheet"; docId: string; sheetId: number | null; raw: string }
   | { kind: "document"; docId: string; raw: string };
 
 export const MENTION_URI_PREFIX = "mention://";
 export const MENTION_URI_REGEX =
-  /^mention:\/\/(?:tool|sheet|document)\?[^#\s]+$/i;
+  /^mention:\/\/(?:tool|skill|sheet|document)\?[^#\s]+$/i;
 export const SHEETS_APP_BASE_URL = "https://rowsncolumns.ai";
 
 // Legacy compatibility
@@ -31,6 +37,10 @@ const TOOL_VISUAL: MentionVisualConfig = {
   label: "Tools",
 };
 
+const SKILL_VISUAL: MentionVisualConfig = {
+  label: "Skills",
+};
+
 export const SHEET_MENTION_PILL_GLYPH = "▦";
 export const TOOL_WRENCH_ICON_PATH_D =
   "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z";
@@ -39,6 +49,7 @@ export const MENTION_CATEGORY_ORDER: MentionCategory[] = [
   "sheet",
   "document",
   "template",
+  "skill",
   "tool",
 ];
 
@@ -52,6 +63,7 @@ const MENTION_VISUAL_CONFIG: Record<MentionCategory, MentionVisualConfig> = {
     ...SHEET_VISUAL,
     label: "Templates",
   },
+  skill: SKILL_VISUAL,
   tool: TOOL_VISUAL,
 };
 
@@ -140,6 +152,12 @@ export const parseMentionUri = (
       return { kind: "tool", name, raw: normalized };
     }
 
+    if (host === "skill") {
+      const id = url.searchParams.get("id")?.trim() || "";
+      if (!id) return null;
+      return { kind: "skill", id, raw: normalized };
+    }
+
     if (host === "sheet") {
       const docId = url.searchParams.get("docId")?.trim() || "";
       if (!docId) return null;
@@ -168,6 +186,9 @@ export const parseMentionUri = (
 export const buildToolMentionUri = (toolName: string): string =>
   `${MENTION_URI_PREFIX}tool?name=${encodeURIComponent(toolName.trim())}`;
 
+export const buildSkillMentionUri = (skillId: string): string =>
+  `${MENTION_URI_PREFIX}skill?id=${encodeURIComponent(skillId.trim())}`;
+
 export const buildSheetMentionUri = (input: {
   docId: string;
   sheetId: number;
@@ -186,15 +207,30 @@ export const parseToolNameFromMentionUri = (
   return parsed?.kind === "tool" ? parsed.name : null;
 };
 
+export const parseSkillIdFromMentionUri = (
+  value: string | undefined | null,
+): string | null => {
+  const parsed = parseMentionUri(value);
+  return parsed?.kind === "skill" ? parsed.id : null;
+};
+
 export const getMentionCategoryLabel = (category: MentionCategory): string =>
   MENTION_VISUAL_CONFIG[category].label;
 
 export const getMentionCategoryIconKind = (
   category: MentionCategory,
-): MentionKind => (category === "tool" ? "tool" : "sheet");
+): MentionKind => {
+  if (category === "tool") return "tool";
+  if (category === "skill") return "skill";
+  return "sheet";
+};
 
-export const getMentionKindFromMentionId = (mentionId: string): MentionKind =>
-  parseToolNameFromMentionUri(mentionId) ? "tool" : "sheet";
+export const getMentionKindFromMentionId = (mentionId: string): MentionKind => {
+  const parsed = parseMentionUri(mentionId);
+  if (parsed?.kind === "tool") return "tool";
+  if (parsed?.kind === "skill") return "skill";
+  return "sheet";
+};
 
 export const getMentionKindFromPathOrUri = (
   value: string,
@@ -203,5 +239,7 @@ export const getMentionKindFromPathOrUri = (
   if (!parsed) {
     return null;
   }
-  return parsed.kind === "tool" ? "tool" : "sheet";
+  if (parsed.kind === "tool") return "tool";
+  if (parsed.kind === "skill") return "skill";
+  return "sheet";
 };

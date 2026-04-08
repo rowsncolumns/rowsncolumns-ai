@@ -492,6 +492,7 @@ export const SPREADSHEET_TOOL_NAMES = [
   "assistant_requestModeSwitch",
   "assistant_askUserQuestion",
   "assistant_confirmPlanExecution",
+  "assistant_getSkill",
   "web_search",
 ] as const;
 

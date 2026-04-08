@@ -156,3 +156,7 @@ export function buildOrganizationPeoplePath(organizationId: string): string {
 export function buildOrganizationSettingsPath(organizationId: string): string {
   return `/org/${encodeURIComponent(organizationId)}/settings`;
 }
+
+export function buildOrganizationSkillsPath(organizationId: string): string {
+  return `/org/${encodeURIComponent(organizationId)}/skills`;
+}

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import {
   buildOrganizationBillingPath,
   buildOrganizationPeoplePath,
+  buildOrganizationSkillsPath,
   buildOrganizationSettingsPath,
   getActiveOrganizationIdFromSession,
   listOrganizationsForSession,
@@ -71,7 +72,7 @@ export const resolveOrganizationAdminPageContext = async ({
 
 export const buildOrganizationAdminTabs = (
   orgId: string,
-  active: "billing" | "people" | "settings",
+  active: "billing" | "people" | "skills" | "settings",
 ) => [
   {
     href: buildOrganizationBillingPath(orgId),
@@ -82,6 +83,11 @@ export const buildOrganizationAdminTabs = (
     href: buildOrganizationPeoplePath(orgId),
     label: "People",
     isActive: active === "people",
+  },
+  {
+    href: buildOrganizationSkillsPath(orgId),
+    label: "Skills",
+    isActive: active === "skills",
   },
   {
     href: buildOrganizationSettingsPath(orgId),

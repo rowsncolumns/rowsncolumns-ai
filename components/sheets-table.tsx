@@ -31,6 +31,7 @@ import { TemplateSettingsTrigger } from "@/components/template-settings-trigger"
 import { Button } from "@/components/ui/button";
 import type { DocumentListFilter } from "@/lib/documents/repository";
 import { IconButton } from "@rowsncolumns/ui";
+type SheetsListFilter = Exclude<DocumentListFilter, "templates">;
 
 type SheetListItem = {
   docId: string;
@@ -49,7 +50,7 @@ type SheetsTableProps = {
   page: number;
   totalPages: number;
   totalCount: number;
-  filter: DocumentListFilter;
+  filter: SheetsListFilter;
   query?: string | null;
   basePath?: string;
 };
@@ -76,7 +77,7 @@ const buildPageHref = ({
 }: {
   basePath: string;
   page: number;
-  filter: DocumentListFilter;
+  filter: SheetsListFilter;
   query?: string | null;
 }) => {
   const searchParams = new URLSearchParams();
@@ -158,9 +159,7 @@ export function SheetsTable({
   const hasNextPage = page < totalPages;
   const emptyStateMessage = query?.trim()
     ? "No sheets match your search."
-    : filter === "templates"
-      ? "No template sheets found."
-      : "No sheets yet. Create your first sheet to get started.";
+    : "No sheets yet. Create your first sheet to get started.";
   const isAnyActionRunning =
     isDeleting || favoritingDocId !== null || duplicatingDocId !== null;
   const selectableDocuments = useMemo(

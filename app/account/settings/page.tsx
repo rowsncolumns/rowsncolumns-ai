@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { PageTitleBlock } from "@/components/page-title-block";
-import { SignOutButton } from "@/components/sign-out-button";
 import { SiteFixedWidthPageShell } from "@/components/site-fixed-width-page-shell";
 import { getServerSessionSafe } from "@/lib/auth/session-safe";
 
+import { AccountSettingsNav } from "./account-settings-nav";
 import { AccountProfileForm } from "./profile-form";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +53,7 @@ export default async function AccountSettingsPage() {
       }}
     >
       <section className="mx-auto w-full rounded-2xl border border-(--card-border) bg-(--card-bg-solid) p-7 shadow-[0_24px_70px_var(--card-shadow)] sm:p-8">
+        <AccountSettingsNav activeSegment="profile" />
         <PageTitleBlock
           title="Account Settings"
           tagline="Manage your personal profile details."
@@ -73,10 +74,6 @@ export default async function AccountSettingsPage() {
                 email={user.email}
               />
             </div>
-          </div>
-
-          <div className="mt-5">
-            <SignOutButton className="inline-flex h-10 items-center justify-center rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-4 text-sm font-medium text-foreground transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-70" />
           </div>
         </div>
       </section>

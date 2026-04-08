@@ -12,6 +12,7 @@ import {
   SHEETS_URI_REGEX,
   TOOLS_URI_REGEX,
   parseToolNameFromMentionUri,
+  parseSkillIdFromMentionUri,
   type MentionKind,
 } from "@/components/workspace-assistant/mention-config";
 import {
@@ -49,7 +50,7 @@ type AssistantMarkdownLinkProps = MarkdownAnchorProps & {
 const readMentionKindFromDataAttribute = (
   value: string | undefined,
 ): MentionKind | null => {
-  if (value === "tool" || value === "sheet") {
+  if (value === "tool" || value === "sheet" || value === "skill") {
     return value;
   }
   return null;
@@ -145,7 +146,9 @@ const getMentionKindFromHref = (
 
   const parsed = parseMentionUri(normalizedHref);
   if (parsed) {
-    return parsed.kind === "tool" ? "tool" : "sheet";
+    if (parsed.kind === "tool") return "tool";
+    if (parsed.kind === "skill") return "skill";
+    return "sheet";
   }
 
   if (parseToolNameFromMentionUri(normalizedHref)) {
@@ -174,7 +177,6 @@ export function AssistantMarkdownLink({
   href,
   onClick,
   onOpenInCurrentDocument,
-  node,
   "data-mention-kind": dataMentionKind,
   "data-mention-url": dataMentionUrl,
   className,
@@ -212,6 +214,10 @@ export function AssistantMarkdownLink({
     () => parseToolNameFromMentionUri(effectiveMentionUrl),
     [effectiveMentionUrl],
   );
+  const skillId = React.useMemo(
+    () => parseSkillIdFromMentionUri(effectiveMentionUrl),
+    [effectiveMentionUrl],
+  );
   const getInstance = useCallbackRef((docId: string) => {
     return instance.get(docId);
   });
@@ -234,7 +240,7 @@ export function AssistantMarkdownLink({
         return;
       }
 
-      if (mentionKind === "tool") {
+      if (mentionKind === "tool" || mentionKind === "skill") {
         event.preventDefault();
         return;
       }
@@ -340,6 +346,28 @@ export function AssistantMarkdownLink({
           {children}
         </MentionPill>
       </a>
+    );
+  }
+
+  if (mentionKind === "skill" && skillId) {
+    return (
+      <button
+        type="button"
+        className={cn(
+          "inline-flex cursor-pointer items-center text-left no-underline",
+          className,
+        )}
+        onClick={(event) => {
+          event.preventDefault();
+        }}
+        data-mention-kind={dataMentionKind}
+        data-mention-url={dataMentionUrl}
+        title={`Skill ID: ${skillId}`}
+      >
+        <MentionPill mentionKind={mentionKind} className="align-baseline">
+          {children}
+        </MentionPill>
+      </button>
     );
   }
 

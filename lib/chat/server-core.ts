@@ -34,6 +34,7 @@ import { getOrganizationBillingEntitlement } from "@/lib/billing/repository";
 import { withOperationHistoryRuntimeContext } from "@/lib/operation-history/runtime-context";
 import { withShareDbRuntimeContext } from "@/lib/sharedb/runtime-context";
 import { issueMcpShareDbAccessToken } from "@/lib/sharedb/mcp-token";
+import { withChatUserContext } from "@/lib/chat/user-context";
 
 export type ChatProvider = "openai" | "anthropic";
 
@@ -108,8 +109,6 @@ const DEFAULT_ALLOWED_MODELS = new Set<string>([
   "gpt-4.1",
   "gpt-4.1-mini",
   "gpt-4.1-nano",
-  "o3",
-  "o4-mini",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
   "claude-sonnet-4-6-low",
@@ -489,16 +488,21 @@ export const resolveChatRequest = (
 
 export const resolveRunSystemInstructions = async (input: {
   userId: string;
+  organizationId: string;
   request: ResolvedChatRequest;
   defaultSystemInstructions?: string;
 }) => {
   let skillsInstruction = "";
   try {
-    const skills = await listAssistantSkills({ userId: input.userId });
+    const skills = await listAssistantSkills({
+      userId: input.userId,
+      organizationId: input.organizationId,
+    });
     skillsInstruction = buildSkillsInstruction(skills);
   } catch (error) {
-    console.error("[chat] Failed to load skills for user", {
+    console.error("[chat] Failed to load skills for organization", {
       userId: input.userId,
+      organizationId: input.organizationId,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -744,51 +748,58 @@ export const executeChatRunStream = async (input: {
             userId: input.userId,
             trackingAllowed,
           },
-          async () => {
-            for await (const event of streamSpreadsheetAssistant({
-              threadId: input.request.threadId,
-              runId,
-              userId: input.userId,
-              docId: input.request.docId,
-              message: input.request.message,
-              images: input.request.images,
-              toolResponses: input.request.toolResponses,
-              model: input.request.model,
-              provider: input.request.provider,
-              reasoningEnabled: input.request.reasoningEnabled,
-              systemInstructions: input.request.systemInstructions,
-              abortSignal: combinedAbortSignal,
-            })) {
-              if (event.type === "tool.call") {
-                toolCallCount += 1;
-              }
+          async () =>
+            withChatUserContext(
+              {
+                userId: input.userId,
+                organizationId: input.organizationId,
+              },
+              async () => {
+                for await (const event of streamSpreadsheetAssistant({
+                  threadId: input.request.threadId,
+                  runId,
+                  userId: input.userId,
+                  docId: input.request.docId,
+                  message: input.request.message,
+                  images: input.request.images,
+                  toolResponses: input.request.toolResponses,
+                  model: input.request.model,
+                  provider: input.request.provider,
+                  reasoningEnabled: input.request.reasoningEnabled,
+                  systemInstructions: input.request.systemInstructions,
+                  abortSignal: combinedAbortSignal,
+                })) {
+                  if (event.type === "tool.call") {
+                    toolCallCount += 1;
+                  }
 
-              if (event.type === "message.delta") {
-                messageDeltaChars += event.delta.length;
-              }
+                  if (event.type === "message.delta") {
+                    messageDeltaChars += event.delta.length;
+                  }
 
-              if (event.type === "message.complete") {
-                isCompleted = true;
-                messageCompleteChars = Math.max(
-                  messageCompleteChars,
-                  event.message.length,
-                );
-              }
+                  if (event.type === "message.complete") {
+                    isCompleted = true;
+                    messageCompleteChars = Math.max(
+                      messageCompleteChars,
+                      event.message.length,
+                    );
+                  }
 
-              // Add runId to stream events that clients correlate to the active run.
-              const augmentedEvent =
-                event.type === "message.start" ||
-                event.type === "message.complete" ||
-                event.type === "context.usage"
-                  ? { ...event, runId }
-                  : event;
+                  // Add runId to stream events that clients correlate to the active run.
+                  const augmentedEvent =
+                    event.type === "message.start" ||
+                    event.type === "message.complete" ||
+                    event.type === "context.usage"
+                      ? { ...event, runId }
+                      : event;
 
-              await persistAndEmit(augmentedEvent);
-              if (combinedAbortSignal.aborted) {
-                break;
-              }
-            }
-          },
+                  await persistAndEmit(augmentedEvent);
+                  if (combinedAbortSignal.aborted) {
+                    break;
+                  }
+                }
+              },
+            ),
         ),
     );
   } catch (error) {

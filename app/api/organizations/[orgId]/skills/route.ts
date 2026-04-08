@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import {
-  getActiveOrganizationIdFromSession,
-} from "@/lib/auth/organization";
-import { resolveFirstOrganizationIdForUser } from "@/lib/auth/user-api-keys";
 import { auth } from "@/lib/auth/server";
+import {
+  getOrganizationRoleForUser,
+  isOrganizationAdminRole,
+} from "@/lib/auth/organization-membership";
 import {
   createAssistantSkill,
   deleteAssistantSkill,
@@ -15,6 +15,10 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type RouteContext = {
+  params: Promise<{ orgId: string }>;
+};
 
 const createSkillSchema = z.object({
   name: z
@@ -69,45 +73,72 @@ const deleteSkillSchema = z.object({
   skillId: z.string().trim().min(1, "skillId is required."),
 });
 
-function formatValidationError(message: string) {
-  return NextResponse.json({ error: message }, { status: 400 });
-}
+const getValidationMessage = (error: z.ZodError) =>
+  error.issues[0]?.message || "Invalid request.";
 
-function getValidationMessage(error: z.ZodError) {
-  return error.issues[0]?.message || "Invalid request.";
-}
-
-async function resolveSkillsOrganizationId({
-  session,
-  userId,
-}: {
-  session: unknown;
-  userId: string;
-}): Promise<string | null> {
-  const activeOrganizationId = getActiveOrganizationIdFromSession(session);
-  if (activeOrganizationId) {
-    return activeOrganizationId;
+const resolveAdminContext = async (context: RouteContext) => {
+  const { data: session } = await auth.getSession();
+  const userId = session?.user?.id;
+  if (!userId) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }),
+    };
   }
-  return resolveFirstOrganizationIdForUser(userId);
-}
 
-export async function GET() {
+  const { orgId: rawOrgId } = await context.params;
+  const organizationId = rawOrgId.trim();
+  if (!organizationId) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { error: "Invalid organization." },
+        { status: 400 },
+      ),
+    };
+  }
+
+  const role = await getOrganizationRoleForUser({
+    userId,
+    organizationId,
+  });
+  if (!role) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { error: "You are not a member of this organization." },
+        { status: 403 },
+      ),
+    };
+  }
+
+  if (!isOrganizationAdminRole(role)) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { error: "Only organization admins can manage skills." },
+        { status: 403 },
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    userId,
+    organizationId,
+  };
+};
+
+export async function GET(_request: Request, context: RouteContext) {
   try {
-    const { data: session } = await auth.getSession();
-    const userId = session?.user?.id;
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const authContext = await resolveAdminContext(context);
+    if (!authContext.ok) {
+      return authContext.response;
     }
-    const organizationId = await resolveSkillsOrganizationId({
-      session,
-      userId,
-    });
-    if (!organizationId) {
-      return NextResponse.json({ skills: [] });
-    }
+
     const skills = await listAssistantSkills({
-      userId,
-      organizationId,
+      userId: authContext.userId,
+      organizationId: authContext.organizationId,
     });
 
     return NextResponse.json({ skills });
@@ -118,33 +149,25 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: Request, context: RouteContext) {
   try {
-    const { data: session } = await auth.getSession();
-    const userId = session?.user?.id;
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
-    const organizationId = await resolveSkillsOrganizationId({
-      session,
-      userId,
-    });
-    if (!organizationId) {
-      return NextResponse.json(
-        { error: "Create or join an organization before using skills." },
-        { status: 409 },
-      );
+    const authContext = await resolveAdminContext(context);
+    if (!authContext.ok) {
+      return authContext.response;
     }
 
     const body = await request.json();
     const parsed = createSkillSchema.safeParse(body);
     if (!parsed.success) {
-      return formatValidationError(getValidationMessage(parsed.error));
+      return NextResponse.json(
+        { error: getValidationMessage(parsed.error) },
+        { status: 400 },
+      );
     }
 
     const skill = await createAssistantSkill({
-      userId,
-      organizationId,
+      userId: authContext.userId,
+      organizationId: authContext.organizationId,
       name: parsed.data.name,
       description: parsed.data.description.trim(),
       instructions: parsed.data.instructions,
@@ -159,34 +182,26 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+export async function PATCH(request: Request, context: RouteContext) {
   try {
-    const { data: session } = await auth.getSession();
-    const userId = session?.user?.id;
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
-    const organizationId = await resolveSkillsOrganizationId({
-      session,
-      userId,
-    });
-    if (!organizationId) {
-      return NextResponse.json(
-        { error: "Create or join an organization before using skills." },
-        { status: 409 },
-      );
+    const authContext = await resolveAdminContext(context);
+    if (!authContext.ok) {
+      return authContext.response;
     }
 
     const body = await request.json();
     const parsed = updateSkillSchema.safeParse(body);
     if (!parsed.success) {
-      return formatValidationError(getValidationMessage(parsed.error));
+      return NextResponse.json(
+        { error: getValidationMessage(parsed.error) },
+        { status: 400 },
+      );
     }
 
     const skill = await updateAssistantSkill({
       skillId: parsed.data.skillId,
-      userId,
-      organizationId,
+      userId: authContext.userId,
+      organizationId: authContext.organizationId,
       name: parsed.data.name,
       description: parsed.data.description?.trim(),
       instructions: parsed.data.instructions,
@@ -205,34 +220,26 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: Request, context: RouteContext) {
   try {
-    const { data: session } = await auth.getSession();
-    const userId = session?.user?.id;
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
-    const organizationId = await resolveSkillsOrganizationId({
-      session,
-      userId,
-    });
-    if (!organizationId) {
-      return NextResponse.json(
-        { error: "Create or join an organization before using skills." },
-        { status: 409 },
-      );
+    const authContext = await resolveAdminContext(context);
+    if (!authContext.ok) {
+      return authContext.response;
     }
 
     const body = await request.json();
     const parsed = deleteSkillSchema.safeParse(body);
     if (!parsed.success) {
-      return formatValidationError(getValidationMessage(parsed.error));
+      return NextResponse.json(
+        { error: getValidationMessage(parsed.error) },
+        { status: 400 },
+      );
     }
 
     const deleted = await deleteAssistantSkill({
       skillId: parsed.data.skillId,
-      userId,
-      organizationId,
+      userId: authContext.userId,
+      organizationId: authContext.organizationId,
     });
 
     if (!deleted) {

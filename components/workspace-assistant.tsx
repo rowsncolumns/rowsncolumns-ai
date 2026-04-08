@@ -133,8 +133,10 @@ import {
 import {
   buildDocumentMentionUri,
   buildSheetMentionUri,
+  buildSkillMentionUri,
   buildToolMentionUri,
   getMentionKindFromPathOrUri,
+  type MentionKind,
 } from "@/components/workspace-assistant/mention-config";
 import {
   SPREADSHEET_TOOL_NAMES,
@@ -351,7 +353,7 @@ const parseMentionReferenceTextNodes = (
   return nodes;
 };
 
-const getMentionKindFromUrl = (url: string): "sheet" | "tool" | null => {
+const getMentionKindFromUrl = (url: string): MentionKind | null => {
   return getMentionKindFromPathOrUri(url);
 };
 
@@ -2732,9 +2734,7 @@ export function SheetsInstructions({
   theme?: SpreadsheetTheme;
   charts?: EmbeddedChart[];
   namedRanges?: NamedRange[];
-  getDataRowCount?: ReturnType<
-    typeof useSpreadsheetState
-  >["getDataRowCount"];
+  getDataRowCount?: ReturnType<typeof useSpreadsheetState>["getDataRowCount"];
   getDataColumnCount?: ReturnType<
     typeof useSpreadsheetState
   >["getDataColumnCount"];
@@ -3062,6 +3062,7 @@ function SkillsManagerButton({
   const [pendingDeleteSkill, setPendingDeleteSkill] =
     React.useState<AssistantSkill | null>(null);
   const [formError, setFormError] = React.useState("");
+  const [copiedSkillId, setCopiedSkillId] = React.useState<string | null>(null);
 
   const loadSkills = React.useCallback(async () => {
     if (isLoggedOut) {
@@ -3319,6 +3320,23 @@ function SkillsManagerButton({
     [],
   );
 
+  const copySkillId = React.useCallback(async (skillId: string) => {
+    if (!navigator?.clipboard) {
+      setSkillsError("Clipboard is not available.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(skillId);
+      setCopiedSkillId(skillId);
+      setTimeout(() => {
+        setCopiedSkillId((current) => (current === skillId ? null : current));
+      }, 1500);
+    } catch {
+      setSkillsError("Failed to copy skill ID.");
+    }
+  }, []);
+
   return (
     <>
       <Button
@@ -3426,6 +3444,7 @@ function SkillsManagerButton({
                             updatingSkillId === skill.id;
                           const isDeletingThisSkill =
                             deletingSkillId === skill.id;
+                          const isCopiedThisSkill = copiedSkillId === skill.id;
                           return (
                             <Card
                               key={skill.id}
@@ -3446,6 +3465,37 @@ function SkillsManagerButton({
                                       >
                                         {skill.active ? "Active" : "Inactive"}
                                       </Badge>
+                                    </div>
+                                    <div className="mt-2 flex items-center gap-2">
+                                      <span className="text-xs text-(--muted-foreground)">
+                                        Skill ID:
+                                      </span>
+                                      <code className="max-w-[260px] truncate rounded bg-(--assistant-chip-bg) px-1.5 py-0.5 font-mono text-[11px] text-(--muted-foreground)">
+                                        {skill.id}
+                                      </code>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void copySkillId(skill.id);
+                                        }}
+                                        className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-(--muted-foreground) transition hover:bg-(--nav-hover) hover:text-foreground"
+                                        title={
+                                          isCopiedThisSkill
+                                            ? "Skill ID copied"
+                                            : "Copy skill ID"
+                                        }
+                                      >
+                                        {isCopiedThisSkill ? (
+                                          <Check className="h-3 w-3" />
+                                        ) : (
+                                          <Copy className="h-3 w-3" />
+                                        )}
+                                        <span>
+                                          {isCopiedThisSkill
+                                            ? "Copied"
+                                            : "Copy ID"}
+                                        </span>
+                                      </button>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-1">
@@ -3581,7 +3631,7 @@ function SkillsManagerButton({
                                     setDraftDescription(event.target.value)
                                   }
                                   placeholder="What this skill is for"
-                                  className="min-h-20"
+                                  className="min-h-20 rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
                                 />
                               </div>
                               <div className="space-y-1">
@@ -3594,7 +3644,7 @@ function SkillsManagerButton({
                                     setDraftInstructions(event.target.value)
                                   }
                                   placeholder="Detailed reusable instructions for the assistant"
-                                  className="min-h-64"
+                                  className="min-h-64 rounded-lg border border-(--card-border) bg-(--card-bg-solid) px-3 focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
                                 />
                               </div>
                               <div className="flex items-center justify-between rounded-lg border border-(--card-border) bg-(--card-bg-subtle) px-3 py-2">
@@ -3636,7 +3686,7 @@ function SkillsManagerButton({
                               )}
                             </div>
 
-                            <div className="shrink-0 border-t border-(--card-border) px-4 py-3">
+                            <div className="shrink-0 border-t border-(--card-border) px-4 py-4">
                               <div className="flex justify-end gap-2">
                                 <Button
                                   type="button"
@@ -3644,7 +3694,6 @@ function SkillsManagerButton({
                                   size="sm"
                                   onClick={resetEditor}
                                   disabled={isSavingSkill}
-                                  className="h-8 rounded-lg px-3 text-xs"
                                 >
                                   Cancel
                                 </Button>
@@ -3654,7 +3703,6 @@ function SkillsManagerButton({
                                   size="sm"
                                   onClick={saveSkill}
                                   disabled={isSavingSkill}
-                                  className="h-8 rounded-lg px-3 text-xs"
                                 >
                                   {isSavingSkill
                                     ? "Saving..."
@@ -3776,6 +3824,10 @@ type DocumentsApiResponse = {
   }>;
 };
 
+type SkillsApiResponse = {
+  skills?: unknown;
+};
+
 const filterLocalMentionOptions = (
   items: ComposerMentionOption[],
   query: string,
@@ -3893,10 +3945,16 @@ function AssistantComposer({
   const [templateMentionOptions, setTemplateMentionOptions] = React.useState<
     ComposerMentionOption[]
   >([]);
+  const [skillMentionOptions, setSkillMentionOptions] = React.useState<
+    ComposerMentionOption[]
+  >([]);
   const documentMentionSearchCacheRef = React.useRef<
     Map<string, ComposerMentionOption[]>
   >(new Map());
   const templateMentionSearchCacheRef = React.useRef<
+    Map<string, ComposerMentionOption[]>
+  >(new Map());
+  const skillMentionSearchCacheRef = React.useRef<
     Map<string, ComposerMentionOption[]>
   >(new Map());
   const documentMentionSearchAbortRef = React.useRef<AbortController | null>(
@@ -3905,6 +3963,7 @@ function AssistantComposer({
   const templateMentionSearchAbortRef = React.useRef<AbortController | null>(
     null,
   );
+  const skillMentionSearchAbortRef = React.useRef<AbortController | null>(null);
   const queuedMessagesRef = React.useRef<QueuedComposerMessage[]>([]);
   const hasQueuedDispatchRef = React.useRef(false);
   const lastHandledPanelDropIdRef = React.useRef<string | null>(null);
@@ -4067,15 +4126,78 @@ function AssistantComposer({
     [isLoggedOut],
   );
 
+  const fetchSkillMentionOptions = React.useCallback(
+    async (query: string): Promise<ComposerMentionOption[]> => {
+      if (isLoggedOut) {
+        return [];
+      }
+
+      const normalizedQuery = query.trim();
+      const cacheKey = normalizedQuery.toLowerCase();
+      const cached = skillMentionSearchCacheRef.current.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      skillMentionSearchAbortRef.current?.abort();
+      const controller = new AbortController();
+      skillMentionSearchAbortRef.current = controller;
+
+      try {
+        const response = await fetch(SKILLS_API_ENDPOINT, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          return [];
+        }
+
+        const payload = (await response.json()) as SkillsApiResponse;
+        const allSkillMentions = parseSkillsFromPayload(payload).map(
+          (skill) => ({
+            id: buildSkillMentionUri(skill.id),
+            label: skill.name,
+            category: "skill" as const,
+            description: skill.active ? skill.id : `${skill.id} (inactive)`,
+          }),
+        );
+        const mentions = filterLocalMentionOptions(
+          allSkillMentions,
+          normalizedQuery,
+        );
+
+        skillMentionSearchCacheRef.current.set(cacheKey, mentions);
+        if (normalizedQuery.length === 0) {
+          setSkillMentionOptions(mentions);
+        }
+        return mentions;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return [];
+        }
+        return [];
+      } finally {
+        if (skillMentionSearchAbortRef.current === controller) {
+          skillMentionSearchAbortRef.current = null;
+        }
+      }
+    },
+    [isLoggedOut],
+  );
+
   React.useEffect(() => {
     documentMentionSearchCacheRef.current.clear();
     templateMentionSearchCacheRef.current.clear();
+    skillMentionSearchCacheRef.current.clear();
     setDocumentMentionOptions([]);
     setTemplateMentionOptions([]);
+    setSkillMentionOptions([]);
     if (!isLoggedOut) {
       void Promise.all([
         fetchDocumentMentionOptions(""),
         fetchTemplateMentionOptions(""),
+        fetchSkillMentionOptions(""),
       ]);
     }
 
@@ -4084,8 +4206,15 @@ function AssistantComposer({
       documentMentionSearchAbortRef.current = null;
       templateMentionSearchAbortRef.current?.abort();
       templateMentionSearchAbortRef.current = null;
+      skillMentionSearchAbortRef.current?.abort();
+      skillMentionSearchAbortRef.current = null;
     };
-  }, [fetchDocumentMentionOptions, fetchTemplateMentionOptions, isLoggedOut]);
+  }, [
+    fetchDocumentMentionOptions,
+    fetchSkillMentionOptions,
+    fetchTemplateMentionOptions,
+    isLoggedOut,
+  ]);
 
   const fallbackSheets = React.useMemo(() => {
     if (sheets && sheets.length > 0) {
@@ -4166,6 +4295,7 @@ function AssistantComposer({
       ...sheetMentionOptions,
       ...documentMentionOptions.filter((item) => !templateIds.has(item.id)),
       ...templateMentionOptions,
+      ...skillMentionOptions,
       ...toolMentionOptions,
     ]) {
       const uniqueKey = `${item.category}:${item.id}`;
@@ -4178,6 +4308,7 @@ function AssistantComposer({
   }, [
     documentMentionOptions,
     sheetMentionOptions,
+    skillMentionOptions,
     templateMentionOptions,
     toolMentionOptions,
   ]);
@@ -4200,10 +4331,16 @@ function AssistantComposer({
         toolMentionOptions,
         query,
       );
-      const [documentOptions, templateOptions] = await Promise.all([
-        fetchDocumentMentionOptions(query),
-        fetchTemplateMentionOptions(query),
-      ]);
+      const filteredSkillOptions = filterLocalMentionOptions(
+        skillMentionOptions,
+        query,
+      );
+      const [documentOptions, templateOptions, skillOptions] =
+        await Promise.all([
+          fetchDocumentMentionOptions(query),
+          fetchTemplateMentionOptions(query),
+          fetchSkillMentionOptions(query),
+        ]);
       const templateIds = new Set<string>(
         [...filteredTemplateOptions, ...templateOptions].map((item) => item.id),
       );
@@ -4211,10 +4348,14 @@ function AssistantComposer({
 
       for (const item of [
         ...filteredSheetOptions,
-        ...filteredDocumentOptions.filter((entry) => !templateIds.has(entry.id)),
+        ...filteredDocumentOptions.filter(
+          (entry) => !templateIds.has(entry.id),
+        ),
         ...documentOptions.filter((entry) => !templateIds.has(entry.id)),
         ...filteredTemplateOptions,
         ...templateOptions,
+        ...filteredSkillOptions,
+        ...skillOptions,
         ...filteredToolOptions,
       ]) {
         const uniqueKey = `${item.category}:${item.id}`;
@@ -4228,8 +4369,10 @@ function AssistantComposer({
     [
       documentMentionOptions,
       fetchDocumentMentionOptions,
+      fetchSkillMentionOptions,
       fetchTemplateMentionOptions,
       sheetMentionOptions,
+      skillMentionOptions,
       templateMentionOptions,
       toolMentionOptions,
     ],
@@ -4789,7 +4932,12 @@ function AssistantComposer({
       runConfig: composerRuntime.getState().runConfig,
       startRun: true,
     });
-  }, [composerRuntime, hasPendingHumanToolCall, isThreadRunning, threadRuntime]);
+  }, [
+    composerRuntime,
+    hasPendingHumanToolCall,
+    isThreadRunning,
+    threadRuntime,
+  ]);
 
   return (
     <ComposerPrimitive.Root

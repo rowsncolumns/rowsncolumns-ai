@@ -6,6 +6,7 @@ import { db } from "@/lib/db/postgres";
 export type AssistantSkillRecord = {
   id: string;
   userId: string;
+  organizationId: string | null;
   name: string;
   description: string;
   instructions: string;
@@ -28,6 +29,8 @@ type AssistantSkillRow = {
 
 type AssistantSkillScope = {
   userId: string;
+  organizationId: string;
+  organizationName?: string | null;
 };
 
 type CreateAssistantSkillInput = AssistantSkillScope & {
@@ -80,6 +83,10 @@ const loadDefaultBrandingSkillInstructions = () => {
 const DEFAULT_BRANDING_SKILL_INSTRUCTIONS =
   loadDefaultBrandingSkillInstructions();
 
+const BRAND_GUIDELINES_TITLE_PATTERN = /^#\s+.*Brand Guidelines\s*$/m;
+const BRAND_NAME_BULLET_PATTERN = /^- Brand name:\s*.*$/m;
+const BRAND_CORE_SECTION_PATTERN = /^##\s+1\)\s+Brand Core\s*$/m;
+
 const shouldBootstrapDefaultBrandingSkill = () => {
   const value = process.env.AUTO_CREATE_BRANDING_SKILL?.trim().toLowerCase();
   if (value === "false" || value === "0") {
@@ -88,12 +95,56 @@ const shouldBootstrapDefaultBrandingSkill = () => {
   return true;
 };
 
-const getDefaultBrandingSkillId = (userId: string) =>
-  `default-brand-guidelines:${userId}`;
+const normalizeNonEmptyString = (value: string | null | undefined) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const getDefaultBrandingSkillId = (organizationId: string) =>
+  `default-brand-guidelines:org:${organizationId}`;
+
+const applyBrandNameToDefaultInstructions = (
+  organizationName: string | null | undefined,
+) => {
+  const normalizedOrganizationName = normalizeNonEmptyString(organizationName);
+  if (!normalizedOrganizationName) {
+    return DEFAULT_BRANDING_SKILL_INSTRUCTIONS;
+  }
+
+  const title = `# ${normalizedOrganizationName} Brand Guidelines`;
+  const brandNameBullet = `- Brand name: ${normalizedOrganizationName}`;
+
+  let instructions = DEFAULT_BRANDING_SKILL_INSTRUCTIONS;
+  if (BRAND_GUIDELINES_TITLE_PATTERN.test(instructions)) {
+    instructions = instructions.replace(BRAND_GUIDELINES_TITLE_PATTERN, title);
+  } else {
+    instructions = `${title}\n\n${instructions}`;
+  }
+
+  if (BRAND_NAME_BULLET_PATTERN.test(instructions)) {
+    instructions = instructions.replace(
+      BRAND_NAME_BULLET_PATTERN,
+      brandNameBullet,
+    );
+  } else if (BRAND_CORE_SECTION_PATTERN.test(instructions)) {
+    instructions = instructions.replace(
+      BRAND_CORE_SECTION_PATTERN,
+      (match) => `${match}\n${brandNameBullet}`,
+    );
+  } else {
+    instructions = `${instructions.trimEnd()}\n\n## 1) Brand Core\n${brandNameBullet}\n`;
+  }
+
+  return instructions;
+};
 
 const mapRowToSkill = (row: AssistantSkillRow): AssistantSkillRecord => ({
   id: row.id,
   userId: row.user_id,
+  organizationId: row.workspace_id,
   name: row.name,
   description: row.description,
   instructions: row.instructions,
@@ -104,10 +155,10 @@ const mapRowToSkill = (row: AssistantSkillRow): AssistantSkillRecord => ({
 
 async function getSkillById({
   skillId,
-  userId,
+  organizationId,
 }: {
   skillId: string;
-  userId: string;
+  organizationId: string;
 }) {
   const rows = await db<AssistantSkillRow[]>`
     SELECT
@@ -122,22 +173,65 @@ async function getSkillById({
       updated_at
     FROM public.assistant_skills
     WHERE id = ${skillId}
-      AND user_id = ${userId}
+      AND workspace_id = ${organizationId}
     LIMIT 1
   `;
 
   return rows[0] ?? null;
 }
 
-async function ensureDefaultBrandingSkillForUser(userId: string) {
+export type GetAssistantSkillInput = {
+  skillId: string;
+  organizationId: string;
+};
+
+export async function getAssistantSkill({
+  skillId,
+  organizationId,
+}: GetAssistantSkillInput): Promise<AssistantSkillRecord | null> {
+  const row = await getSkillById({ skillId, organizationId });
+  return row ? mapRowToSkill(row) : null;
+}
+
+async function resolveOrganizationNameById(
+  organizationId: string,
+): Promise<string | null> {
+  const normalizedOrganizationId = normalizeNonEmptyString(organizationId);
+  if (!normalizedOrganizationId) {
+    return null;
+  }
+
+  try {
+    const rows = await db<{ name: string | null }[]>`
+      SELECT name
+      FROM public.organization
+      WHERE id = ${normalizedOrganizationId}
+      LIMIT 1
+    `;
+    return normalizeNonEmptyString(rows[0]?.name ?? null);
+  } catch {
+    return null;
+  }
+}
+
+async function ensureDefaultBrandingSkillForOrganization({
+  userId,
+  organizationId,
+  organizationName,
+}: AssistantSkillScope) {
   if (!shouldBootstrapDefaultBrandingSkill()) {
+    return;
+  }
+
+  const normalizedOrganizationId = normalizeNonEmptyString(organizationId);
+  if (!normalizedOrganizationId) {
     return;
   }
 
   const existingSkills = await db<{ id: string }[]>`
     SELECT id
     FROM public.assistant_skills
-    WHERE user_id = ${userId}
+    WHERE workspace_id = ${normalizedOrganizationId}
     LIMIT 1
   `;
 
@@ -145,7 +239,13 @@ async function ensureDefaultBrandingSkillForUser(userId: string) {
     return;
   }
 
-  const defaultSkillId = getDefaultBrandingSkillId(userId);
+  const defaultSkillId = getDefaultBrandingSkillId(normalizedOrganizationId);
+  const resolvedOrganizationName =
+    normalizeNonEmptyString(organizationName) ??
+    (await resolveOrganizationNameById(normalizedOrganizationId));
+  const defaultInstructions = applyBrandNameToDefaultInstructions(
+    resolvedOrganizationName,
+  );
 
   await db`
     INSERT INTO public.assistant_skills (
@@ -160,10 +260,10 @@ async function ensureDefaultBrandingSkillForUser(userId: string) {
     VALUES (
       ${defaultSkillId},
       ${userId},
-      ${null},
+      ${normalizedOrganizationId},
       ${DEFAULT_BRANDING_SKILL_NAME},
       ${DEFAULT_BRANDING_SKILL_DESCRIPTION},
-      ${DEFAULT_BRANDING_SKILL_INSTRUCTIONS},
+      ${defaultInstructions},
       ${true}
     )
     ON CONFLICT (id) DO NOTHING
@@ -172,8 +272,19 @@ async function ensureDefaultBrandingSkillForUser(userId: string) {
 
 export async function listAssistantSkills({
   userId,
+  organizationId,
+  organizationName,
 }: AssistantSkillScope): Promise<AssistantSkillRecord[]> {
-  await ensureDefaultBrandingSkillForUser(userId);
+  const normalizedOrganizationId = normalizeNonEmptyString(organizationId);
+  if (!normalizedOrganizationId) {
+    return [];
+  }
+
+  await ensureDefaultBrandingSkillForOrganization({
+    userId,
+    organizationId: normalizedOrganizationId,
+    organizationName,
+  });
 
   const rows = await db<AssistantSkillRow[]>`
     SELECT
@@ -187,7 +298,7 @@ export async function listAssistantSkills({
       created_at,
       updated_at
     FROM public.assistant_skills
-    WHERE user_id = ${userId}
+    WHERE workspace_id = ${normalizedOrganizationId}
     ORDER BY created_at DESC
   `;
 
@@ -196,6 +307,7 @@ export async function listAssistantSkills({
 
 export async function createAssistantSkill({
   userId,
+  organizationId,
   name,
   description,
   instructions,
@@ -216,7 +328,7 @@ export async function createAssistantSkill({
     VALUES (
       ${id},
       ${userId},
-      ${null},
+      ${organizationId},
       ${name},
       ${description},
       ${instructions},
@@ -244,7 +356,7 @@ export async function createAssistantSkill({
 
 export async function updateAssistantSkill({
   skillId,
-  userId,
+  organizationId,
   name,
   description,
   instructions,
@@ -252,7 +364,7 @@ export async function updateAssistantSkill({
 }: UpdateAssistantSkillInput): Promise<AssistantSkillRecord | null> {
   const existingSkill = await getSkillById({
     skillId,
-    userId,
+    organizationId,
   });
 
   if (!existingSkill) {
@@ -268,7 +380,7 @@ export async function updateAssistantSkill({
       active = ${active ?? existingSkill.active},
       updated_at = NOW()
     WHERE id = ${skillId}
-      AND user_id = ${userId}
+      AND workspace_id = ${organizationId}
     RETURNING
       id,
       user_id,
@@ -291,12 +403,12 @@ export async function updateAssistantSkill({
 
 export async function deleteAssistantSkill({
   skillId,
-  userId,
+  organizationId,
 }: DeleteAssistantSkillInput): Promise<boolean> {
   const rows = await db<{ id: string }[]>`
     DELETE FROM public.assistant_skills
     WHERE id = ${skillId}
-      AND user_id = ${userId}
+      AND workspace_id = ${organizationId}
     RETURNING id
   `;
 

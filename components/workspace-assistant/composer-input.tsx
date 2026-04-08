@@ -17,7 +17,14 @@ import type {
 } from "@tiptap/suggestion";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as React from "react";
-import { Loader2, Table2, Wrench } from "lucide-react";
+import {
+  FileSpreadsheet,
+  LayoutTemplate,
+  Loader2,
+  Sparkles,
+  Table2,
+  Wrench,
+} from "lucide-react";
 import { useCallbackRef } from "@rowsncolumns/spreadsheet";
 import { matchSorter, rankings } from "match-sorter";
 
@@ -30,7 +37,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   MENTION_CATEGORY_ORDER,
-  getMentionCategoryIconKind,
   getMentionCategoryLabel,
   getMentionKindFromMentionId,
   type MentionCategory,
@@ -87,6 +93,7 @@ const getMentionSearchKeys = (category: ComposerMentionCategory) => {
       return ["label", "description", "id"] as const;
     case "document":
     case "template":
+    case "skill":
       return ["label", "id", "description"] as const;
     default:
       return ["label", "id", "description"] as const;
@@ -102,6 +109,7 @@ const sortMentionOptionsByCategory = (
     case "sheet":
     case "document":
     case "template":
+    case "skill":
     default:
       return [...items].sort((left, right) =>
         left.label.localeCompare(right.label, undefined, {
@@ -116,9 +124,21 @@ const MentionCategoryIcon = ({
 }: {
   category: ComposerMentionCategory;
 }) => {
-  switch (getMentionCategoryIconKind(category)) {
+  switch (category) {
     case "tool":
       return <Wrench className="h-3 w-3 shrink-0 text-(--muted-foreground)" />;
+    case "skill":
+      return (
+        <Sparkles className="h-3 w-3 shrink-0 text-(--muted-foreground)" />
+      );
+    case "template":
+      return (
+        <LayoutTemplate className="h-3 w-3 shrink-0 text-(--muted-foreground)" />
+      );
+    case "document":
+      return (
+        <FileSpreadsheet className="h-3 w-3 shrink-0 text-(--muted-foreground)" />
+      );
     case "sheet":
     default:
       return <Table2 className="h-3 w-3 shrink-0 text-(--muted-foreground)" />;
@@ -984,7 +1004,9 @@ function RichAssistantComposerInput({
                   MENTION_CATEGORY_ORDER.map((category) => {
                     const categoryItems = groupedMentionItems.get(category);
                     const showDocumentsLoadingRow =
-                      (category === "document" || category === "template") &&
+                      (category === "document" ||
+                        category === "template" ||
+                        category === "skill") &&
                       isMentionSearching;
                     const hasCategoryItems =
                       Array.isArray(categoryItems) && categoryItems.length > 0;
@@ -1041,7 +1063,9 @@ function RichAssistantComposerInput({
                             <span>
                               {category === "template"
                                 ? "Searching templates..."
-                                : "Searching documents..."}
+                                : category === "skill"
+                                  ? "Searching skills..."
+                                  : "Searching documents..."}
                             </span>
                           </div>
                         ) : null}

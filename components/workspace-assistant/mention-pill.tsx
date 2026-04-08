@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Table2, Wrench } from "lucide-react";
+import { Sparkles, Table2, Wrench } from "lucide-react";
 
 import { type MentionKind } from "@/components/workspace-assistant/mention-config";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,13 @@ const MentionPillIcon = ({
     case "tool":
       return (
         <Wrench
+          aria-hidden="true"
+          className="h-3 w-3 shrink-0 text-(--muted-foreground)"
+        />
+      );
+    case "skill":
+      return (
+        <Sparkles
           aria-hidden="true"
           className="h-3 w-3 shrink-0 text-(--muted-foreground)"
         />

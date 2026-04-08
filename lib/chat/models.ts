@@ -223,6 +223,28 @@ export type SpreadsheetChangeBatchInput = z.infer<
   typeof SpreadsheetChangeBatchSchema
 >;
 
+// Spreadsheet CreateDocument
+export const SpreadsheetCreateDocumentSchema = z.object({
+  docId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Optional document ID for the new spreadsheet. If omitted, a new UUID is generated.",
+    ),
+  sheetTitle: z
+    .string()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("Optional first-sheet title"),
+  ...ToolExplanationSchemaShape,
+});
+
+export type SpreadsheetCreateDocumentInput = z.infer<
+  typeof SpreadsheetCreateDocumentSchema
+>;
+
 // Spreadsheet CreateSheet
 const SheetSpecSchema = z
   .object({
@@ -1791,3 +1813,10 @@ export const SpreadsheetGetAuditSnapshotSchema = z.object({
 export type SpreadsheetGetAuditSnapshotInput = z.infer<
   typeof SpreadsheetGetAuditSnapshotSchema
 >;
+
+// Assistant Skills - get skill by ID
+export const AssistantGetSkillSchema = z.object({
+  skillId: z.string().min(1).describe("The unique ID of the skill to retrieve"),
+});
+
+export type AssistantGetSkillInput = z.infer<typeof AssistantGetSkillSchema>;

@@ -31,6 +31,8 @@ import {
   SpreadsheetApplyFillSchema,
   type SpreadsheetChangeBatchInput,
   SpreadsheetChangeBatchSchema,
+  type SpreadsheetCreateDocumentInput,
+  SpreadsheetCreateDocumentSchema,
   type SpreadsheetFormatRangeInput,
   SpreadsheetFormatRangeSchema,
   type SpreadsheetNoteInput,
@@ -68,7 +70,12 @@ import {
   type SpreadsheetCreateTableInput,
   type SpreadsheetCreateDataValidationInput,
   type SpreadsheetUpdateDataValidationInput,
+  // Assistant skills
+  type AssistantGetSkillInput,
+  AssistantGetSkillSchema,
 } from "./models";
+import { getAssistantSkill } from "@/lib/skills/repository";
+import { getChatOrganizationId, getChatUserId } from "./user-context";
 import {
   cellsToCitations,
   cellsToValues,
@@ -330,6 +337,140 @@ const withDocumentWriteLock = async <T>(
     }
   }
 };
+
+const createSpreadsheetDocumentAtId = async ({
+  docId,
+  sheetTitle,
+}: {
+  docId: string;
+  sheetTitle?: string;
+}): Promise<{ created: boolean; exists: boolean }> => {
+  const normalizedSheetTitle =
+    typeof sheetTitle === "string" && sheetTitle.trim().length > 0
+      ? sheetTitle.trim()
+      : "Sheet1";
+
+  const { doc, close } = await getShareDBDocument(docId);
+  try {
+    if (doc.type !== null) {
+      return { created: false, exists: true };
+    }
+
+    const initialDoc: ShareDBSpreadsheetDoc = {
+      sheetData: {},
+      sheets: [{ sheetId: 1, title: normalizedSheetTitle }],
+      tables: [],
+      charts: [],
+      embeds: [],
+      namedRanges: [],
+      protectedRanges: [],
+      pivotTables: [],
+      dataValidations: [],
+      conditionalFormats: [],
+      cellXfs: {},
+      sharedStrings: {},
+      iterativeCalculation: { enabled: false },
+      recalcCells: [],
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      (
+        doc as {
+          create: (
+            data: ShareDBSpreadsheetDoc,
+            type: string,
+            callback?: (error?: unknown) => void,
+          ) => void;
+        }
+      ).create(initialDoc, "json0", (error?: unknown) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+
+    return { created: true, exists: false };
+  } finally {
+    close();
+  }
+};
+
+/**
+ * Handler for spreadsheet_createDocument tool
+ */
+const handleSpreadsheetCreateDocument = async (
+  input: SpreadsheetCreateDocumentInput,
+): Promise<string> => {
+  const requestedDocId =
+    typeof input.docId === "string" && input.docId.trim().length > 0
+      ? input.docId.trim()
+      : null;
+  const normalizedSheetTitle =
+    typeof input.sheetTitle === "string" && input.sheetTitle.trim().length > 0
+      ? input.sheetTitle.trim()
+      : "Sheet1";
+
+  let docId = requestedDocId ?? uuidString();
+  const maxAttempts = requestedDocId ? 1 : 3;
+
+  try {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const result = await withDocumentWriteLock(docId, async () =>
+        createSpreadsheetDocumentAtId({
+          docId,
+          sheetTitle: normalizedSheetTitle,
+        }),
+      );
+
+      if (result.created) {
+        return JSON.stringify({
+          success: true,
+          docId,
+          sheet: {
+            sheetId: 1,
+            title: normalizedSheetTitle,
+          },
+        });
+      }
+
+      if (requestedDocId && result.exists) {
+        return failTool(
+          "DOCUMENT_ALREADY_EXISTS",
+          `Document ${docId} already exists`,
+          { docId },
+          false,
+        );
+      }
+
+      docId = uuidString();
+    }
+
+    return failTool(
+      "CREATE_DOCUMENT_FAILED",
+      "Failed to create spreadsheet document after multiple attempts.",
+      undefined,
+      true,
+    );
+  } catch (error) {
+    return failTool(
+      "CREATE_DOCUMENT_FAILED",
+      error instanceof Error ? error.message : "Failed to create document",
+    );
+  }
+};
+
+export const spreadsheetCreateDocumentTool = tool(
+  handleSpreadsheetCreateDocument,
+  {
+    name: "spreadsheet_createDocument",
+    description: `Creates a new spreadsheet document.
+
+Use this when you need a new workbook and need the returned docId for subsequent spreadsheet tools.`,
+    schema: SpreadsheetCreateDocumentSchema,
+  },
+);
 
 /**
  * Handler for the spreadsheet_changeBatch tool
@@ -7013,9 +7154,101 @@ NOTE: Highlights are visual only and do not modify cell data. They persist until
 });
 
 /**
+ * Handler for the assistant_getSkill tool
+ * Retrieves a skill by ID for the current organization (from context)
+ */
+const handleAssistantGetSkill = async (
+  input: AssistantGetSkillInput,
+): Promise<string> => {
+  const { skillId } = input;
+  const userId = getChatUserId();
+  const organizationId = getChatOrganizationId();
+
+  if (!skillId) {
+    return JSON.stringify({
+      success: false,
+      error: "skillId is required",
+    });
+  }
+
+  if (!userId) {
+    return JSON.stringify({
+      success: false,
+      error: "User context not available",
+    });
+  }
+
+  if (!organizationId) {
+    return JSON.stringify({
+      success: false,
+      error: "Organization context not available",
+    });
+  }
+
+  try {
+    const skill = await getAssistantSkill({ skillId, organizationId });
+
+    if (!skill) {
+      return JSON.stringify({
+        success: false,
+        error: `Skill with ID "${skillId}" not found`,
+      });
+    }
+
+    return JSON.stringify({
+      success: true,
+      skill: {
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        instructions: skill.instructions,
+        active: skill.active,
+        createdAt: skill.createdAt,
+        updatedAt: skill.updatedAt,
+      },
+    });
+  } catch (error) {
+    return JSON.stringify({
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to retrieve skill",
+    });
+  }
+};
+
+/**
+ * The assistant_getSkill tool for LangChain
+ */
+export const assistantGetSkillTool = tool(handleAssistantGetSkill, {
+  name: "assistant_getSkill",
+  description: `Retrieve the full details of a skill by its ID.
+
+OVERVIEW:
+This tool fetches a skill's complete information including its name, description, instructions, and status.
+The user and organization context are automatically determined from the current session.
+
+WHEN TO USE:
+- When you need to look up the full instructions for a specific skill
+- When verifying a skill exists before referencing it
+- When you need to check if a skill is active
+
+PARAMETERS:
+- skillId: The unique identifier of the skill
+
+RETURNS:
+On success: { success: true, skill: { id, name, description, instructions, active, createdAt, updatedAt } }
+On failure: { success: false, error: "error message" }
+
+EXAMPLE:
+  skillId: "abc-123-def"`,
+  schema: AssistantGetSkillSchema,
+});
+
+/**
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
+  spreadsheetCreateDocumentTool,
   spreadsheetChangeBatchTool,
   spreadsheetFormatRangeTool,
   spreadsheetModifyRowsColsTool,
@@ -7041,6 +7274,8 @@ export const spreadsheetTools = [
   // Interactive tools
   askUserQuestionTool,
   confirmPlanExecutionTool,
+  // Skills tools
+  assistantGetSkillTool,
   // UI tools
   // spreadsheetHighlightTool, // TODO: Enable when highlight tool is working
 ];

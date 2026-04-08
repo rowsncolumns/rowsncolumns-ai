@@ -143,6 +143,7 @@ export async function POST(request: Request) {
 
     const systemInstructions = await resolveRunSystemInstructions({
       userId,
+      organizationId: orgId,
       request: chatRequest,
       defaultSystemInstructions: CHAT_SYSTEM_INSTRUCTIONS,
     });

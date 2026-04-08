@@ -81,14 +81,6 @@ export const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
         value: "gpt-4.1-nano",
         label: "GPT-4.1 Nano",
       },
-      {
-        value: "o3",
-        label: "o3",
-      },
-      {
-        value: "o4-mini",
-        label: "o4-mini",
-      },
     ],
   },
 ];
@@ -105,7 +97,8 @@ export const MODEL_OPTION_VALUES = new Set<string>(
 );
 
 export const MODEL_STORAGE_KEY = "rnc.ai.workspace-assistant.model";
-export const REASONING_STORAGE_KEY = "rnc.ai.workspace-assistant.reasoning-enabled";
+export const REASONING_STORAGE_KEY =
+  "rnc.ai.workspace-assistant.reasoning-enabled";
 export const SKILLS_API_ENDPOINT = "/api/skills";
 export const CHAT_API_ENDPOINT = "/api/chat";
 export const CHAT_HISTORY_API_ENDPOINT = "/api/chat/history";

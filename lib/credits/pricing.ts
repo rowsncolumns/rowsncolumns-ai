@@ -35,11 +35,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   "gpt-5.4-mini": { inputPerMillion: 0.15, outputPerMillion: 0.6 },
   "gpt-5-mini": { inputPerMillion: 0.15, outputPerMillion: 0.6 },
   "gpt-4.1-mini": { inputPerMillion: 0.15, outputPerMillion: 0.6 },
-  "o4-mini": { inputPerMillion: 1.1, outputPerMillion: 4.4 },
   "gpt-5.4": { inputPerMillion: 2.5, outputPerMillion: 10.0 },
   "gpt-5.2-chat": { inputPerMillion: 2.5, outputPerMillion: 10.0 },
   "gpt-4.1": { inputPerMillion: 2.5, outputPerMillion: 10.0 },
-  o3: { inputPerMillion: 10.0, outputPerMillion: 40.0 },
 };
 
 // Default pricing for unknown models (conservative estimate)

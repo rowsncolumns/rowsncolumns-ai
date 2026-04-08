@@ -9,6 +9,7 @@ import type {
   CellFormat,
   Citation,
   DataValidationRule,
+  DataValidationRuleRecord,
   PivotTable,
 } from "@rowsncolumns/common-types";
 import {
@@ -22,6 +23,7 @@ import {
   EmbeddedObject,
   NamedRange,
   ProtectedRange,
+  Sheet,
   Slicer,
   TableView,
 } from "@rowsncolumns/spreadsheet";
@@ -35,14 +37,14 @@ export const SUPPORTED_IMPORT_EXTENSIONS = new Set([
 
 export type ImportDocumentSnapshot = {
   sheetData: Record<string, CellDataV3<CellData>>;
-  sheets: Array<{ sheetId: number; title: string }>;
+  sheets: Sheet[];
   tables: TableView[];
   charts: EmbeddedChart[];
   embeds: EmbeddedObject[];
   namedRanges: NamedRange[];
   protectedRanges: ProtectedRange[];
   conditionalFormats: ConditionalFormatRule[];
-  dataValidations: DataValidationRule[];
+  dataValidations: DataValidationRuleRecord[];
   pivotTables: PivotTable[];
   slicers: Slicer[];
   citations: Citation[];

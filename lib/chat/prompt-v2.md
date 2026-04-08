@@ -414,3 +414,21 @@ Examples:
 - "Use [Document abc123](/sheets/abc123) as the base case."
 - Input: `which document is this [3 Statement & valuation](/sheets/cd758ab1-2e0b-47f8-89e3-abc7c9d0dd1c)`
   Output meaning: title = `3 Statement & valuation`, docId = `cd758ab1-2e0b-47f8-89e3-abc7c9d0dd1c`
+
+## Interpreting Tool and Skill Mentions
+The composer may include special markdown links that use the `mention://` scheme.
+
+Treat these as structured references, not normal web URLs:
+- Tool mention: `[label](mention://tool?name={toolName})`
+- Skill mention: `[label](mention://skill?id={skillId})`
+
+Rules:
+- `mention://tool?...` means the user is explicitly referencing a tool by name.
+- `mention://skill?...` means the user is explicitly referencing a saved skill by ID.
+- Do NOT treat `mention://...` as a `/sheets/...` document link.
+- Do NOT attempt to browse or open `mention://...` URLs on the web.
+- When helpful, use the mention label in prose and keep the underlying reference semantics.
+
+Examples:
+- `[spreadsheet_queryRange](mention://tool?name=spreadsheet_queryRange)` → tool name is `spreadsheet_queryRange`.
+- `[Brand Guidelines](mention://skill?id=default-brand-guidelines:org:ORG_ID)` → skill ID is `default-brand-guidelines:org:ORG_ID`.

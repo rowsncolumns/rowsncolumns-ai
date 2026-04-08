@@ -26,6 +26,7 @@ import {
 
 const PAGE_SIZE = 20;
 const SHEETS_BASE_PATH = "/sheets";
+type SheetsListFilter = Exclude<DocumentListFilter, "templates">;
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -53,13 +54,8 @@ const parsePageNumber = (raw: string | null): number => {
   return parsed;
 };
 
-const parseFilter = (raw: string | null): DocumentListFilter => {
-  if (
-    raw === "owned" ||
-    raw === "shared" ||
-    raw === "my_shared" ||
-    raw === "templates"
-  ) {
+const parseFilter = (raw: string | null): SheetsListFilter => {
+  if (raw === "owned" || raw === "shared" || raw === "my_shared") {
     return raw;
   }
   return "owned";
@@ -84,7 +80,7 @@ const buildSheetsHref = ({
 }: {
   basePath: string;
   page: number;
-  filter: DocumentListFilter;
+  filter: SheetsListFilter;
   query?: string | null;
 }) => {
   const searchParams = new URLSearchParams();
@@ -154,12 +150,12 @@ export default async function SheetsPage({
     pageSize: PAGE_SIZE,
     filter,
     query,
+    excludeTemplates: true,
   });
-  const descriptionByFilter: Record<DocumentListFilter, string> = {
+  const descriptionByFilter: Record<SheetsListFilter, string> = {
     owned: "Sheets created by your account.",
     shared: "Sheets shared with you by other users.",
     my_shared: "Sheets you created that are currently shared.",
-    templates: "Template sheets available in your workspace.",
   };
 
   return (
@@ -188,7 +184,7 @@ export default async function SheetsPage({
                   <PageTitleBlock
                     className="pb-0"
                     title="My Sheets"
-                    tagline={descriptionByFilter[result.filter]}
+                    tagline={descriptionByFilter[filter]}
                   />
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -206,8 +202,8 @@ export default async function SheetsPage({
                   method="get"
                   className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"
                 >
-                  {result.filter !== "owned" ? (
-                    <input type="hidden" name="filter" value={result.filter} />
+                  {filter !== "owned" ? (
+                    <input type="hidden" name="filter" value={filter} />
                   ) : null}
 
                   <input
@@ -220,7 +216,7 @@ export default async function SheetsPage({
                   />
                   <div className="min-w-0 shrink-0">
                     <SheetsFilterPicker
-                      value={result.filter}
+                      value={filter}
                       query={query}
                       basePath={SHEETS_BASE_PATH}
                       buttonClassName="w-auto"
@@ -241,7 +237,7 @@ export default async function SheetsPage({
                       href={buildSheetsHref({
                         basePath: SHEETS_BASE_PATH,
                         page: 1,
-                        filter: result.filter,
+                        filter,
                         query: null,
                       })}
                       className={getButtonClassName({
@@ -265,7 +261,7 @@ export default async function SheetsPage({
               page={result.page}
               totalPages={result.totalPages}
               totalCount={result.totalCount}
-              filter={result.filter}
+              filter={filter}
               query={query}
             />
           </SheetsSelectionProvider>

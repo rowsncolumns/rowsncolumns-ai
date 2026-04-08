@@ -1,4 +1,5 @@
 export const CHAT_TOOL_DISPLAY_NAMES: Record<string, string> = {
+  spreadsheet_createDocument: "Create Workbook",
   spreadsheet_changeBatch: "Edit Cells",
   spreadsheet_sheet: "Manage Sheets",
   spreadsheet_getSheetMetadata: "Get Sheet Metadata",
@@ -20,10 +21,13 @@ export const CHAT_TOOL_DISPLAY_NAMES: Record<string, string> = {
   assistant_requestModeSwitch: "Request Mode Switch",
   assistant_askUserQuestion: "Ask User Question",
   assistant_confirmPlanExecution: "Confirm Plan Execution",
+  assistant_getSkill: "Get Skill",
   web_search: "Web Search",
 };
 
 export const CHAT_TOOL_DESCRIPTIONS: Record<string, string> = {
+  spreadsheet_createDocument:
+    "Create a new spreadsheet workbook and return its document ID.",
   spreadsheet_changeBatch: "Write values or formulas to selected cells.",
   spreadsheet_sheet: "Create, update, delete, or duplicate sheet tabs.",
   spreadsheet_getSheetMetadata:
@@ -49,6 +53,7 @@ export const CHAT_TOOL_DESCRIPTIONS: Record<string, string> = {
     "Ask the user structured multiple-choice questions.",
   assistant_confirmPlanExecution:
     "Show a plan and request user approval before execution.",
+  assistant_getSkill: "Retrieve a skill's details by its ID.",
   web_search: "Search the web and return sourced results.",
 };
 

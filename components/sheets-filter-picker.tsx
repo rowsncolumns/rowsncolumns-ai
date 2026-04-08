@@ -19,13 +19,12 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-export type SheetsFilterValue = "owned" | "shared" | "my_shared" | "templates";
+export type SheetsFilterValue = "owned" | "shared" | "my_shared";
 
 const FILTER_OPTIONS: Array<{ value: SheetsFilterValue; label: string }> = [
   { value: "owned", label: "My Sheets" },
   { value: "shared", label: "Shared with me" },
   { value: "my_shared", label: "Shared by me" },
-  { value: "templates", label: "Templates" },
 ];
 
 const buildSheetsHref = ({

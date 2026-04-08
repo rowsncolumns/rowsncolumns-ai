@@ -3444,6 +3444,20 @@
     uzip "^0.20201231.0"
     xlsx "^0.18.5"
 
+"@rowsncolumns/toolkit@^23.1.2":
+  version "23.1.2"
+  resolved "https://npm.pkg.github.com/download/@rowsncolumns/toolkit/23.1.2/79d5fc5d968f342eccbb297e26334f965a37c34f#79d5fc5d968f342eccbb297e26334f965a37c34f"
+  integrity sha512-/fYve+02jRAj0GiZ68QOA8ir5NFlluyTRTNhYz+E3S/D7BpTNYU30ZlRRukYGdzPPjZMYjcpEKmy+URsyLI0pw==
+  dependencies:
+    "@rowsncolumns/calculator" "^6.1.0"
+    "@zip.js/zip.js" "^2.8.17"
+    crypto-js "^4.2.0"
+    fast-xml-parser "^5.5.10"
+    rxjs "^7.8.2"
+    saxes "^6.0.0"
+    uzip "^0.20201231.0"
+    xlsx "^0.18.5"
+
 "@rowsncolumns/ui@^10.0.0":
   version "10.0.0"
   resolved "https://npm.pkg.github.com/download/@rowsncolumns/ui/10.0.0/56eb650b679c038175d78b51e1e9cc03f559cada#56eb650b679c038175d78b51e1e9cc03f559cada"

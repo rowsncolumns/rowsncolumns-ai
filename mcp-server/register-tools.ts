@@ -24,7 +24,7 @@ import {
   issueMcpShareDbAccessToken,
 } from "../lib/sharedb/mcp-token";
 import { resolveAppBaseUrl, resolveAppOrigin } from "./app-url";
-import { selectionToAddress, uuidString } from "@rowsncolumns/utils";
+import { selectionToAddress } from "@rowsncolumns/utils";
 import {
   buildSpreadsheetContextPayload,
   type ViewPortProps,
@@ -627,67 +627,6 @@ const readSpreadsheetDocument = async (
   }
 };
 
-const createSpreadsheetDocument = async ({
-  docId,
-  sheetTitle,
-}: {
-  docId: string;
-  sheetTitle?: string;
-}): Promise<{ created: boolean; exists: boolean }> => {
-  const normalizedSheetTitle =
-    typeof sheetTitle === "string" && sheetTitle.trim().length > 0
-      ? sheetTitle.trim()
-      : "Sheet1";
-
-  const { doc, close } = await withMcpShareDbContext(() =>
-    getShareDBDocument(docId),
-  );
-  try {
-    if (doc.type !== null) {
-      return { created: false, exists: true };
-    }
-
-    const initialDoc: ShareDBSpreadsheetDoc = {
-      sheetData: {},
-      sheets: [{ sheetId: 1, title: normalizedSheetTitle }],
-      tables: [],
-      charts: [],
-      embeds: [],
-      namedRanges: [],
-      protectedRanges: [],
-      pivotTables: [],
-      dataValidations: [],
-      conditionalFormats: [],
-      cellXfs: {},
-      sharedStrings: {},
-      iterativeCalculation: { enabled: false },
-      recalcCells: [],
-    };
-
-    await new Promise<void>((resolve, reject) => {
-      (
-        doc as {
-          create: (
-            data: ShareDBSpreadsheetDoc,
-            type: string,
-            callback?: (error?: unknown) => void,
-          ) => void;
-        }
-      ).create(initialDoc, "json0", (error?: unknown) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
-
-    return { created: true, exists: false };
-  } finally {
-    close();
-  }
-};
-
 const buildSpreadsheetAppHtml = async ({
   appBaseUrl,
   shareDbUrl,
@@ -804,6 +743,11 @@ export const registerSpreadsheetTools = (
   ) => void;
 
   for (const spreadsheetTool of spreadsheetMcpTools) {
+    // Registered below as an app tool so MCP clients can open the created document inline.
+    if (spreadsheetTool.name === "spreadsheet_createDocument") {
+      continue;
+    }
+
     const readOnlyHint = isReadOnlyTool(spreadsheetTool.name);
 
     registerTool(
@@ -1253,21 +1197,38 @@ export const registerSpreadsheetTools = (
         })
         .parse(args ?? {});
 
-      let docId = uuidString();
-      let created = false;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const result = await createSpreadsheetDocument({
-          docId,
-          sheetTitle: parsed.sheetTitle,
-        });
-        if (result.created) {
-          created = true;
-          break;
-        }
-        docId = uuidString();
+      const coreCreateDocumentTool = spreadsheetMcpTools.find(
+        (spreadsheetTool) =>
+          spreadsheetTool.name === "spreadsheet_createDocument",
+      );
+      if (!coreCreateDocumentTool) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "spreadsheet_createDocument core tool is unavailable.",
+            },
+          ],
+          structuredContent: {
+            success: false,
+          },
+        };
       }
 
-      if (!created) {
+      const coreResult = await withMcpShareDbContext(() =>
+        coreCreateDocumentTool.invoke({
+          sheetTitle: parsed.sheetTitle,
+        }),
+      );
+      const coreStructured =
+        typeof coreResult === "string"
+          ? parseJsonRecord(coreResult)
+          : isPlainRecord(coreResult)
+            ? coreResult
+            : null;
+      const docId = asString(coreStructured?.docId);
+
+      if (coreStructured?.success !== true || !docId) {
         return {
           content: [
             {
@@ -1277,6 +1238,7 @@ export const registerSpreadsheetTools = (
           ],
           structuredContent: {
             success: false,
+            ...(coreStructured ?? {}),
           },
         };
       }
