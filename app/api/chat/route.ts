@@ -14,6 +14,7 @@ import {
   type ChatProvider,
   type ChatRequestBody,
   ensureChatRunCredits,
+  ensureChatModelAccess,
   executeChatRunStream,
   resolveRunSystemInstructions,
   resolveChatRequest,
@@ -127,6 +128,18 @@ export async function POST(request: Request) {
       });
     }
     const chatRequest = resolved.value;
+
+    const modelAccessCheck = await ensureChatModelAccess({
+      isAdmin,
+      organizationId: orgId,
+      model: chatRequest.model,
+      provider: chatRequest.provider,
+    });
+    if (!modelAccessCheck.ok) {
+      return NextResponse.json(modelAccessCheck.error.payload, {
+        status: modelAccessCheck.error.status,
+      });
+    }
 
     const creditCheck = await ensureChatRunCredits({
       isAdmin,

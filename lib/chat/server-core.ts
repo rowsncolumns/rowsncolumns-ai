@@ -350,6 +350,9 @@ const inferProviderFromModel = (
   return /^claude/i.test(model) ? "anthropic" : "openai";
 };
 
+const isAnthropicModel = (model: string | undefined) =>
+  Boolean(model && /^claude/i.test(model));
+
 export const isChatAbortReason = (value: unknown): value is ChatAbortReason => {
   if (!value || typeof value !== "object") {
     return false;
@@ -556,6 +559,35 @@ export const ensureChatRunCredits = async (input: {
         error: outOfCreditsErrorMessage,
         code: "INSUFFICIENT_CREDITS",
         remainingCredits: credits.availableCredits,
+      },
+    },
+  };
+};
+
+export const ensureChatModelAccess = async (input: {
+  isAdmin: boolean;
+  organizationId: string;
+  model?: string;
+  provider?: ChatProvider;
+}): Promise<{ ok: true } | { ok: false; error: ChatErrorResponse }> => {
+  const requestsAnthropic =
+    input.provider === "anthropic" || isAnthropicModel(input.model);
+  if (input.isAdmin || !requestsAnthropic) {
+    return { ok: true };
+  }
+
+  const billing = await getOrganizationBillingEntitlement(input.organizationId);
+  if (billing.plan === "pro" || billing.plan === "max") {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    error: {
+      status: 403,
+      payload: {
+        error: "Claude models are available on Pro and Max plans only.",
+        code: "MODEL_REQUIRES_PRO_OR_MAX",
       },
     },
   };

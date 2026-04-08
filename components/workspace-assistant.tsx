@@ -594,6 +594,13 @@ const getProviderForModel = (model: string | undefined) => {
   return /^claude/i.test(model) ? ("anthropic" as const) : ("openai" as const);
 };
 
+const isAnthropicModel = (model: string | undefined) =>
+  Boolean(model && /^claude/i.test(model));
+
+const FREE_TIER_FALLBACK_MODEL =
+  MODEL_OPTION_GROUPS.find((group) => group.label === "OpenAI")?.options[0]
+    ?.value ?? "gpt-5.2-chat-latest";
+
 const requestAssistantChat = async (input: {
   threadId: string;
   docId?: string;
@@ -3860,6 +3867,7 @@ type PanelImageDropPayload = {
 
 type AssistantComposerProps = Omit<WorkspaceAssistantPanelProps, "prompts"> & {
   hasCredits: boolean;
+  canUsePremiumModels: boolean;
   panelImageDrop: PanelImageDropPayload | null;
   onPanelImageDropHandled: (dropId: string) => void;
 };
@@ -3886,6 +3894,7 @@ function AssistantComposer({
   isModelPickerOpen,
   setIsModelPickerOpen,
   setSelectedModel,
+  canUsePremiumModels,
   reasoningEnabled,
   setReasoningEnabled,
   reasoningEnabledRef,
@@ -3904,10 +3913,15 @@ function AssistantComposer({
     React.useState(forceCompactHeader);
   const handleSelectModel = React.useCallback(
     (model: string) => {
+      if (!canUsePremiumModels && isAnthropicModel(model)) {
+        setSelectedModel(FREE_TIER_FALLBACK_MODEL);
+        setIsModelPickerOpen(false);
+        return;
+      }
       setSelectedModel(model);
       setIsModelPickerOpen(false);
     },
-    [setIsModelPickerOpen, setSelectedModel],
+    [canUsePremiumModels, setIsModelPickerOpen, setSelectedModel],
   );
   const composerRuntime = useComposerRuntime();
   const threadRuntime = useThreadRuntime();
@@ -5188,22 +5202,38 @@ function AssistantComposer({
                   {MODEL_OPTION_GROUPS.map((group) => (
                     <CommandGroup key={group.label} heading={group.label}>
                       {group.options.map((option) => (
-                        <CommandItem
-                          key={option.value}
-                          value={`${option.label} ${option.value} ${group.label}`}
-                          onSelect={() => handleSelectModel(option.value)}
-                          className="text-xs"
-                        >
-                          <Check
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0",
-                              selectedModel === option.value
-                                ? "opacity-100"
-                                : "opacity-0",
-                            )}
-                          />
-                          <span className="truncate">{option.label}</span>
-                        </CommandItem>
+                        (() => {
+                          const isPremiumOption = isAnthropicModel(option.value);
+                          const isLocked = isPremiumOption && !canUsePremiumModels;
+
+                          return (
+                            <CommandItem
+                              key={option.value}
+                              value={`${option.label} ${option.value} ${group.label}`}
+                              onSelect={() => handleSelectModel(option.value)}
+                              disabled={isLocked}
+                              className="text-xs"
+                              title={isLocked ? "Pro and Max users only" : undefined}
+                            >
+                              <Check
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0",
+                                  selectedModel === option.value
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {option.label}
+                              </span>
+                              {isLocked ? (
+                                <span className="ml-auto shrink-0 rounded border border-(--panel-border) bg-(--assistant-chip-bg) px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-(--muted-foreground)">
+                                  PRO/MAX
+                                </span>
+                              ) : null}
+                            </CommandItem>
+                          );
+                        })()
                       ))}
                     </CommandGroup>
                   ))}
@@ -5372,6 +5402,9 @@ function WorkspaceAssistantPanel({
     null,
   );
   const [isUnlimitedCredits, setIsUnlimitedCredits] = React.useState(false);
+  const [billingPlan, setBillingPlan] = React.useState<"free" | "pro" | "max">(
+    "free",
+  );
   const [isCreditsLoading, setIsCreditsLoading] = React.useState(true);
   const hasCredits =
     isUnlimitedCredits ||
@@ -5409,6 +5442,7 @@ function WorkspaceAssistantPanel({
     if (isLoggedOut) {
       setRemainingCredits(null);
       setIsUnlimitedCredits(false);
+      setBillingPlan("free");
       setIsCreditsLoading(false);
       return;
     }
@@ -5422,6 +5456,7 @@ function WorkspaceAssistantPanel({
       if (!response.ok) {
         setRemainingCredits(null);
         setIsUnlimitedCredits(false);
+        setBillingPlan("free");
         return;
       }
 
@@ -5431,15 +5466,50 @@ function WorkspaceAssistantPanel({
           ? payload.credits?.available
           : payload.credits?.balance;
       const isUnlimited = payload.credits?.unlimited === true;
+      const plan =
+        payload.billing?.plan === "pro" || payload.billing?.plan === "max"
+          ? payload.billing.plan
+          : "free";
       setRemainingCredits(typeof balance === "number" ? balance : null);
       setIsUnlimitedCredits(isUnlimited);
+      setBillingPlan(plan);
     } catch {
       setRemainingCredits(null);
       setIsUnlimitedCredits(false);
+      setBillingPlan("free");
     } finally {
       setIsCreditsLoading(false);
     }
   }, [isLoggedOut]);
+
+  const canUsePremiumModels = isAdmin || billingPlan !== "free";
+
+  React.useEffect(() => {
+    if (isCreditsLoading || isLoggedOut) {
+      return;
+    }
+    if (canUsePremiumModels || !isAnthropicModel(selectedModel)) {
+      return;
+    }
+    setSelectedModel(FREE_TIER_FALLBACK_MODEL);
+  }, [
+    canUsePremiumModels,
+    isCreditsLoading,
+    isLoggedOut,
+    selectedModel,
+    setSelectedModel,
+  ]);
+
+  const handleRestoreModel = React.useCallback(
+    (model: string) => {
+      if (!canUsePremiumModels && isAnthropicModel(model)) {
+        setSelectedModel(FREE_TIER_FALLBACK_MODEL);
+        return;
+      }
+      setSelectedModel(model);
+    },
+    [canUsePremiumModels, setSelectedModel],
+  );
 
   React.useEffect(() => {
     void loadCredits();
@@ -5705,7 +5775,7 @@ function WorkspaceAssistantPanel({
                 onSelectSession={onSelectSession}
                 onSessionRestoreStart={handleSessionRestoreStart}
                 onStartNewSession={onNewSession}
-                onRestoreModel={setSelectedModel}
+                onRestoreModel={handleRestoreModel}
                 disabled={isLoggedOut}
               />
             )}
@@ -5782,6 +5852,7 @@ function WorkspaceAssistantPanel({
                   isModelPickerOpen={isModelPickerOpen}
                   setIsModelPickerOpen={setIsModelPickerOpen}
                   setSelectedModel={setSelectedModel}
+                  canUsePremiumModels={canUsePremiumModels}
                   reasoningEnabled={reasoningEnabled}
                   setReasoningEnabled={setReasoningEnabled}
                   reasoningEnabledRef={reasoningEnabledRef}

@@ -26,7 +26,7 @@ import {
 
 const PAGE_SIZE = 20;
 const SHEETS_BASE_PATH = "/sheets";
-type SheetsListFilter = Exclude<DocumentListFilter, "templates">;
+type SheetsListFilter = DocumentListFilter;
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -55,7 +55,12 @@ const parsePageNumber = (raw: string | null): number => {
 };
 
 const parseFilter = (raw: string | null): SheetsListFilter => {
-  if (raw === "owned" || raw === "shared" || raw === "my_shared") {
+  if (
+    raw === "owned" ||
+    raw === "shared" ||
+    raw === "my_shared" ||
+    raw === "templates"
+  ) {
     return raw;
   }
   return "owned";
@@ -150,12 +155,13 @@ export default async function SheetsPage({
     pageSize: PAGE_SIZE,
     filter,
     query,
-    excludeTemplates: true,
+    excludeTemplates: filter !== "templates",
   });
   const descriptionByFilter: Record<SheetsListFilter, string> = {
     owned: "Sheets created by your account.",
     shared: "Sheets shared with you by other users.",
     my_shared: "Sheets you created that are currently shared.",
+    templates: "Template sheets available in this workspace.",
   };
 
   return (

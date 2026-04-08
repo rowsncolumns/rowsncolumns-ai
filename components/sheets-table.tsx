@@ -31,7 +31,7 @@ import { TemplateSettingsTrigger } from "@/components/template-settings-trigger"
 import { Button } from "@/components/ui/button";
 import type { DocumentListFilter } from "@/lib/documents/repository";
 import { IconButton } from "@rowsncolumns/ui";
-type SheetsListFilter = Exclude<DocumentListFilter, "templates">;
+type SheetsListFilter = DocumentListFilter;
 
 type SheetListItem = {
   docId: string;

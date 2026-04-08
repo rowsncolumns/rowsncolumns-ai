@@ -9,6 +9,7 @@ import {
   type ChatProvider,
   type ChatRequestBody,
   ensureChatRunCredits,
+  ensureChatModelAccess,
   executeChatRunStream,
   resolveRunSystemInstructions,
   resolveChatRequest,
@@ -674,6 +675,16 @@ const handleChatRequest = async (req: IncomingMessage, res: ServerResponse) => {
       error: "No active organization. Create an organization first.",
       onboardingUrl: "/onboarding/organization",
     });
+    return;
+  }
+  const modelAccessCheck = await ensureChatModelAccess({
+    isAdmin,
+    organizationId,
+    model: chatRequest.model,
+    provider: chatRequest.provider,
+  });
+  if (!modelAccessCheck.ok) {
+    sendJson(req, res, modelAccessCheck.error.status, modelAccessCheck.error.payload);
     return;
   }
   const creditCheck = await ensureChatRunCredits({
