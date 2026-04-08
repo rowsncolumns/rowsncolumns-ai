@@ -85,8 +85,7 @@ export const MODEL_OPTION_GROUPS: ModelOptionGroup[] = [
   },
 ];
 
-export const DEFAULT_MODEL =
-  MODEL_OPTION_GROUPS[0]?.options[0]?.value ?? "gpt-5.2-chat-latest";
+export const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
 export const MODEL_OPTIONS: ModelOption[] = MODEL_OPTION_GROUPS.flatMap(
   (group) => group.options,

@@ -350,8 +350,16 @@ const inferProviderFromModel = (
   return /^claude/i.test(model) ? "anthropic" : "openai";
 };
 
-const isAnthropicModel = (model: string | undefined) =>
-  Boolean(model && /^claude/i.test(model));
+const NON_PREMIUM_MODELS = new Set(["claude-haiku-4-5-20251001"]);
+
+const isPremiumModel = (model: string | undefined) => {
+  if (!model) return false;
+  const normalized = model.trim().toLowerCase();
+  if (!/^claude/i.test(normalized)) {
+    return false;
+  }
+  return !NON_PREMIUM_MODELS.has(normalized);
+};
 
 export const isChatAbortReason = (value: unknown): value is ChatAbortReason => {
   if (!value || typeof value !== "object") {
@@ -570,9 +578,14 @@ export const ensureChatModelAccess = async (input: {
   model?: string;
   provider?: ChatProvider;
 }): Promise<{ ok: true } | { ok: false; error: ChatErrorResponse }> => {
-  const requestsAnthropic =
-    input.provider === "anthropic" || isAnthropicModel(input.model);
-  if (input.isAdmin || !requestsAnthropic) {
+  const requestsPremiumModel = isPremiumModel(input.model);
+  const requestsUnspecifiedAnthropicModel =
+    input.provider === "anthropic" && !input.model;
+
+  if (
+    input.isAdmin ||
+    (!requestsPremiumModel && !requestsUnspecifiedAnthropicModel)
+  ) {
     return { ok: true };
   }
 
@@ -586,7 +599,8 @@ export const ensureChatModelAccess = async (input: {
     error: {
       status: 403,
       payload: {
-        error: "Claude models are available on Pro and Max plans only.",
+        error:
+          "Premium models are available on Pro and Max plans only.",
         code: "MODEL_REQUIRES_PRO_OR_MAX",
       },
     },

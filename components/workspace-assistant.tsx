@@ -594,12 +594,20 @@ const getProviderForModel = (model: string | undefined) => {
   return /^claude/i.test(model) ? ("anthropic" as const) : ("openai" as const);
 };
 
-const isAnthropicModel = (model: string | undefined) =>
-  Boolean(model && /^claude/i.test(model));
+const NON_PREMIUM_MODELS = new Set(["claude-haiku-4-5-20251001"]);
 
-const FREE_TIER_FALLBACK_MODEL =
-  MODEL_OPTION_GROUPS.find((group) => group.label === "OpenAI")?.options[0]
-    ?.value ?? "gpt-5.2-chat-latest";
+const isPremiumModel = (model: string | undefined) => {
+  if (!model) {
+    return false;
+  }
+  const normalized = model.trim().toLowerCase();
+  if (!/^claude/i.test(normalized)) {
+    return false;
+  }
+  return !NON_PREMIUM_MODELS.has(normalized);
+};
+
+const FREE_TIER_FALLBACK_MODEL = DEFAULT_MODEL;
 
 const requestAssistantChat = async (input: {
   threadId: string;
@@ -3913,7 +3921,7 @@ function AssistantComposer({
     React.useState(forceCompactHeader);
   const handleSelectModel = React.useCallback(
     (model: string) => {
-      if (!canUsePremiumModels && isAnthropicModel(model)) {
+      if (!canUsePremiumModels && isPremiumModel(model)) {
         setSelectedModel(FREE_TIER_FALLBACK_MODEL);
         setIsModelPickerOpen(false);
         return;
@@ -5203,7 +5211,7 @@ function AssistantComposer({
                     <CommandGroup key={group.label} heading={group.label}>
                       {group.options.map((option) => (
                         (() => {
-                          const isPremiumOption = isAnthropicModel(option.value);
+                          const isPremiumOption = isPremiumModel(option.value);
                           const isLocked = isPremiumOption && !canUsePremiumModels;
 
                           return (
@@ -5488,7 +5496,7 @@ function WorkspaceAssistantPanel({
     if (isCreditsLoading || isLoggedOut) {
       return;
     }
-    if (canUsePremiumModels || !isAnthropicModel(selectedModel)) {
+    if (canUsePremiumModels || !isPremiumModel(selectedModel)) {
       return;
     }
     setSelectedModel(FREE_TIER_FALLBACK_MODEL);
@@ -5502,7 +5510,7 @@ function WorkspaceAssistantPanel({
 
   const handleRestoreModel = React.useCallback(
     (model: string) => {
-      if (!canUsePremiumModels && isAnthropicModel(model)) {
+      if (!canUsePremiumModels && isPremiumModel(model)) {
         setSelectedModel(FREE_TIER_FALLBACK_MODEL);
         return;
       }
