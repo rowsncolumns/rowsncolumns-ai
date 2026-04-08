@@ -22,9 +22,11 @@ import {
   unregisterChatRunAbortController,
 } from "@/lib/chat/run-abort-registry";
 import {
+  completeChatRun,
   getChatRun,
   getChatRunEvents,
   getLatestChatRunForThread,
+  isRunStale,
   requestChatRunCancel,
   requestThreadRunCancel,
 } from "@/lib/chat/runs-repository";
@@ -141,6 +143,25 @@ const CHAT_SERVER_TIMEOUT_MS = Math.min(
     DEFAULT_CHAT_SERVER_TIMEOUT_MS,
   ),
   MAX_CHAT_SERVER_TIMEOUT_MS,
+);
+const CHAT_RESUME_POLL_INTERVAL_MS = Math.max(
+  100,
+  parsePositiveInt(process.env.CHAT_RESUME_POLL_INTERVAL_MS, 500),
+);
+const CHAT_RESUME_MAX_STREAM_DURATION_MS = Math.max(
+  CHAT_RESUME_POLL_INTERVAL_MS,
+  parsePositiveInt(
+    process.env.CHAT_RESUME_MAX_STREAM_DURATION_MS,
+    CHAT_SERVER_TIMEOUT_MS,
+  ),
+);
+const CHAT_RESUME_STALE_CHECK_NO_EVENTS_SECONDS = Math.max(
+  5,
+  parsePositiveInt(process.env.CHAT_RESUME_STALE_CHECK_NO_EVENTS_SECONDS, 15),
+);
+const CHAT_RESUME_STALE_CHECK_AFTER_IDLE_MS = Math.max(
+  CHAT_RESUME_POLL_INTERVAL_MS,
+  parsePositiveInt(process.env.CHAT_RESUME_STALE_CHECK_AFTER_IDLE_MS, 10_000),
 );
 
 const CHAT_ALLOWED_ORIGINS = new Set(
@@ -910,19 +931,26 @@ const handleResumeRequest = async (
   }
 
   // Streaming response - replay events and continue streaming if still running
-  const origin = resolveRequestOrigin(req);
-  setCorsHeaders(res, origin);
-  setRuntimeHeader(res);
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.statusCode = 200;
+  if (!startSse(req, res)) {
+    return;
+  }
+  const stopHeartbeat = startSseHeartbeat(res);
 
   const currentRunId = run.runId;
   const userId = identity.userId;
   let currentLastEventId = lastEventId;
-  const maxIterations = 300; // 5 minutes max (1 second intervals)
+  const maxIterations = Math.max(
+    1,
+    Math.ceil(CHAT_RESUME_MAX_STREAM_DURATION_MS / CHAT_RESUME_POLL_INTERVAL_MS),
+  );
+  const staleThresholdIterations = Math.max(
+    1,
+    Math.ceil(
+      CHAT_RESUME_STALE_CHECK_AFTER_IDLE_MS / CHAT_RESUME_POLL_INTERVAL_MS,
+    ),
+  );
   let iterations = 0;
+  let noNewEventsCount = 0;
   let clientDisconnected = false;
 
   req.on("close", () => {
@@ -945,23 +973,50 @@ const handleResumeRequest = async (
         res.write(encodeChatStreamEvent(event.eventData));
         currentLastEventId = Math.max(currentLastEventId, event.id);
       }
+      if (events.length > 0) {
+        noNewEventsCount = 0;
+      } else {
+        noNewEventsCount += 1;
+      }
 
       // Check if run is complete
       const updatedRun = await getChatRun({ runId: currentRunId, userId });
       if (!updatedRun || updatedRun.status !== "running") {
         break;
       }
+      if (noNewEventsCount >= staleThresholdIterations) {
+        const stale = await isRunStale({
+          runId: currentRunId,
+          noEventsForSeconds: CHAT_RESUME_STALE_CHECK_NO_EVENTS_SECONDS,
+        });
+        if (stale) {
+          await completeChatRun({
+            runId: currentRunId,
+            status: "failed",
+            errorMessage:
+              "Connection lost due to server restart. Please try again.",
+          });
+          writeSseEvent(res, {
+            type: "error",
+            error: "Connection lost due to server restart. Please try again.",
+          });
+          break;
+        }
+      }
 
       // Wait before next poll
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) =>
+        setTimeout(resolve, CHAT_RESUME_POLL_INTERVAL_MS),
+      );
       iterations++;
     }
   } catch (error) {
     console.error("[render-chat-server] Resume stream error:", error);
-  }
-
-  if (!res.writableEnded && !res.destroyed) {
-    res.end();
+  } finally {
+    stopHeartbeat();
+    if (!res.writableEnded && !res.destroyed) {
+      res.end();
+    }
   }
 };
 

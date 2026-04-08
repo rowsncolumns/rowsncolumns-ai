@@ -3,6 +3,7 @@
 @source "./spreadsheet-widget.tsx";
 @source "../../components/**/*.{ts,tsx}";
 @source "../../lib/**/*.{ts,tsx}";
+@source "../../node_modules/@rowsncolumns";
 
 @theme inline {
   --color-background: var(--background);

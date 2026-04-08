@@ -1,3 +1,5 @@
+@layer rnc, theme, base, components, utilities;
+@import "@rowsncolumns/spreadsheet/dist/spreadsheet.min.css" layer(rnc);
 @import "tailwindcss";
 
 :root {

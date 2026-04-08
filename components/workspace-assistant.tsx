@@ -3036,9 +3036,11 @@ const NEW_SKILL_EDITOR_ID = "__new__";
 function SkillsManagerButton({
   iconOnly = false,
   disabled = false,
+  isLoggedOut = false,
 }: {
   iconOnly?: boolean;
   disabled?: boolean;
+  isLoggedOut?: boolean;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [skills, setSkills] = React.useState<AssistantSkill[]>([]);
@@ -3062,6 +3064,12 @@ function SkillsManagerButton({
   const [formError, setFormError] = React.useState("");
 
   const loadSkills = React.useCallback(async () => {
+    if (isLoggedOut) {
+      setSkills([]);
+      setSkillsError("");
+      setIsLoadingSkills(false);
+      return;
+    }
     setIsLoadingSkills(true);
     setSkillsError("");
     try {
@@ -3086,11 +3094,17 @@ function SkillsManagerButton({
     } finally {
       setIsLoadingSkills(false);
     }
-  }, []);
+  }, [isLoggedOut]);
 
   React.useEffect(() => {
+    if (isLoggedOut) {
+      setSkills([]);
+      setSkillsError("");
+      setIsLoadingSkills(false);
+      return;
+    }
     void loadSkills();
-  }, [loadSkills]);
+  }, [isLoggedOut, loadSkills]);
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -3897,6 +3911,9 @@ function AssistantComposer({
 
   const fetchDocumentMentionOptions = React.useCallback(
     async (query: string): Promise<ComposerMentionOption[]> => {
+      if (isLoggedOut) {
+        return [];
+      }
       const normalizedQuery = query.trim();
       const cacheKey = normalizedQuery.toLowerCase();
       const cached = documentMentionSearchCacheRef.current.get(cacheKey);
@@ -3968,11 +3985,14 @@ function AssistantComposer({
         }
       }
     },
-    [],
+    [isLoggedOut],
   );
 
   const fetchTemplateMentionOptions = React.useCallback(
     async (query: string): Promise<ComposerMentionOption[]> => {
+      if (isLoggedOut) {
+        return [];
+      }
       const normalizedQuery = query.trim();
       const cacheKey = normalizedQuery.toLowerCase();
       const cached = templateMentionSearchCacheRef.current.get(cacheKey);
@@ -4044,7 +4064,7 @@ function AssistantComposer({
         }
       }
     },
-    [],
+    [isLoggedOut],
   );
 
   React.useEffect(() => {
@@ -4052,10 +4072,12 @@ function AssistantComposer({
     templateMentionSearchCacheRef.current.clear();
     setDocumentMentionOptions([]);
     setTemplateMentionOptions([]);
-    void Promise.all([
-      fetchDocumentMentionOptions(""),
-      fetchTemplateMentionOptions(""),
-    ]);
+    if (!isLoggedOut) {
+      void Promise.all([
+        fetchDocumentMentionOptions(""),
+        fetchTemplateMentionOptions(""),
+      ]);
+    }
 
     return () => {
       documentMentionSearchAbortRef.current?.abort();
@@ -4063,7 +4085,7 @@ function AssistantComposer({
       templateMentionSearchAbortRef.current?.abort();
       templateMentionSearchAbortRef.current = null;
     };
-  }, [fetchDocumentMentionOptions, fetchTemplateMentionOptions]);
+  }, [fetchDocumentMentionOptions, fetchTemplateMentionOptions, isLoggedOut]);
 
   const fallbackSheets = React.useMemo(() => {
     if (sheets && sheets.length > 0) {
@@ -5236,6 +5258,12 @@ function WorkspaceAssistantPanel({
   );
 
   const loadCredits = React.useCallback(async () => {
+    if (isLoggedOut) {
+      setRemainingCredits(null);
+      setIsUnlimitedCredits(false);
+      setIsCreditsLoading(false);
+      return;
+    }
     try {
       setIsCreditsLoading(true);
       const response = await fetch("/api/credits", {
@@ -5263,7 +5291,7 @@ function WorkspaceAssistantPanel({
     } finally {
       setIsCreditsLoading(false);
     }
-  }, []);
+  }, [isLoggedOut]);
 
   React.useEffect(() => {
     void loadCredits();
@@ -5519,6 +5547,7 @@ function WorkspaceAssistantPanel({
             <SkillsManagerButton
               iconOnly={assistantHeaderLayout.compact}
               disabled={isLoggedOut}
+              isLoggedOut={isLoggedOut}
             />
             {onSelectSession && (
               <SessionPickerButton

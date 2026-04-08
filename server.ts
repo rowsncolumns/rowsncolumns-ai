@@ -68,7 +68,8 @@ if (!shareDbDatabaseUrl) {
 const SHAREDB_DATABASE_URL: string = sanitizeDatabaseUrl(shareDbDatabaseUrl);
 
 const SHAREDB_REQUIRE_SSL = process.env.SHAREDB_REQUIRE_SSL !== "false";
-const SHAREDB_SSL_REJECT_UNAUTHORIZED = process.env.SHAREDB_SSL_REJECT_UNAUTHORIZED === "true";
+const SHAREDB_SSL_REJECT_UNAUTHORIZED =
+  process.env.SHAREDB_SSL_REJECT_UNAUTHORIZED === "true";
 const parsePositiveInt = (value: string | undefined, fallback: number) => {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
@@ -200,6 +201,10 @@ const SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER = parseBoolean(
   process.env.SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
   true,
 );
+const SHAREDB_WS_HEARTBEAT_INTERVAL_MS = parseNonNegativeInt(
+  process.env.SHAREDB_WS_HEARTBEAT_INTERVAL_MS,
+  30_000,
+);
 
 type AuthIdentity = {
   userId: string;
@@ -302,6 +307,10 @@ type SubmitContextLike = {
 
 type ReadSnapshotLike = {
   id?: unknown;
+};
+
+type HeartbeatWebSocket = WebSocket & {
+  isAlive?: boolean;
 };
 
 type ReadSnapshotsContextLike = {
@@ -563,7 +572,9 @@ const ensureAgentAuthState = async (
         if (access) {
           const tokenOrgId = access.organizationId?.trim() || null;
           if (tokenOrgId) {
-            const ownerOrgId = await getDocumentOwnerOrganizationId(access.docId);
+            const ownerOrgId = await getDocumentOwnerOrganizationId(
+              access.docId,
+            );
             if (!ownerOrgId || ownerOrgId !== tokenOrgId) {
               state.failureReason = "invalid_ws_token";
               custom.__authState = state;
@@ -591,7 +602,9 @@ const ensureAgentAuthState = async (
           if (access) {
             const tokenOrgId = access.organizationId?.trim() || null;
             if (tokenOrgId) {
-              const ownerOrgId = await getDocumentOwnerOrganizationId(access.docId);
+              const ownerOrgId = await getDocumentOwnerOrganizationId(
+                access.docId,
+              );
               if (!ownerOrgId || ownerOrgId !== tokenOrgId) {
                 state.failureReason = "invalid_mcp_token";
                 custom.__authState = state;
@@ -903,9 +916,7 @@ export const registerAuthAccessMiddleware = (backend: ShareDB) => {
             );
           }
           if (authState.wsAccess.permission !== "edit") {
-            throw createForbiddenError(
-              "WS token does not allow edit access.",
-            );
+            throw createForbiddenError("WS token does not allow edit access.");
           }
         }
         if (authState.mcpAccess) {
@@ -1234,6 +1245,7 @@ async function startServer() {
     concurrencyLimit: SHAREDB_WS_COMPRESSION_CONCURRENCY_LIMIT,
     level: SHAREDB_WS_COMPRESSION_LEVEL,
     noContextTakeover: SHAREDB_WS_COMPRESSION_NO_CONTEXT_TAKEOVER,
+    heartbeatIntervalMs: SHAREDB_WS_HEARTBEAT_INTERVAL_MS,
     maxPayloadBytes: SHAREDB_WS_MAX_PAYLOAD_BYTES,
     maxPayloadCapBytes: SHAREDB_WS_MAX_PAYLOAD_CAP_BYTES,
     docMaxBytes: SHAREDB_DOC_MAX_BYTES,
@@ -1325,6 +1337,28 @@ async function startServer() {
         }
       : false,
   });
+  const wsHeartbeatHandle =
+    SHAREDB_WS_HEARTBEAT_INTERVAL_MS > 0
+      ? setInterval(() => {
+          for (const client of wss.clients) {
+            const ws = client as HeartbeatWebSocket;
+            if (ws.readyState !== WebSocket.OPEN) {
+              continue;
+            }
+            if (ws.isAlive === false) {
+              ws.terminate();
+              continue;
+            }
+            ws.isAlive = false;
+            try {
+              ws.ping();
+            } catch {
+              ws.terminate();
+            }
+          }
+        }, SHAREDB_WS_HEARTBEAT_INTERVAL_MS)
+      : null;
+  wsHeartbeatHandle?.unref?.();
 
   wss.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
@@ -1338,9 +1372,15 @@ async function startServer() {
   });
 
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
+    const heartbeatWs = ws as HeartbeatWebSocket;
+    heartbeatWs.isAlive = true;
     const stream = new WebSocketJSONStream(ws);
     backend.listen(stream as never, req);
     console.log("Client connected");
+
+    ws.on("pong", () => {
+      heartbeatWs.isAlive = true;
+    });
 
     ws.on("error", (error) => {
       const errorUnknown: unknown = error;
@@ -1381,6 +1421,9 @@ async function startServer() {
 
   process.on("SIGTERM", () => {
     console.log("Shutting down...");
+    if (wsHeartbeatHandle) {
+      clearInterval(wsHeartbeatHandle);
+    }
     server.close(() => {
       backend.close(() => {
         process.exit(0);

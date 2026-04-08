@@ -79,15 +79,15 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@rowsncolumns/charts": "^20.0.28",
-    "@rowsncolumns/functions": "^7.0.25",
-    "@rowsncolumns/pivot": "^3.0.24",
-    "@rowsncolumns/sharedb": "^1.0.38",
-    "@rowsncolumns/spreadsheet": "^8.0.37",
-    "@rowsncolumns/spreadsheet-state": "^21.0.63",
-    "@rowsncolumns/toolkit": "^22.0.34",
-    "@rowsncolumns/ui": "^8.0.26",
-    "@rowsncolumns/utils": "^7.0.25",
+    "@rowsncolumns/charts": "^22.0.0",
+    "@rowsncolumns/functions": "^9.0.0",
+    "@rowsncolumns/pivot": "^4.0.4",
+    "@rowsncolumns/sharedb": "^3.0.0",
+    "@rowsncolumns/spreadsheet": "^9.1.0",
+    "@rowsncolumns/spreadsheet-state": "^23.0.0",
+    "@rowsncolumns/toolkit": "^23.1.0",
+    "@rowsncolumns/ui": "^10.0.0",
+    "@rowsncolumns/utils": "^8.1.0",
     "@tiptap/extension-mention": "^3.22.1",
     "@tiptap/pm": "^3.22.1",
     "@tiptap/react": "^3.22.1",
@@ -126,8 +126,7 @@
     "zod": "^4.3.6"
   },
   "resolutions": {
-    "jotai": "2.12.4",
-    "fast-xml-parser": "5.3.5"
+    "jotai": "2.12.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
