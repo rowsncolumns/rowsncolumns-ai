@@ -4,6 +4,13 @@ import { organization } from "better-auth/plugins";
 import { Pool } from "pg";
 
 import { sendResendEmail } from "@/lib/email/resend";
+import {
+  escapeHtml,
+  getResendApiKey,
+  getResendFrom,
+  sendAdminNewUserRegistrationEmail,
+  sendWelcomeEmailToUser,
+} from "@/lib/email/user-notifications";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -35,24 +42,8 @@ if (!authSecret) {
   );
 }
 
-const resendApiKey = process.env.RESEND_API_KEY?.trim();
-const resendFromName =
-  process.env.RESEND_FROM_NAME?.trim() || "RowsnColumns AI";
-const resendFromEmail =
-  process.env.RESEND_FROM_EMAIL?.trim() ||
-  process.env.EMAIL_FROM?.trim() ||
-  "noreply@rowsncolumns.ai";
-const resendFrom = resendFromEmail.includes("<")
-  ? resendFromEmail
-  : `${resendFromName} <${resendFromEmail}>`;
-
-const escapeHtml = (value: string): string =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+const resendApiKey = getResendApiKey();
+const resendFrom = getResendFrom();
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
@@ -119,6 +110,36 @@ const authInstance = betterAuth({
   baseURL,
   secret: authSecret,
   database: authPool,
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          try {
+            await sendWelcomeEmailToUser({
+              email: user.email,
+              name: user.name,
+            });
+          } catch (error) {
+            console.error("Failed to send welcome email.", error);
+          }
+
+          try {
+            await sendAdminNewUserRegistrationEmail({
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              createdAt: user.createdAt,
+            });
+          } catch (error) {
+            console.error(
+              "Failed to send admin new-user notification email.",
+              error,
+            );
+          }
+        },
+      },
+    },
+  },
   plugins: [
     organization({
       sendInvitationEmail: async (data) => {

@@ -212,6 +212,23 @@ MICROSOFT_CLIENT_SECRET=
 MICROSOFT_TENANT_ID=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
+
+# Email delivery (Resend)
+RESEND_API_KEY=
+RESEND_FROM_NAME=RowsnColumns AI
+RESEND_FROM_EMAIL=noreply@rowsncolumns.ai
+
+# New user admin notifications
+# Optional override. Falls back to RNC_ADMIN_EMAILS when omitted.
+RNC_ADMIN_NOTIFICATION_EMAILS=
+
+# Weekly email check-ins (Inngest cron)
+# Keep disabled until you are ready to send.
+RNC_WEEKLY_EMAILS_ENABLED=false
+# Defaults to Monday 09:00 UTC when omitted.
+RNC_WEEKLY_EMAILS_CRON=TZ=UTC 0 9 * * 1
+# Optional safety cap for sends per run.
+RNC_WEEKLY_EMAILS_LIMIT=
 ```
 
 Generate/migrate Better Auth tables:
