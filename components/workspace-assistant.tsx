@@ -5209,10 +5209,11 @@ function AssistantComposer({
                   <CommandEmpty>No model found.</CommandEmpty>
                   {MODEL_OPTION_GROUPS.map((group) => (
                     <CommandGroup key={group.label} heading={group.label}>
-                      {group.options.map((option) => (
+                      {group.options.map((option) =>
                         (() => {
                           const isPremiumOption = isPremiumModel(option.value);
-                          const isLocked = isPremiumOption && !canUsePremiumModels;
+                          const isLocked =
+                            isPremiumOption && !canUsePremiumModels;
 
                           return (
                             <CommandItem
@@ -5221,7 +5222,9 @@ function AssistantComposer({
                               onSelect={() => handleSelectModel(option.value)}
                               disabled={isLocked}
                               className="text-xs"
-                              title={isLocked ? "Pro and Max users only" : undefined}
+                              title={
+                                isLocked ? "Pro and Max users only" : undefined
+                              }
                             >
                               <Check
                                 className={cn(
@@ -5241,8 +5244,8 @@ function AssistantComposer({
                               ) : null}
                             </CommandItem>
                           );
-                        })()
-                      ))}
+                        })(),
+                      )}
                     </CommandGroup>
                   ))}
                 </CommandList>

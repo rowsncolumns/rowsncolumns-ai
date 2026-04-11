@@ -7248,7 +7248,7 @@ EXAMPLE:
  * All available tools for the spreadsheet assistant
  */
 export const spreadsheetTools = [
-  spreadsheetCreateDocumentTool,
+  // spreadsheetCreateDocumentTool,
   spreadsheetChangeBatchTool,
   spreadsheetFormatRangeTool,
   spreadsheetModifyRowsColsTool,
