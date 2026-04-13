@@ -15,11 +15,13 @@ const ThemeColorSchema = z
       ),
     tint: z
       .number()
+      .min(0)
+      .max(1)
       .nullable()
       .optional()
       .describe(
-        "Tint adjustment (-1 to 1). Negative = darker, positive = lighter. " +
-          "E.g., -0.5 = 50% darker, 0.4 = 40% lighter. Omit for pure theme color.",
+        "Tint adjustment (0 to 1). 0 = darker, higher values = lighter. " +
+          "E.g., 0 = darker variant, 0.4 = 40% lighter. Omit for pure theme color.",
       ),
   })
   .describe(
