@@ -284,8 +284,7 @@ export default async function Home() {
                     AI operators for spreadsheet-heavy teams
                   </Badge>
                   <h1 className="display-font mx-auto text-2xl leading-tight font-semibold text-balance text-[var(--foreground)] sm:text-4xl md:text-5xl">
-                    The fastest way to turn spreadsheet chaos into finished
-                    work.
+                    AI agents for Excel workbooks.
                   </h1>
                   <p className="mx-auto mt-4 text-base leading-7 text-[var(--foreground)] opacity-75 sm:mt-6 sm:text-lg sm:leading-8 ">
                     RowsnColumns AI plans, edits, verifies, and documents
