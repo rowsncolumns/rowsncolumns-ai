@@ -832,10 +832,20 @@ const createGraph = async () => {
           systemInstructions,
         });
 
-        const response = await model.invoke([
-          new SystemMessage(finalSystemPrompt),
-          ...messagesToSend,
-        ]);
+        // Enable Anthropic ephemeral prompt caching. The cache_control call
+        // option applies a breakpoint to the last content block of the last
+        // message, caching the entire prefix (tools → system → history) so
+        // subsequent turns read it from cache instead of reprocessing it.
+        // Only valid for Anthropic; OpenAI ignores it.
+        const invokeOptions =
+          provider === "anthropic"
+            ? { cache_control: { type: "ephemeral" as const } }
+            : undefined;
+
+        const response = await model.invoke(
+          [new SystemMessage(finalSystemPrompt), ...messagesToSend],
+          invokeOptions,
+        );
 
         return {
           messages: [response],
